@@ -15,6 +15,7 @@ import '../../auth/providers/auth_provider.dart';
 import '../../../core/services/welcome_service.dart';
 import '../../../core/services/permission_prompt_service.dart';
 import '../providers/home_provider.dart';
+// 🔥 REMOVED: creator_presence_provider.dart - replaced by Socket.IO availability
 import '../widgets/home_user_grid_card.dart';
 import '../../creator/providers/creator_task_provider.dart';
 import '../../creator/models/creator_task_model.dart';
@@ -31,24 +32,43 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _welcomeDialogShown = false;
+  bool _initialized = false;
 
   @override
   void initState() {
     super.initState();
-    // Check and show welcome dialog if needed
-    _checkAndShowWelcomeDialog();
-    // Check and request video permissions for users
-    _checkAndRequestVideoPermissions();
-    // Set up Stream event listener for creator status changes (replaces polling)
-    // This is done by watching the provider, which sets up the listener
-    ref.read(creatorStatusEventListenerProvider);
+    // ✅ DO NOT use ref.read() or ref.watch() in initState()
+    // ✅ DO NOT call async methods that use context here
+    // Logic moved to didChangeDependencies() where ProviderScope is available
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    
+    // ✅ SAFE: ProviderScope is now available
+    // ✅ Run initialization logic only once
+    if (_initialized) return;
+    _initialized = true;
+    
+    // 🔥 REMOVED: Stream presence listener
+    // Availability is now handled by Socket.IO via creatorStatusProvider
+    // Individual cards watch their own availability status
+    
+    // Schedule async operations after first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      
+      _checkAndShowWelcomeDialog();
+      _checkAndRequestVideoPermissions();
+    });
   }
 
   Future<void> _checkAndShowWelcomeDialog() async {
     // Wait for the first frame to ensure context is available
     await Future.delayed(const Duration(milliseconds: 500));
     
-    if (!context.mounted) return;
+    if (!mounted) return; // ✅ Guard: Check mounted before any context/ref usage
     
     // Check if user is authenticated
     final authState = ref.read(authProvider);
@@ -58,13 +78,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     
     // Check if user has seen the welcome dialog
     final hasSeen = await WelcomeService.hasSeenWelcome();
-    if (!hasSeen && !_welcomeDialogShown && context.mounted) {
+    
+    if (!mounted) return; // ✅ Guard: Check mounted after async operation
+    
+    if (!hasSeen && !_welcomeDialogShown) {
       _welcomeDialogShown = true;
       _showWelcomeDialog();
     }
   }
 
   void _showWelcomeDialog() {
+    if (!mounted) return; // ✅ Guard: Never show dialog if widget is disposed
+    
     showDialog(
       context: context,
       barrierDismissible: false, // User must click "I agree"
@@ -72,7 +97,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         onAgree: () async {
           // Mark as seen
           await WelcomeService.markWelcomeAsSeen();
-          if (context.mounted) {
+          if (mounted && context.mounted) { // ✅ Guard: Check both mounted and context.mounted
             Navigator.of(context).pop();
           }
         },
@@ -89,7 +114,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // Wait for auth state to be available
     await Future.delayed(const Duration(milliseconds: 500));
     
-    if (!mounted) return;
+    if (!mounted) return; // ✅ Guard: Check mounted before any context/ref usage
     
     final authState = ref.read(authProvider);
     final user = authState.user;
@@ -101,6 +126,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     
     // Check if permissions are already granted
     final hasPermissions = await PermissionService.hasCameraAndMicrophonePermissions();
+    
+    if (!mounted) return; // ✅ Guard: Check mounted after async operation
+    
     if (hasPermissions) {
       debugPrint('✅ [HOME] Camera and microphone permissions already granted');
       return;
@@ -109,6 +137,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // 🔥 CRITICAL: Check persistent flag (not session flag)
     // This prevents showing dialog on every rebuild/hot reload/navigation
     final hasShownPrompt = await PermissionPromptService.hasShownPermissionPrompt();
+    
+    if (!mounted) return; // ✅ Guard: Check mounted after async operation
+    
     if (hasShownPrompt) {
       debugPrint('⏭️  [HOME] Permission prompt already shown (persisted)');
       return;
@@ -117,15 +148,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // Wait a bit more for UI to stabilize
     await Future.delayed(const Duration(milliseconds: 1000));
     
-    if (!mounted) return;
+    if (!mounted) return; // ✅ Guard: Check mounted after async delay
     
     // Mark as shown BEFORE showing dialog (prevents race conditions)
     await PermissionPromptService.markPermissionPromptAsShown();
+    
+    if (!mounted) return; // ✅ Guard: Check mounted before showing dialog
     _showVideoPermissionDialog();
   }
 
   /// Show dialog requesting video permissions
   void _showVideoPermissionDialog() {
+    if (!mounted) return; // ✅ Guard: Never show dialog if widget is disposed
+    
     final scheme = Theme.of(context).colorScheme;
     
     showDialog(
@@ -148,46 +183,59 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         actions: [
           TextButton(
             onPressed: () {
-              Navigator.of(context).pop();
+              if (mounted && context.mounted) { // ✅ Guard: Check both mounted and context.mounted
+                Navigator.of(context).pop();
+              }
             },
             child: const Text('Not Now'),
           ),
           ElevatedButton(
             onPressed: () async {
-              Navigator.of(context).pop();
+              if (mounted && context.mounted) { // ✅ Guard: Check before navigation
+                Navigator.of(context).pop();
+              }
               
               try {
                 final granted = await PermissionService.ensureCameraAndMicrophonePermissions();
-                if (granted && mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: const Text('Permissions granted! You can now make video calls.'),
-                      backgroundColor: scheme.primaryContainer,
-                      duration: const Duration(seconds: 2),
-                    ),
-                  );
-                } else if (mounted) {
-                  // Permissions denied - show message about settings
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: const Text(
-                        'Permissions are required for video calls. Please enable them in app settings.',
+                
+                if (!mounted) return; // ✅ Guard: Check mounted after async operation
+                
+                if (granted) {
+                  if (mounted && context.mounted) { // ✅ Guard: Check before showing snackbar
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: const Text('Permissions granted! You can now make video calls.'),
+                        backgroundColor: scheme.primaryContainer,
+                        duration: const Duration(seconds: 2),
                       ),
-                      backgroundColor: scheme.errorContainer,
-                      duration: const Duration(seconds: 4),
-                      action: SnackBarAction(
-                        label: 'Settings',
-                        textColor: scheme.onErrorContainer,
-                        onPressed: () async {
-                          // Open app settings so user can enable permissions manually
-                          await PermissionService.openAppSettings();
-                        },
+                    );
+                  }
+                } else {
+                  if (mounted && context.mounted) { // ✅ Guard: Check before showing snackbar
+                    // Permissions denied - show message about settings
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: const Text(
+                          'Permissions are required for video calls. Please enable them in app settings.',
+                        ),
+                        backgroundColor: scheme.errorContainer,
+                        duration: const Duration(seconds: 4),
+                        action: SnackBarAction(
+                          label: 'Settings',
+                          textColor: scheme.onErrorContainer,
+                          onPressed: () async {
+                            // Open app settings so user can enable permissions manually
+                            await PermissionService.openAppSettings();
+                          },
+                        ),
                       ),
-                    ),
-                  );
+                    );
+                  }
                 }
               } catch (e) {
-                if (mounted) {
+                if (!mounted) return; // ✅ Guard: Check mounted after error
+                
+                if (mounted && context.mounted) { // ✅ Guard: Check before showing snackbar
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Error: ${e.toString()}'),
@@ -207,12 +255,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final homeFeedAsync = ref.watch(homeFeedProvider);
+    final homeFeedItems = ref.watch(homeFeedProvider); // Now a Provider, not FutureProvider
     final authState = ref.watch(authProvider);
     final user = authState.user;
     final isCreator = user?.role == 'creator' || user?.role == 'admin';
     final isRegularUser = user?.role == 'user';
     final scheme = Theme.of(context).colorScheme;
+
+    // 🔥 REMOVED: Stream presence listener
+    // Availability is now handled by Socket.IO via creatorStatusProvider
 
     return MainLayout(
         selectedIndex: 0,
@@ -220,127 +271,157 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           padded: true,
           child: isCreator
             ? _CreatorTasksView()
-            : homeFeedAsync.when(
-          data: (items) {
-          if (items.isEmpty) {
-            return EmptyState(
+            : _buildHomeFeedContent(homeFeedItems, isRegularUser, scheme, authState, isCreator),
+      ),
+    );
+  }
+
+  Widget _buildHomeFeedContent(List<dynamic> items, bool isRegularUser, ColorScheme scheme, AuthState authState, bool isCreator) {
+    // Show loading state while creators are being fetched
+    final creatorsAsync = ref.watch(creatorsProvider);
+    final isLoading = creatorsAsync.isLoading;
+    
+    if (isLoading) {
+      return GridView.builder(
+        padding: const EdgeInsets.only(top: AppSpacing.lg),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          crossAxisSpacing: AppSpacing.md,
+          mainAxisSpacing: AppSpacing.md,
+          childAspectRatio: 0.78,
+        ),
+        itemCount: 6,
+        itemBuilder: (context, index) => const SkeletonCard(),
+      );
+    }
+    
+    // Show empty state if no items
+    if (items.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: () async {
+          ref.invalidate(creatorsProvider);
+          ref.invalidate(homeFeedProvider);
+          await Future.delayed(const Duration(milliseconds: 500));
+        },
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: SizedBox(
+            height: MediaQuery.of(context).size.height - 200,
+            child: EmptyState(
               icon: isCreator ? Icons.people_outline : Icons.person_outline,
               title: isCreator ? 'No users available' : 'No online creators available',
               message: isCreator ? 'Users will appear here when they join' : 'Creators will appear here when they go online',
-            );
+            ),
+          ),
+        ),
+      );
+    }
+    // Users-only: separate favorites from the rest (favorites are pinned at top)
+    final List<CreatorModel> favoriteCreators = [];
+    final List<CreatorModel> otherCreators = [];
+    if (isRegularUser) {
+      for (final item in items) {
+        if (item is CreatorModel) {
+          if (item.isFavorite) {
+            favoriteCreators.add(item);
+          } else {
+            otherCreators.add(item);
           }
+        }
+      }
+    }
 
-          // Users-only: separate favorites from the rest (favorites are pinned at top)
-          final List<CreatorModel> favoriteCreators = [];
-          final List<CreatorModel> otherCreators = [];
-          if (isRegularUser) {
-            for (final item in items) {
-              if (item is CreatorModel) {
-                if (item.isFavorite) {
-                  favoriteCreators.add(item);
-                } else {
-                  otherCreators.add(item);
-                }
-              }
-            }
-          }
-
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: AppSpacing.md),
-              Row(
-                children: [
-                  Text(
-                    AppConstants.appName,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          color: scheme.onSurface,
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  _OnlinePill(),
-                  const Spacer(),
-                  _CoinsPill(coins: authState.user?.coins ?? 0, isLoading: authState.isLoading),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              Text(
-                isCreator ? 'Users (${items.length})' : 'Creators (${items.length})',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: scheme.onSurfaceVariant,
+    return RefreshIndicator(
+      onRefresh: () async {
+        // Manual refresh - invalidate providers to force refetch
+        debugPrint('🔄 [HOME] Manual refresh triggered');
+        ref.invalidate(creatorsProvider);
+        ref.invalidate(homeFeedProvider);
+        // Wait a bit for the refresh to complete
+        await Future.delayed(const Duration(milliseconds: 500));
+      },
+      child: CustomScrollView(
+        slivers: [
+          SliverToBoxAdapter(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: AppSpacing.md),
+                Row(
+                  children: [
+                    Text(
+                      AppConstants.appName,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: scheme.onSurface,
+                            fontWeight: FontWeight.w800,
+                          ),
                     ),
-              ),
-              const SizedBox(height: AppSpacing.md),
-              if (isRegularUser && favoriteCreators.isNotEmpty) ...[
+                    const SizedBox(width: AppSpacing.md),
+                    _OnlinePill(),
+                    const Spacer(),
+                    _CoinsPill(coins: authState.user?.coins ?? 0, isLoading: authState.isLoading),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.lg),
                 Text(
-                  'Favourites (${favoriteCreators.length})',
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  isRegularUser ? 'Creators (${items.length})' : 'Users (${items.length})',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
                         color: scheme.onSurfaceVariant,
                       ),
                 ),
-                const SizedBox(height: AppSpacing.sm),
-                SizedBox(
-                  height: 210,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: favoriteCreators.length,
-                    separatorBuilder: (context, index) => const SizedBox(width: AppSpacing.md),
-                    itemBuilder: (context, index) => SizedBox(
-                      width: 170,
-                      child: HomeUserGridCard(creator: favoriteCreators[index]),
+                const SizedBox(height: AppSpacing.md),
+                if (isRegularUser && favoriteCreators.isNotEmpty) ...[
+                  Text(
+                    'Favourites (${favoriteCreators.length})',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  SizedBox(
+                    height: 210,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: favoriteCreators.length,
+                      separatorBuilder: (context, index) => const SizedBox(width: AppSpacing.md),
+                      itemBuilder: (context, index) => SizedBox(
+                        width: 170,
+                        child: HomeUserGridCard(creator: favoriteCreators[index]),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: AppSpacing.lg),
+                  const SizedBox(height: AppSpacing.lg),
+                ],
               ],
-              Expanded(
-                child: GridView.builder(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.xl),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: AppSpacing.md,
-                    mainAxisSpacing: AppSpacing.md,
-                    childAspectRatio: 0.78,
-                  ),
-                  itemCount: isRegularUser ? otherCreators.length : items.length,
-                  itemBuilder: (context, index) {
-                    final item = isRegularUser ? otherCreators[index] : items[index];
-                    if (item is CreatorModel) {
-                      return HomeUserGridCard(creator: item);
-                    }
-                    if (item is UserProfileModel) {
-                      return HomeUserGridCard(user: item);
-                    }
-                    return const SizedBox.shrink();
-                  },
-                ),
-              ),
-            ],
-          );
-        },
-        loading: () => GridView.builder(
-          padding: const EdgeInsets.only(top: AppSpacing.lg),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: AppSpacing.md,
-            mainAxisSpacing: AppSpacing.md,
-            childAspectRatio: 0.78,
+            ),
           ),
-          itemCount: 6,
-          itemBuilder: (context, index) => const SkeletonCard(),
-        ),
-        error: (error, stack) => ErrorState(
-          title: 'Failed to load profiles',
-          message: 'Please try again',
-          actionLabel: 'Retry',
-          onAction: () {
-            ref.invalidate(homeFeedProvider);
-          },
-        ),
-        ),
+          SliverPadding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.xl),
+            sliver: SliverGrid(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: AppSpacing.md,
+                mainAxisSpacing: AppSpacing.md,
+                childAspectRatio: 0.78,
+              ),
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final item = isRegularUser ? otherCreators[index] : items[index];
+                  if (item is CreatorModel) {
+                    return HomeUserGridCard(creator: item);
+                  }
+                  if (item is UserProfileModel) {
+                    return HomeUserGridCard(user: item);
+                  }
+                  return const SizedBox.shrink();
+                },
+                childCount: isRegularUser ? otherCreators.length : items.length,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

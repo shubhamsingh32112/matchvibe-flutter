@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../features/auth/providers/auth_provider.dart';
 import '../../features/creator/providers/creator_status_provider.dart';
 import '../../features/video/providers/stream_video_provider.dart';
 import '../../features/home/providers/home_provider.dart';
+import '../../features/video/services/call_navigation_service.dart';
 
 /// Widget that wraps the app and handles lifecycle events
 /// - Shows popup for creators when app opens
@@ -45,15 +47,22 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper> with 
     final user = authState.user;
 
     if (state == AppLifecycleState.resumed) {
-      // 🔥 CRITICAL: DO NOT navigate from lifecycle - causes race conditions
-      // Only log/refresh data - navigation is handled by CallNavigationService
+      // FIX 4: Re-check active call on resume (permission dialogs can pause app)
+      // If call state advanced while app was paused, navigate to call screen
       final streamVideo = ref.read(streamVideoProvider);
-      final hasActiveCall = streamVideo?.state.activeCall.hasValue ?? false;
+      final activeCall = streamVideo?.state.activeCall.valueOrNull;
       
-      if (hasActiveCall) {
-        final activeCall = streamVideo!.state.activeCall.value!;
+      if (activeCall != null) {
         debugPrint('📱 [APP LIFECYCLE] App resumed with active call: ${activeCall.id}');
-        debugPrint('   Call screen should already be visible - not navigating');
+        
+        // Check if we're already on call screen
+        if (!CallNavigationService.isOnCallScreen) {
+          debugPrint('   📱 [APP LIFECYCLE] Active call exists but not on call screen - navigating');
+          // Navigate to call screen (call was accepted while app was paused)
+          CallNavigationService.navigateToCall(activeCall);
+        } else {
+          debugPrint('   📱 [APP LIFECYCLE] Already on call screen - no navigation needed');
+        }
       }
 
       // Refresh home feed when app resumes (so users see newly online creators)

@@ -4,6 +4,7 @@ import '../../features/auth/providers/auth_provider.dart';
 import '../../features/chat/providers/stream_chat_provider.dart';
 import '../../features/chat/services/chat_service.dart';
 import '../../features/video/providers/stream_video_provider.dart';
+import '../../core/services/availability_socket_service.dart';
 
 /// Wraps app with StreamChat widget and handles user connection
 class StreamChatWrapper extends ConsumerStatefulWidget {
@@ -20,6 +21,7 @@ class StreamChatWrapper extends ConsumerStatefulWidget {
 
 class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
   bool _isConnecting = false;
+  bool _socketInitialized = false; // ⚠️ Guard: prevent re-init on every rebuild
 
   Future<void> _connectToStreamChat(AuthState authState) async {
     // Extract variables at method level so they're accessible to both try-catch blocks
@@ -50,6 +52,10 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
             username: displayName,
             avatarUrl: user.avatar,
             streamToken: streamToken,
+            appRole: user.role, // Pass app role to Stream
+            available: user.role == 'creator' || user.role == 'admin' 
+                ? false // Creators start as unavailable (must toggle on)
+                : null, // Regular users don't have available flag
           );
 
       debugPrint('✅ [STREAM WRAPPER] Stream Chat connected');
@@ -73,12 +79,47 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
       debugPrint('❌ [STREAM WRAPPER] Failed to initialize Stream Video: $e');
       // Don't block app if Stream Video fails
     }
+
+    // 🔥 Initialize Socket.IO Availability Service happens in build()
+    // after we get the Firebase ID token
   }
 
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
     final streamClient = ref.watch(streamChatNotifierProvider);
+
+    // 🔥 FIX 1 & 3: Initialize Socket.IO when authenticated (with auth token for authentication)
+    // ⚠️ Guard: only init once – do NOT re-init on every widget rebuild,
+    // because that would re-seed and could fire getIdToken() on every frame.
+    if (!_socketInitialized && authState.isAuthenticated && authState.firebaseUser != null && authState.user != null) {
+      _socketInitialized = true;
+      final isCreator = authState.user!.role == 'creator' || authState.user!.role == 'admin';
+      
+      // Get Firebase ID token for socket authentication
+      // This runs asynchronously but socket service handles pending auth gracefully
+      authState.firebaseUser!.getIdToken().then((token) {
+        if (mounted) {
+          AvailabilitySocketService.instance.init(
+            context,
+            authToken: token, // 🔥 FIX 1: Pass auth token for socket authentication
+            creatorId: isCreator ? authState.firebaseUser!.uid : null,
+            isCreator: isCreator, // 🔥 FIX 3: Pass isCreator flag for reconnect logic
+          );
+        }
+      }).catchError((e) {
+        debugPrint('⚠️ [STREAM WRAPPER] Failed to get Firebase token for socket: $e');
+        // Initialize without token - socket will connect as unauthenticated
+        if (mounted) {
+          AvailabilitySocketService.instance.init(
+            context,
+            authToken: null,
+            creatorId: null,
+            isCreator: false,
+          );
+        }
+      });
+    }
 
     // React to auth state changes (using ref.listen in build - this is the correct place)
     ref.listen<AuthState>(authProvider, (prev, next) {
@@ -96,7 +137,7 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
         }
       }
 
-      // If user logged out, disconnect Stream Chat and Stream Video
+      // If user logged out, disconnect Stream Chat, Stream Video, and Availability Socket
       if (!next.isAuthenticated) {
         final currentClient = ref.read(streamChatNotifierProvider);
         if (currentClient?.state.currentUser != null) {
@@ -108,6 +149,10 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
         if (videoClient != null) {
           ref.read(streamVideoProvider.notifier).disconnect();
         }
+        
+        // 🔥 Disconnect Availability Socket
+        AvailabilitySocketService.instance.dispose();
+        _socketInitialized = false; // ⚠️ Reset so next login can re-init
       }
     });
 

@@ -47,6 +47,12 @@ dependencies:
   package_info_plus: ^8.0.0
   permission_handler: ^12.0.1
   
+  # Socket.IO Client (for real-time availability)
+  socket_io_client: ^2.0.3+1
+  
+  # Phone Input
+  intl_phone_field: ^3.2.0
+  
   # Stream Chat
   stream_chat_flutter: ^9.0.0
   

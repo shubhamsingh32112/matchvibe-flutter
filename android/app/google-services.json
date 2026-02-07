@@ -1,95 +1,26 @@
 {
   "project_info": {
-    "project_number": "684129603620",
-    "project_id": "vidcall-f853e",
-    "storage_bucket": "vidcall-f853e.firebasestorage.app"
+    "project_number": "911372372113",
+    "project_id": "matchvibe-d55f9",
+    "storage_bucket": "matchvibe-d55f9.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:684129603620:android:3b4873b6d363badf0248b1",
+        "mobilesdk_app_id": "1:911372372113:android:6ce266d982bb6b174d1730",
         "android_client_info": {
-          "package_name": "com.example.vidcall"
+          "package_name": "com.example.zztherapy.dev"
         }
       },
-      "oauth_client": [
-        {
-          "client_id": "684129603620-e1n54li1qmgqt71kd35aua18tnuts09l.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.example.vidcall",
-            "certificate_hash": "436b7c41b4eec3b9bb3ef626acc150a7dae299ff"
-          }
-        },
-        {
-          "client_id": "684129603620-pau09ht26ucm5b8kmgkn7dtrsjq60t4o.apps.googleusercontent.com",
-          "client_type": 3
-        }
-      ],
+      "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyBkGuPwXEVEgUJn78VcGIK0HotU9c6Nkt4"
+          "current_key": "AIzaSyAF3AmluBl-_AqnMfTPCuSI4uOiWkQ-hfQ"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": [
-            {
-              "client_id": "684129603620-pau09ht26ucm5b8kmgkn7dtrsjq60t4o.apps.googleusercontent.com",
-              "client_type": 3
-            },
-            {
-              "client_id": "684129603620-56mocsicjt9701vlcl7ps0gcsr7iaqc9.apps.googleusercontent.com",
-              "client_type": 2,
-              "ios_info": {
-                "bundle_id": "com.example.zztherapy"
-              }
-            }
-          ]
-        }
-      }
-    },
-    {
-      "client_info": {
-        "mobilesdk_app_id": "1:684129603620:android:8cc8c3662e4931e10248b1",
-        "android_client_info": {
-          "package_name": "com.example.zztherapy"
-        }
-      },
-      "oauth_client": [
-        {
-          "client_id": "684129603620-u9rnh00ih1s145frilrq1qejo5kr7t8t.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.example.zztherapy",
-            "certificate_hash": "3f68b23e7e49d40a455daf74ae955a0e50f2c934"
-          }
-        },
-        {
-          "client_id": "684129603620-pau09ht26ucm5b8kmgkn7dtrsjq60t4o.apps.googleusercontent.com",
-          "client_type": 3
-        }
-      ],
-      "api_key": [
-        {
-          "current_key": "AIzaSyBkGuPwXEVEgUJn78VcGIK0HotU9c6Nkt4"
-        }
-      ],
-      "services": {
-        "appinvite_service": {
-          "other_platform_oauth_client": [
-            {
-              "client_id": "684129603620-pau09ht26ucm5b8kmgkn7dtrsjq60t4o.apps.googleusercontent.com",
-              "client_type": 3
-            },
-            {
-              "client_id": "684129603620-56mocsicjt9701vlcl7ps0gcsr7iaqc9.apps.googleusercontent.com",
-              "client_type": 2,
-              "ios_info": {
-                "bundle_id": "com.example.zztherapy"
-              }
-            }
-          ]
+          "other_platform_oauth_client": []
         }
       }
     }

@@ -9,7 +9,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.zztherapy"
+    namespace = "com.example.zztherapy.dev"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -22,9 +22,19 @@ android {
         jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
+    // DEV signing config - uses separate keystore with unique SHA-1
+    signingConfigs {
+        create("devDebug") {
+            storeFile = file("../dev-debug.keystore")
+            storePassword = "android"
+            keyAlias = "devkey"
+            keyPassword = "android"
+        }
+    }
+
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.zztherapy"
+        // DEV applicationId - use com.example.zztherapy for PROD
+        applicationId = "com.example.zztherapy.dev"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -34,6 +44,9 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("devDebug")
+        }
         release {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.

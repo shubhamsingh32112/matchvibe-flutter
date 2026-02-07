@@ -1,23 +1,22 @@
-import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:stream_chat_flutter/stream_chat_flutter.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/services/availability_socket_service.dart';
 import '../../../shared/models/creator_model.dart';
 import '../../../shared/models/profile_model.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../admin/providers/admin_view_provider.dart';
-import '../../chat/providers/stream_chat_provider.dart';
+
+// 🔥 REMOVED: All Stream Chat presence imports
+// Availability is now handled by Socket.IO via creatorStatusProvider
 
 // Provider to fetch creators (for users)
+// 🔥 FIX: Seeds creatorAvailabilityProvider with initial availability from API
 final creatorsProvider = FutureProvider<List<CreatorModel>>((ref) async {
   try {
     debugPrint('🔄 [HOME] Fetching creators from API...');
     final apiClient = ApiClient();
     final response = await apiClient.get('/creator');
-    
-    debugPrint('📥 [HOME] API Response status: ${response.statusCode}');
-    debugPrint('📥 [HOME] API Response data: ${response.data}');
     
     if (response.statusCode == 200) {
       final responseData = response.data;
@@ -31,17 +30,30 @@ final creatorsProvider = FutureProvider<List<CreatorModel>>((ref) async {
           return [];
         }
         
-        debugPrint('✅ [HOME] Found ${creatorsData.length} creator(s) in response');
-        
         final creators = creatorsData
             .map((json) => CreatorModel.fromJson(json as Map<String, dynamic>))
             .toList();
         
-        debugPrint('✅ [HOME] Parsed ${creators.length} creator model(s)');
-        if (creators.isNotEmpty) {
-          debugPrint('   Creator names: ${creators.map((c) => c.name).join(", ")}');
-          debugPrint('   Creator online statuses: ${creators.map((c) => "${c.name}: ${c.isOnline}").join(", ")}');
+        debugPrint('✅ [HOME] Parsed ${creators.length} creator(s) from API');
+        
+        // 🔥 FIX: Seed creatorAvailabilityProvider with initial availability
+        // from the API response (backed by Redis on the server).
+        // This ensures cards render with correct status on FIRST load,
+        // before any socket events arrive.
+        //
+        // ⚠️  Uses seedFromApi() which runs ONCE only.
+        // After the first seed, socket events are authoritative.
+        // Re-invalidating creatorsProvider (pull-to-refresh, etc.)
+        // will NOT overwrite newer socket data.
+        final apiAvailability = <String, CreatorAvailability>{};
+        for (final creator in creators) {
+          if (creator.firebaseUid != null) {
+            apiAvailability[creator.firebaseUid!] = creator.availability == 'online'
+                ? CreatorAvailability.online
+                : CreatorAvailability.busy;
+          }
         }
+        ref.read(creatorAvailabilityProvider.notifier).seedFromApi(apiAvailability);
         
         return creators;
       } else {
@@ -80,8 +92,20 @@ final usersProvider = FutureProvider<List<UserProfileModel>>((ref) async {
   }
 });
 
-// Provider that returns the appropriate list based on user role
-final homeFeedProvider = FutureProvider<List<dynamic>>((ref) async {
+/// 🔥 BACKEND-AUTHORITATIVE Provider that returns ALL creators/users based on user role
+/// 
+/// CRITICAL ARCHITECTURE RULE:
+/// - /creator API = SOURCE OF TRUTH (who exists)
+/// - Socket.IO = REAL-TIME AVAILABILITY (status badges)
+/// - Availability should NEVER decide existence
+/// 
+/// 👉 NEVER hide creators based on availability
+/// 👉 Availability only affects the TAG (Online/Busy), not visibility
+/// 👉 Busy should disable call button, not hide the creator
+/// 
+/// 🔥 NO STREAM CHAT PRESENCE: All presence logic removed.
+/// Status is pushed from backend via Socket.IO and consumed by creatorStatusProvider.
+final homeFeedProvider = Provider<List<dynamic>>((ref) {
   final authState = ref.watch(authProvider);
   final user = authState.user;
   
@@ -89,133 +113,56 @@ final homeFeedProvider = FutureProvider<List<dynamic>>((ref) async {
     return [];
   }
   
+  // 🔥 NO PRESENCE WATCHING HERE
+  // Availability is handled by Socket.IO → creatorAvailabilityProvider
+  // Individual cards watch creatorStatusProvider(creatorId) for real-time updates
+  
   // If user is an admin, check their view mode preference
   if (user.role == 'admin') {
     final adminViewMode = ref.watch(adminViewModeProvider);
+    final creatorsAsync = ref.watch(creatorsProvider);
     
     // Default to user view if not set
     if (adminViewMode == null || adminViewMode == AdminViewMode.user) {
-      // Admin viewing as user: show creators
-      final creators = await ref.watch(creatorsProvider.future);
-      return creators;
+      // Admin viewing as user: show ALL creators
+      return creatorsAsync.when(
+        data: (creators) => creators,
+        loading: () => [],
+        error: (_, __) => [],
+      );
     } else {
       // Admin viewing as creator: show users
-      final users = await ref.watch(usersProvider.future);
-      return users;
+      final usersAsync = ref.watch(usersProvider);
+      return usersAsync.when(
+        data: (users) => users,
+        loading: () => [],
+        error: (_, __) => [],
+      );
     }
   }
   
   // If user is a creator, show users
   if (user.role == 'creator') {
-    final users = await ref.watch(usersProvider.future);
-    return users;
+    final usersAsync = ref.watch(usersProvider);
+    return usersAsync.when(
+      data: (users) => users,
+      loading: () => [],
+      error: (_, __) => [],
+    );
   }
   
-  // If user is a regular user, show creators
-  // Backend filters by isOnline: true, so only online creators are returned
-  final creators = await ref.watch(creatorsProvider.future);
-  return creators;
-});
-
-/// Provider that sets up Stream event listener for creator status changes
-/// This replaces polling with realtime events
-/// IMPORTANT: Only sets up for users (not creators) and only after WebSocket connection
-/// 
-/// CRITICAL: Must wait for WebSocket connection before calling channel.watch()
-/// Otherwise Stream returns 400 "Watch or ChatPresence requires an active websocket connection"
-final creatorStatusEventListenerProvider = Provider<StreamSubscription?>((ref) {
-  final streamClient = ref.watch(streamChatNotifierProvider);
-  final authState = ref.watch(authProvider);
+  // If user is a regular user, show ALL creators (no filtering!)
+  final creatorsAsync = ref.watch(creatorsProvider);
   
-  // Only set up listener for authenticated users
-  if (streamClient == null || authState.user == null) {
-    return null;
-  }
-  
-  // Only regular users need to listen for creator status changes
-  // (Creators don't need to see other creators' status - they can't even access /creator endpoint)
-  if (authState.user!.role != 'user') {
-    return null;
-  }
-  
-  // CRITICAL: Check if Stream Chat WebSocket is connected
-  // channel.watch() requires an active WebSocket connection with connection_id
-  // connectUser() must complete and websocket must be established
-  final currentUser = streamClient.state.currentUser;
-  if (currentUser == null) {
-    debugPrint('⏳ [HOME] Stream Chat user not connected yet, skipping event listener setup');
-    return null;
-  }
-  
-  // Check WebSocket connection status - this is the REAL check
-  // wsConnectionStatus must be connected before we can watch channels
-  final wsStatus = streamClient.wsConnectionStatus;
-  
-  debugPrint(
-    '🔍 [HOME] WS status: $wsStatus, user: ${currentUser.id}',
+  return creatorsAsync.when(
+    data: (creators) {
+      // 🔥 RETURN ALL CREATORS - NO FILTERING
+      // Availability is handled by the status badge in the card via creatorStatusProvider
+      debugPrint('✅ [HOME] Returning ALL ${creators.length} creator(s)');
+      debugPrint('   Creators: ${creators.map((c) => c.name).join(", ")}');
+      return creators;
+    },
+    loading: () => [],
+    error: (_, __) => [],
   );
-  
-  // Only proceed if WebSocket is connected
-  // This is the critical check - channel.watch() will fail with 400 if not connected
-  if (wsStatus != ConnectionStatus.connected) {
-    debugPrint('⏳ [HOME] WebSocket not connected yet (status: $wsStatus), skipping channel watch');
-    return null;
-  }
-  
-  debugPrint('📡 [HOME] Setting up creator status event listener (WebSocket connected)');
-  
-  // Set up listener for creator status channel
-  // Channel ID: 'creator-status' (system channel)
-  final channel = streamClient.channel('messaging', id: 'creator-status');
-  
-  // Watch channel to receive events (only after WebSocket is connected)
-  // Wrap in try-catch to prevent provider crash - presence is non-critical UI feature
-  StreamSubscription? subscription;
-  
-  // Set up event listener first (before watching)
-  // This ensures we catch events even if watch() is still in progress
-  subscription = channel.on().listen((event) {
-    // Check if this is our custom event using event.type (first-class property)
-    if (event.type == 'creator_status_changed') {
-      // Custom event payload is in event.extraData (typed Map<String, Object?>)
-      final creatorId = event.extraData['creator_id'] as String?;
-      final isOnline = event.extraData['isOnline'] as bool?;
-      
-      if (creatorId != null && isOnline != null) {
-        debugPrint('📡 [HOME] Creator status changed: $creatorId -> $isOnline');
-        // Invalidate providers to refresh the list
-        // This only runs for users, so creatorsProvider will work correctly
-        ref.invalidate(creatorsProvider);
-        ref.invalidate(homeFeedProvider);
-      }
-    }
-  });
-  
-  // Watch channel - this will fail if WebSocket isn't ready
-  // Wrap in try-catch to prevent provider crash - presence is non-critical
-  try {
-    channel.watch().then((_) {
-      debugPrint('✅ [HOME] Creator status channel watched');
-    }).catchError((error, stackTrace) {
-      // Non-critical error - don't crash the provider
-      // The event listener is already set up, so it will work once connection is established
-      debugPrint('⚠️  [HOME] Failed to watch creator status channel: $error');
-      debugPrint('   Stack: $stackTrace');
-      debugPrint('   Note: Event listener is still active and will work once connection is ready');
-      // Provider continues to exist, will retry watch on next rebuild if connection improves
-    });
-  } catch (e, st) {
-    // Catch any synchronous errors
-    debugPrint('⚠️  [HOME] Error setting up creator status watch: $e');
-    debugPrint('   Stack: $st');
-    // Event listener is still set up, so it will work once connection is ready
-  }
-  
-  // Clean up subscription when provider is disposed
-  ref.onDispose(() {
-    debugPrint('🛑 [HOME] Disposing creator status event listener');
-    subscription?.cancel();
-  });
-  
-  return subscription;
 });

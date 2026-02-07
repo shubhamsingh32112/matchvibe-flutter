@@ -1,3 +1,16 @@
+powershell -ExecutionPolicy Bypass -File .\setup-adb-tunnels.ps1
+
+
+
+
+
+
+
+
+
+
+
+
 # Firebase Setup Instructions
 
 ## The Error You're Seeing

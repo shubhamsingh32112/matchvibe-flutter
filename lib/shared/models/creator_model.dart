@@ -11,6 +11,10 @@ class CreatorModel extends Equatable {
   final double price;
   final bool isOnline;
   final bool isFavorite; // User-only: whether current user favorited this creator
+  /// Real-time availability from Redis (authoritative).
+  /// 'online' = available for calls, 'busy' = unavailable/offline/on-call.
+  /// Defaults to 'busy' if not provided (safe default).
+  final String availability;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -25,6 +29,7 @@ class CreatorModel extends Equatable {
     required this.price,
     this.isOnline = false,
     this.isFavorite = false,
+    this.availability = 'busy',
     this.createdAt,
     this.updatedAt,
   });
@@ -43,6 +48,7 @@ class CreatorModel extends Equatable {
       price: (json['price'] as num).toDouble(),
       isOnline: json['isOnline'] as bool? ?? false,
       isFavorite: json['isFavorite'] as bool? ?? false,
+      availability: json['availability'] as String? ?? 'busy',
       createdAt: json['createdAt'] != null
           ? DateTime.parse(json['createdAt'] as String)
           : null,
@@ -64,6 +70,7 @@ class CreatorModel extends Equatable {
       'price': price,
       'isOnline': isOnline,
       'isFavorite': isFavorite,
+      'availability': availability,
       'createdAt': createdAt?.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
     };
@@ -81,6 +88,7 @@ class CreatorModel extends Equatable {
         price,
         isOnline,
         isFavorite,
+        availability,
         createdAt,
         updatedAt,
       ];

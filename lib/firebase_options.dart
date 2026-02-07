@@ -50,21 +50,19 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyBkGuPwXEVEgUJn78VcGIK0HotU9c6Nkt4',
-    appId: '1:684129603620:android:8cc8c3662e4931e10248b1',
-    messagingSenderId: '684129603620',
-    projectId: 'vidcall-f853e',
-    storageBucket: 'vidcall-f853e.firebasestorage.app',
+    apiKey: 'AIzaSyAF3AmluBl-_AqnMfTPCuSI4uOiWkQ-hfQ',
+    appId: '1:911372372113:android:6ce266d982bb6b174d1730',
+    messagingSenderId: '911372372113',
+    projectId: 'matchvibe-d55f9',
+    storageBucket: 'matchvibe-d55f9.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyAK6FYMxFAcc_sV6EEDVafxY-pxiy8_lDE',
-    appId: '1:684129603620:ios:e1b9b9209c4d17d40248b1',
-    messagingSenderId: '684129603620',
-    projectId: 'vidcall-f853e',
-    storageBucket: 'vidcall-f853e.firebasestorage.app',
-    androidClientId: '684129603620-e1n54li1qmgqt71kd35aua18tnuts09l.apps.googleusercontent.com',
-    iosClientId: '684129603620-56mocsicjt9701vlcl7ps0gcsr7iaqc9.apps.googleusercontent.com',
+    apiKey: 'AIzaSyDR0AEomxpY08XwsPFY_3i_q3OAV7Up7lc',
+    appId: '1:911372372113:ios:891d7b0578f756414d1730',
+    messagingSenderId: '911372372113',
+    projectId: 'matchvibe-d55f9',
+    storageBucket: 'matchvibe-d55f9.firebasestorage.app',
     iosBundleId: 'com.example.zztherapy',
   );
 }

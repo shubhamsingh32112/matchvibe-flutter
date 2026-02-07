@@ -2,8 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/services/availability_socket_service.dart';
 import '../../auth/providers/auth_provider.dart';
-import '../../home/providers/home_provider.dart';
 
 enum CreatorStatus {
   online,
@@ -11,6 +11,9 @@ enum CreatorStatus {
 }
 
 /// Provider to manage creator online/offline status
+/// 
+/// 🔥 BACKEND-AUTHORITATIVE: Uses Socket.IO to emit status changes
+/// Stream Chat is NO LONGER used for availability.
 /// 
 /// This provider is accessible everywhere in the app via Riverpod.
 /// 
@@ -34,7 +37,7 @@ final creatorStatusProvider = StateNotifierProvider<CreatorStatusNotifier, Creat
 });
 
 class CreatorStatusNotifier extends StateNotifier<CreatorStatus> {
-  static const String _statusKey = 'creator_status';
+  static const String _statusKey = 'creator_available';
   final Ref _ref;
   final ApiClient _apiClient = ApiClient();
   
@@ -45,44 +48,79 @@ class CreatorStatusNotifier extends StateNotifier<CreatorStatus> {
   Future<void> _loadStatus() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final isOnline = prefs.getBool(_statusKey) ?? false;
-      state = isOnline ? CreatorStatus.online : CreatorStatus.offline;
+      final isAvailable = prefs.getBool(_statusKey) ?? false;
+      state = isAvailable ? CreatorStatus.online : CreatorStatus.offline;
+      
+      // 🔥 Sync loaded status via Socket.IO
+      // Note: Socket connection must be initialized first (happens in app startup)
+      final authState = _ref.read(authProvider);
+      final user = authState.user;
+      if (user != null && (user.role == 'creator' || user.role == 'admin')) {
+        // 🔥 FIX 1 & 3: Use new API without creatorId (server uses authenticated ID)
+        _emitSocketStatus(isAvailable);
+      }
     } catch (e) {
-      // Default to offline if loading fails
+      debugPrint('⚠️  [CREATOR STATUS] Error loading status: $e');
       state = CreatorStatus.offline;
     }
+  }
+
+  /// 🔥 EMIT STATUS VIA SOCKET.IO (REPLACES STREAM CHAT)
+  /// This is the AUTHORITATIVE method for updating creator availability
+  /// 
+  /// 🔥 FIX 1: No creatorId parameter - server uses authenticated ID from token
+  /// 🔥 FIX 3: Updates toggle state for reconnect logic
+  void _emitSocketStatus(bool isOnline) {
+    final socketService = AvailabilitySocketService.instance;
+    
+    // 🔥 FIX 3: Update toggle state so reconnect knows what to emit
+    socketService.setToggleState(isOnline);
+    
+    if (isOnline) {
+      socketService.setOnline();
+    } else {
+      socketService.setOffline();
+    }
+    
+    debugPrint('📤 [CREATOR STATUS] Socket emitted: ${isOnline ? "online" : "offline"}');
   }
 
   Future<void> setStatus(CreatorStatus status, {bool syncToBackend = true}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(_statusKey, status == CreatorStatus.online);
+      final isAvailable = status == CreatorStatus.online;
+      await prefs.setBool(_statusKey, isAvailable);
       state = status;
       
-      // Sync to backend if user is a creator
+      final authState = _ref.read(authProvider);
+      final user = authState.user;
+      
+      // Only creators can set their status
+      if (user == null || (user.role != 'creator' && user.role != 'admin')) {
+        return;
+      }
+      
+      // 🔥 CRITICAL: Emit status via Socket.IO (REPLACES STREAM CHAT)
+      // This is the SINGLE SOURCE OF TRUTH for availability
+      // 🔥 FIX 1: No Firebase UID needed - server uses authenticated ID from token
+      _emitSocketStatus(isAvailable);
+      
+      // Also sync to backend (for API queries and legacy support)
       if (syncToBackend) {
-        final authState = _ref.read(authProvider);
-        final user = authState.user;
-        
-        if (user != null && (user.role == 'creator' || user.role == 'admin')) {
-          try {
-            await _apiClient.patch('/creator/status', data: {
-              'isOnline': status == CreatorStatus.online,
-            });
-            debugPrint('✅ [CREATOR STATUS] Synced to backend: ${status == CreatorStatus.online ? "online" : "offline"}');
-            
-            // Invalidate creatorsProvider to trigger immediate refetch on user homepages
-            // This ensures users see newly online creators instantly
-            _ref.invalidate(creatorsProvider);
-            debugPrint('🔄 [CREATOR STATUS] Invalidated creatorsProvider to refresh home feed');
-          } catch (e) {
-            debugPrint('⚠️  [CREATOR STATUS] Failed to sync to backend: $e');
-            // Don't fail the status update if backend sync fails
-          }
+        try {
+          await _apiClient.patch('/creator/status', data: {
+            'isOnline': isAvailable,
+          });
+          debugPrint('✅ [CREATOR STATUS] Backend synced: ${isAvailable ? "available" : "unavailable"}');
+        } catch (e) {
+          debugPrint('⚠️  [CREATOR STATUS] Failed to sync to backend: $e');
+          // Don't fail the status update if backend sync fails
         }
       }
+      
+      // Note: No longer need to invalidate homeFeedProvider
+      // Socket.IO pushes updates to all clients automatically
     } catch (e) {
-      // Handle error silently or log it
       debugPrint('❌ [CREATOR STATUS] Error saving creator status: $e');
     }
   }

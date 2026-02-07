@@ -1,9 +1,60 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stream_video_flutter/stream_video_flutter.dart';
 import '../services/call_navigation_service.dart';
 import '../services/permission_service.dart';
+
+/// 🔥 Fire-and-forget background work for accepting calls
+/// 
+/// This runs AFTER navigation has already happened.
+/// All errors are logged but don't affect UI (call screen handles state).
+Future<void> _acceptAndJoinInBackground(Call call) async {
+  try {
+    if (kDebugMode) {
+      debugPrint('🔄 [ACCEPT BG] Starting background accept flow...');
+    }
+    
+    // 1. Request permissions (may show system dialog)
+    final hasPermissions = await PermissionService.ensurePermissions(video: true);
+    if (!hasPermissions) {
+      if (kDebugMode) {
+        debugPrint('❌ [ACCEPT BG] Permissions denied - call will fail on call screen');
+      }
+      return;
+    }
+    if (kDebugMode) {
+      debugPrint('✅ [ACCEPT BG] Permissions granted');
+    }
+    
+    // 2. Accept the call (signals intent to Stream)
+    await call.accept();
+    if (kDebugMode) {
+      debugPrint('✅ [ACCEPT BG] Call accepted');
+    }
+    
+    // 3. Join the call (fire-and-forget - don't await)
+    // Stream SDK handles retries internally
+    // Call screen reacts to call.state changes
+    unawaited(call.join().then((_) {
+      if (kDebugMode) {
+        debugPrint('✅ [ACCEPT BG] Join completed');
+      }
+    }).catchError((error) {
+      if (kDebugMode) {
+        debugPrint('❌ [ACCEPT BG] Join error: $error');
+      }
+      // Call screen handles this via call.state stream
+    }));
+    
+  } catch (e) {
+    if (kDebugMode) {
+      debugPrint('❌ [ACCEPT BG] Error in accept flow: $e');
+    }
+    // Call screen handles this via call.state stream
+  }
+}
 
 /// Widget to display incoming call notification
 /// 
@@ -67,9 +118,13 @@ class IncomingCallWidget extends ConsumerWidget {
                       try {
                         // Call reject() to properly reject the incoming call
                         await incomingCall.reject();
-                        debugPrint('❌ [CALL] Call rejected by creator');
+                        if (kDebugMode) {
+                          debugPrint('❌ [CALL] Call rejected by creator');
+                        }
                       } catch (e) {
-                        debugPrint('❌ [CALL] Error rejecting call: $e');
+                        if (kDebugMode) {
+                          debugPrint('❌ [CALL] Error rejecting call: $e');
+                        }
                       }
                     },
                   ),
@@ -78,57 +133,21 @@ class IncomingCallWidget extends ConsumerWidget {
                     icon: Icons.call,
                     label: 'Accept',
                     color: Colors.green,
-                    onPressed: () async {
-                      try {
-                        // 🔥 CRITICAL: Request permissions ONLY when user taps Accept
-                        // Do NOT request permissions before Accept - Android can background app
-                        // during permission dialog, which kills the ringing overlay
-                        // 
-                        // Strict order: permissions → accept → navigate → join
-                        final hasPermissions = await PermissionService.ensurePermissions(video: true);
-                        if (!hasPermissions) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Camera and microphone permissions are required for video calls'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                          }
-                          // No permissions → no accept → no side effects
-                          return;
-                        }
-                        
-                        // CRITICAL: Must call accept() AFTER permissions are granted
-                        // This tells Stream that the call was accepted
-                        await incomingCall.accept();
-                        debugPrint('✅ [CALL] Call accepted');
-                        
-                        // 🔥 CRITICAL FIX: Navigate IMMEDIATELY after accept (BEFORE join)
-                        // Navigate first so UI appears immediately
-                        // join() will happen in background - call screen will handle state
-                        CallNavigationService.navigateToCall(incomingCall);
-                        
-                        // Join the call in background (non-blocking)
-                        // This allows UI to show immediately while connecting
-                        incomingCall.join().then((_) {
-                          debugPrint('✅ [CALL] Join completed successfully');
-                        }).catchError((error) {
-                          debugPrint('❌ [CALL] Error joining call: $error');
-                          // Error is handled by call screen - user can see the failure state
-                        });
-                        debugPrint('✅ [CALL] Join initiated in background');
-                      } catch (e) {
-                        debugPrint('❌ [CALL] Error accepting call: $e');
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Failed to accept call: $e'),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
-                        }
+                    onPressed: () {
+                      if (kDebugMode) {
+                        debugPrint('🔥 [ACCEPT] Accept tapped - navigating IMMEDIATELY');
+                        debugPrint('   Call ID: ${incomingCall.id}');
                       }
+                      
+                      // 🔥 CRITICAL FIX: Navigate IMMEDIATELY (zero perceived delay)
+                      // This MUST be the FIRST line - no async work before this
+                      // Navigation triggers _hasAcceptedCall = true in IncomingCallListener
+                      CallNavigationService.navigateToCall(incomingCall);
+                      
+                      // 🔥 Do ALL heavy work in background (fire-and-forget)
+                      // Permissions, accept(), join() - all async, all fire-and-forget
+                      // UI has already transitioned - these run in background
+                      unawaited(_acceptAndJoinInBackground(incomingCall));
                     },
                   ),
                 ],

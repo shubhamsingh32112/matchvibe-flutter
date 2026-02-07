@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl_phone_field/intl_phone_field.dart';
 import '../../../core/utils/error_handler.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../shared/widgets/loading_indicator.dart';
@@ -16,6 +17,7 @@ class LoginScreen extends ConsumerStatefulWidget {
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _phoneController = TextEditingController();
+  String _completePhoneNumber = ''; // Store complete number with country code (e.g., +919876543210)
   bool _acceptTerms = false;
 
   @override
@@ -57,7 +59,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     debugPrint('   📱 Screen: Login Screen');
     debugPrint('   🔘 Action: Phone Sign In');
     
-    if (_phoneController.text.isEmpty) {
+    if (_completePhoneNumber.isEmpty) {
       debugPrint('───────────────────────────────────────────────────────');
       debugPrint('⚠️  [UI] Validation failed');
       debugPrint('───────────────────────────────────────────────────────');
@@ -80,7 +82,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       return;
     }
 
-    final phoneNumber = _phoneController.text.trim();
+    final phoneNumber = _completePhoneNumber.trim();
     debugPrint('───────────────────────────────────────────────────────');
     debugPrint('📱 [UI] Phone number entered');
     debugPrint('───────────────────────────────────────────────────────');
@@ -100,6 +102,271 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     
     // The auth state listener in build() will handle navigation
     // when verificationId is set in the state
+  }
+
+  /// Show network error dialog with retry option
+  /// This error indicates OS-level network routing failure (errno 113)
+  void _showNetworkErrorDialog(BuildContext context, String errorMessage) {
+    final scheme = Theme.of(context).colorScheme;
+    final isNoRouteToHost = errorMessage.toLowerCase().contains('no route to host') ||
+        errorMessage.toLowerCase().contains('errno: 113');
+    
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.wifi_off, color: scheme.error),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text('Network Routing Error'),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (isNoRouteToHost) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: scheme.errorContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.warning, color: scheme.onErrorContainer, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'OS-Level Network Routing Failure',
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    color: scheme.onErrorContainer,
+                                  ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Error 113 = Phone has NO network path to backend.\n\n'
+                        'This is NOT a code issue. Your phone cannot route to 192.168.1.11.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: scheme.onErrorContainer,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+              Text(
+                '🔧 FIX (Do in this exact order):',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              _buildChecklistItem(
+                context,
+                scheme,
+                '1. FORCE Wi-Fi Only (CRITICAL)',
+                'On phone:\n• Turn OFF mobile data\n• Turn ON airplane mode\n• Then manually turn Wi-Fi ON\n\nThis guarantees routing stays on LAN.',
+              ),
+              _buildChecklistItem(
+                context,
+                scheme,
+                '2. Verify IP from Backend Machine',
+                'On laptop:\n• Windows: ipconfig\n• Mac/Linux: ifconfig\n• Look for IPv4: 192.168.1.11\n\n⚠️ If different subnet (192.168.0.x or 10.x.x.x), update IP in app.',
+              ),
+              _buildChecklistItem(
+                context,
+                scheme,
+                '3. Test in Phone Browser (REQUIRED)',
+                'Open Chrome on phone:\nhttp://192.168.1.11:3000/health\n\n❌ If fails → Router/Wi-Fi issue\n✅ If works → Flutter config issue',
+              ),
+              _buildChecklistItem(
+                context,
+                scheme,
+                '4. Check Router Settings',
+                'Disable:\n• AP Isolation\n• Client Isolation\n• Guest Wi-Fi (use main network)\n\nGuest Wi-Fi = sandbox = no LAN access.',
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: scheme.primary,
+                    width: 1,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.usb, color: scheme.primary, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'USB Reverse Tunnel (100% Works)',
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: scheme.onPrimaryContainer,
+                                ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Run on laptop:\n'
+                      'adb reverse tcp:3000 tcp:3000',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: scheme.onPrimaryContainer,
+                            fontFamily: 'monospace',
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Then change baseUrl to:\n'
+                      'http://localhost:3000',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: scheme.onPrimaryContainer,
+                            fontFamily: 'monospace',
+                          ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '✅ If this works → Confirms router/Wi-Fi isolation issue',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: scheme.onPrimaryContainer,
+                            fontSize: 11,
+                            fontStyle: FontStyle.italic,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.info_outline, size: 16, color: scheme.primary),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Current Server Address:',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'http://192.168.1.11:3000',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: scheme.primary,
+                            fontFamily: 'monospace',
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              ref.read(authProvider.notifier).clearError();
+            },
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.of(context).pop();
+              ref.read(authProvider.notifier).clearError();
+              final currentState = ref.read(authProvider);
+              if (currentState.firebaseUser != null) {
+                ref.read(authProvider.notifier).syncUserToBackend();
+              }
+            },
+            icon: const Icon(Icons.refresh),
+            label: const Text('Retry'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: scheme.primary,
+              foregroundColor: scheme.onPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChecklistItem(
+    BuildContext context,
+    ColorScheme scheme,
+    String title,
+    String description,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.check_circle_outline,
+            size: 18,
+            color: scheme.primary,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: scheme.onSurface,
+                      ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  description,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                        fontSize: 11,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -159,13 +426,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         debugPrint('❌ [UI] Auth state listener: Authentication error');
         debugPrint('───────────────────────────────────────────────────────');
         debugPrint('   Error: ${next.error}');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(ErrorHandler.getHumanReadableError(next.error!)),
-            backgroundColor: Theme.of(context).colorScheme.error,
-            duration: const Duration(seconds: 5),
-          ),
-        );
+        
+        // Show network error dialog instead of snackbar for better UX
+        final errorMessage = next.error!;
+        if (errorMessage.toLowerCase().contains('network') || 
+            errorMessage.toLowerCase().contains('connection') ||
+            errorMessage.toLowerCase().contains('no route to host')) {
+          _showNetworkErrorDialog(context, errorMessage);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(ErrorHandler.getHumanReadableError(errorMessage)),
+              backgroundColor: Theme.of(context).colorScheme.error,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
       }
     });
 
@@ -187,12 +463,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: AppSpacing.lg),
-              TextField(
+              IntlPhoneField(
+                initialCountryCode: 'IN', // 🇮🇳 Default to India (+91)
                 controller: _phoneController,
-                keyboardType: TextInputType.phone,
                 decoration: const InputDecoration(
                   labelText: 'Mobile Number',
+                  border: OutlineInputBorder(),
                 ),
+                onChanged: (phone) {
+                  // Store complete number with country code (e.g., +919876543210)
+                  _completePhoneNumber = phone.completeNumber;
+                  debugPrint('📱 Phone number changed: $_completePhoneNumber');
+                },
               ),
               const SizedBox(height: AppSpacing.sm),
               Text(
