@@ -51,7 +51,11 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyAF3AmluBl-_AqnMfTPCuSI4uOiWkQ-hfQ',
+<<<<<<< HEAD
     appId: '1:911372372113:android:65d2a2d572d7cc564d1730',
+=======
+    appId: '1:911372372113:android:6ce266d982bb6b174d1730',
+>>>>>>> 6caedcda0209c58437b74b5a57398940c89ff7ed
     messagingSenderId: '911372372113',
     projectId: 'matchvibe-d55f9',
     storageBucket: 'matchvibe-d55f9.firebasestorage.app',

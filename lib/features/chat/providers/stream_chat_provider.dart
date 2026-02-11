@@ -32,6 +32,8 @@ class StreamChatNotifier extends StateNotifier<StreamChatClient?> {
     required String username,
     String? avatarUrl,
     required String streamToken,
+    String? appRole, // 'user' | 'creator' | 'admin'
+    bool? available, // For creators: whether they want to accept calls
   }) async {
     try {
       if (state == null) {
@@ -41,13 +43,21 @@ class StreamChatNotifier extends StateNotifier<StreamChatClient?> {
       debugPrint('🔌 [STREAM] Connecting user to Stream Chat...');
       debugPrint('   User ID: $firebaseUid');
       debugPrint('   Username: $username');
+      debugPrint('   App Role: $appRole');
+      debugPrint('   Available: $available');
 
       // Connect user (client already exists)
+      // Note: Presence (online/offline) is automatic via WebSocket connection
+      // We set 'available' in extraData for creators (business intent)
       await state!.connectUser(
         User(
           id: firebaseUid,
           name: username,
           image: avatarUrl,
+          extraData: {
+            if (appRole != null) 'appRole': appRole,
+            if (available != null) 'available': available,
+          },
         ),
         streamToken,
       );

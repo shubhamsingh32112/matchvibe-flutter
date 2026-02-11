@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/services/availability_socket_service.dart';
 import '../../../shared/models/user_model.dart';
 import '../../chat/services/chat_service.dart';
 
@@ -60,7 +61,25 @@ class AuthNotifier extends StateNotifier<AuthState> {
   final ApiClient _apiClient = ApiClient();
   final GoogleSignIn _googleSignIn = GoogleSignIn();
   bool _isInitializing = false;
-  bool _coinsListenerRegistered = false;
+  
+  // 🔥 FIX: Guards to prevent duplicate operations
+  bool _otpVerified = false;  // Prevents multiple OTP verify attempts
+  bool _isSyncingToBackend = false;  // Prevents duplicate backend syncs
+  String? _lastSyncedUid;  // Tracks which UID was last synced
+  bool _phoneVerificationInProgress = false;  // Prevents duplicate verifyPhoneNumber calls
+  
+  // 🔥 FIX: Test phone numbers (for Firebase test authentication)
+  // These numbers use manual OTP flow, no SMS auto-retrieval
+  static const Set<String> _testPhoneNumbers = {
+    '+919999999999',
+    '+911234567890',
+    '+15555555555',  // Common US test number
+  };
+  
+  /// Check if a phone number is a Firebase test number
+  bool _isTestNumber(String phone) {
+    return _testPhoneNumbers.contains(phone);
+  }
 
   AuthNotifier() : super(AuthState()) {
     _initialize();
@@ -112,8 +131,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
   Future<void> _init() async {
     if (_auth == null) return;
     
+    // 🔥 CRITICAL: Disable app verification in debug mode
+    // Skips Play Integrity, reCAPTCHA, cert hash checks
+    // Does NOT affect production builds
+    if (kDebugMode) {
+      await _auth!.setSettings(appVerificationDisabledForTesting: true);
+      debugPrint('🧪 [AUTH] App verification DISABLED for testing (debug only)');
+    }
+    
     debugPrint('🔐 [AUTH] Setting up auth state listener...');
-
 
     _auth!.authStateChanges().listen((user) async {
       if (user != null) {
@@ -121,15 +147,48 @@ class AuthNotifier extends StateNotifier<AuthState> {
         debugPrint('   📧 Email: ${user.email ?? "N/A"}');
         debugPrint('   📱 Phone: ${user.phoneNumber ?? "N/A"}');
         debugPrint('   🆔 UID: ${user.uid}');
+        
+        // 🔥 FIX 2 & 3: Guard against duplicate syncs
+        // Only sync if:
+        // 1. We're not already syncing
+        // 2. This is a different user than last synced (or first sync)
+        // 3. We don't already have this user in state
+        if (_isSyncingToBackend) {
+          debugPrint('⏭️ [AUTH] Already syncing to backend, skipping duplicate');
+          return;
+        }
+        
+        if (_lastSyncedUid == user.uid && state.user != null) {
+          debugPrint('⏭️ [AUTH] User ${user.uid} already synced, skipping');
+          // Still update firebaseUser in state if needed
+          if (state.firebaseUser?.uid != user.uid) {
+            state = state.copyWith(firebaseUser: user);
+          }
+          return;
+        }
+        
         await _syncUserToBackend(user);
       } else {
         debugPrint('🚪 [AUTH] Auth state changed: User logged out');
+        // 🔥 FIX: Reset all guards on logout
+        _otpVerified = false;
+        _isSyncingToBackend = false;
+        _lastSyncedUid = null;
+        _phoneVerificationInProgress = false;
         state = AuthState();
       }
     });
   }
 
   Future<void> _syncUserToBackend(User firebaseUser) async {
+    // 🔥 FIX: Prevent duplicate syncs
+    if (_isSyncingToBackend) {
+      debugPrint('⏭️ [AUTH] _syncUserToBackend already in progress, skipping');
+      return;
+    }
+    
+    _isSyncingToBackend = true;
+    
     try {
       // Determine auth method for logging context
       final authMethod = firebaseUser.providerData
@@ -151,6 +210,35 @@ class AuthNotifier extends StateNotifier<AuthState> {
       debugPrint('   📱 Phone: ${firebaseUser.phoneNumber ?? "N/A"}');
       
       state = state.copyWith(isLoading: true, error: null);
+      
+      // CRITICAL: Test backend connectivity before attempting login
+      debugPrint('🧪 [AUTH] Testing backend connectivity...');
+      final apiClient = ApiClient();
+      final isConnected = await apiClient.testConnection();
+      
+      if (!isConnected) {
+        debugPrint('❌ [AUTH] Backend connectivity test failed');
+        debugPrint('   💡 Backend is not reachable at: ${AppConstants.baseUrl}');
+        debugPrint('   🧪 Test URL: ${AppConstants.healthCheckUrl}');
+        debugPrint('   📋 Troubleshooting:');
+        debugPrint('      1. Verify backend is running (check terminal)');
+        debugPrint('      2. Check IP address: ${AppConstants.baseUrl}');
+        debugPrint('      3. Test in browser: ${AppConstants.healthCheckUrl}');
+        debugPrint('      4. Ensure phone and laptop are on same Wi-Fi');
+        debugPrint('      5. Disable mobile data on phone');
+        debugPrint('      6. Check firewall settings');
+        
+        throw Exception(
+          'Backend server is not reachable. Please check:\n'
+          '• Backend is running\n'
+          '• Correct IP address: ${AppConstants.baseUrl}\n'
+          '• Phone and laptop are on same Wi-Fi\n'
+          '• Mobile data is disabled\n'
+          '• Test in browser: ${AppConstants.healthCheckUrl}'
+        );
+      }
+      
+      debugPrint('✅ [AUTH] Backend connectivity test passed');
       
       debugPrint('🎫 [AUTH] Requesting Firebase ID token...');
       final tokenStartTime = DateTime.now();
@@ -254,6 +342,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
         debugPrint('   ✅ Phone saved: ${user.phone != null}');
         debugPrint('   ✅ Coins saved: ${user.coins}');
 
+        // 🔥 FIX: Mark sync as successful
+        _lastSyncedUid = firebaseUser.uid;
+        
         state = state.copyWith(
           firebaseUser: firebaseUser,
           user: user,
@@ -322,18 +413,30 @@ class AuthNotifier extends StateNotifier<AuthState> {
           if (errorString.contains('no route to host') || 
               errorString.contains('socketexception') ||
               errorString.contains('errno: 113')) {
-            errorMessage = 'Network error, no connection please try again.';
+            // Provide detailed error message with actionable steps
+            errorMessage = 'Cannot connect to backend server.\n\n'
+                'Current server: ${AppConstants.baseUrl}\n\n'
+                'Please check:\n'
+                '1. Backend is running (check terminal)\n'
+                '2. Correct IP address (test: ${AppConstants.healthCheckUrl})\n'
+                '3. Phone and laptop on same Wi-Fi\n'
+                '4. Mobile data disabled\n'
+                '5. Firewall allows port 3000';
           } else {
             errorMessage = 'Network error, no connection please try again.';
           }
         } else if (e.type == DioExceptionType.connectionTimeout || 
                    e.type == DioExceptionType.receiveTimeout) {
-          errorMessage = 'Network error, no connection please try again.';
+          errorMessage = 'Connection timeout. Backend server may be slow or unreachable.\n\n'
+              'Test: ${AppConstants.healthCheckUrl}';
         } else if (e.response != null) {
           errorMessage = 'Server error: ${e.response?.statusCode} - ${e.response?.statusMessage ?? "Unknown error"}';
         } else {
           errorMessage = 'Network error, no connection please try again.';
         }
+      } else if (e.toString().toLowerCase().contains('backend server is not reachable')) {
+        // This is from our connectivity test
+        errorMessage = e.toString();
       } else if (e.toString().toLowerCase().contains('socket') || 
                  e.toString().toLowerCase().contains('connection') ||
                  e.toString().toLowerCase().contains('network')) {
@@ -345,6 +448,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
         error: errorMessage,
       );
       debugPrint('   💾 Error state updated with message: $errorMessage');
+    } finally {
+      // 🔥 FIX: Always reset sync guard
+      _isSyncingToBackend = false;
     }
   }
 
@@ -358,15 +464,29 @@ class AuthNotifier extends StateNotifier<AuthState> {
       
       if (_auth == null) {
         debugPrint('❌ [PHONE AUTH] Firebase not initialized');
-        debugPrint('   💡 Please ensure Firebase is properly configured');
         state = state.copyWith(error: 'Firebase not initialized');
         return;
       }
       
-      debugPrint('✅ [PHONE AUTH] Firebase Auth instance available');
+      // 🔥 GUARD: Already signed in — don't call verifyPhoneNumber again
+      if (_auth!.currentUser != null) {
+        debugPrint('⏭️ [PHONE AUTH] BLOCKED - User already signed in');
+        debugPrint('   🆔 UID: ${_auth!.currentUser!.uid}');
+        return;
+      }
+      
+      // 🔥 GUARD: Verification already in progress
+      if (_phoneVerificationInProgress) {
+        debugPrint('⏭️ [PHONE AUTH] BLOCKED - Verification already in progress');
+        return;
+      }
+      _phoneVerificationInProgress = true;
+      
+      final isTest = _isTestNumber(phoneNumber);
+      debugPrint('   🧪 Is test number: $isTest');
+      
       state = state.copyWith(isLoading: true, error: null);
       debugPrint('🔄 [PHONE AUTH] Requesting phone verification from Firebase...');
-      debugPrint('   📡 Calling verifyPhoneNumber()...');
       
       await _auth!.verifyPhoneNumber(
         phoneNumber: phoneNumber,
@@ -374,34 +494,27 @@ class AuthNotifier extends StateNotifier<AuthState> {
           debugPrint('───────────────────────────────────────────────────────');
           debugPrint('✅ [PHONE AUTH] Auto-verification completed');
           debugPrint('───────────────────────────────────────────────────────');
-          debugPrint('   🔑 Credential received automatically');
-          debugPrint('   🆔 Verification ID: ${credential.verificationId ?? "N/A"}');
-          debugPrint('   🔢 SMS Code: ${credential.smsCode ?? "N/A"}');
-          debugPrint('   🔄 Signing in with credential...');
           
-          if (_auth != null) {
-            try {
-              final startTime = DateTime.now();
-              final userCredential = await _auth!.signInWithCredential(credential);
-              final duration = DateTime.now().difference(startTime);
-              
-              debugPrint('✅ [PHONE AUTH] Sign in successful');
-              debugPrint('   ⏱️  Duration: ${duration.inMilliseconds}ms');
-              debugPrint('   🆔 UID: ${userCredential.user?.uid}');
-              debugPrint('   📱 Phone: ${userCredential.user?.phoneNumber}');
-              debugPrint('   ✉️  Email: ${userCredential.user?.email ?? "N/A"}');
-              debugPrint('   ✉️  Email verified: ${userCredential.user?.emailVerified ?? false}');
-              debugPrint('   📅 Created: ${userCredential.user?.metadata.creationTime}');
-              debugPrint('   🔄 Last sign in: ${userCredential.user?.metadata.lastSignInTime}');
-              debugPrint('   💡 Backend sync will be handled by auth state listener');
-            } catch (e) {
-              debugPrint('❌ [PHONE AUTH] Sign in error during auto-verification');
-              debugPrint('   Error: $e');
-              if (e is FirebaseAuthException) {
-                debugPrint('   Code: ${e.code}');
-                debugPrint('   Message: ${e.message}');
-              }
-            }
+          // 🔥 GUARD: Prevent double sign-in
+          if (_otpVerified) {
+            debugPrint('⏭️ [PHONE AUTH] OTP already verified, skipping auto-verify');
+            return;
+          }
+          if (_auth?.currentUser != null) {
+            debugPrint('⏭️ [PHONE AUTH] User already signed in, skipping auto-verify');
+            return;
+          }
+          _otpVerified = true;
+          
+          try {
+            final userCredential = await _auth!.signInWithCredential(credential);
+            debugPrint('✅ [PHONE AUTH] Auto sign-in successful');
+            debugPrint('   🆔 UID: ${userCredential.user?.uid}');
+            _phoneVerificationInProgress = false;
+          } catch (e) {
+            debugPrint('❌ [PHONE AUTH] Auto sign-in error: $e');
+            _otpVerified = false;  // Reset so manual OTP can still work
+            _phoneVerificationInProgress = false;
           }
         },
         verificationFailed: (FirebaseAuthException e) {
@@ -410,32 +523,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
           debugPrint('───────────────────────────────────────────────────────');
           debugPrint('   Code: ${e.code}');
           debugPrint('   Message: ${e.message ?? "No message"}');
-          debugPrint('   Details: ${e.toString()}');
           
-          // Common error codes with helpful messages
-          switch (e.code) {
-            case 'invalid-phone-number':
-              debugPrint('   💡 The phone number format is invalid');
-              debugPrint('   💡 Expected format: +[country code][number]');
-              debugPrint('   💡 Example: +1234567890');
-              break;
-            case 'too-many-requests':
-              debugPrint('   💡 Too many verification attempts');
-              debugPrint('   💡 Please wait before requesting a new code');
-              break;
-            case 'quota-exceeded':
-              debugPrint('   💡 SMS quota exceeded');
-              debugPrint('   💡 Please try again later');
-              break;
-            case 'missing-phone-number':
-              debugPrint('   💡 Phone number is required');
-              break;
-            case 'captcha-check-failed':
-              debugPrint('   💡 reCAPTCHA verification failed');
-              break;
-            default:
-              debugPrint('   💡 Check Firebase Console for more details');
-          }
+          _phoneVerificationInProgress = false;  // 🔥 Reset so user can retry
           
           state = state.copyWith(
             isLoading: false,
@@ -447,11 +536,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
           debugPrint('✅ [PHONE AUTH] Verification code sent successfully');
           debugPrint('───────────────────────────────────────────────────────');
           debugPrint('   🆔 Verification ID: $verificationId');
-          debugPrint('   🔄 Resend token: ${resendToken ?? "Not provided"}');
           debugPrint('   📱 Phone: $phoneNumber');
-          debugPrint('   ⏰ Sent at: ${DateTime.now().toIso8601String()}');
-          debugPrint('   💡 Code will expire in ~10 minutes');
-          debugPrint('   💡 User should receive SMS with 6-digit code');
+          
+          _otpVerified = false;  // Reset for new verification round
+          _phoneVerificationInProgress = false;  // 🔥 Reset so user can navigate to OTP
           
           state = state.copyWith(
             isLoading: false,
@@ -460,22 +548,19 @@ class AuthNotifier extends StateNotifier<AuthState> {
             phoneNumber: phoneNumber,
             error: null,
           );
-          debugPrint('💾 [PHONE AUTH] Verification ID stored in state');
           debugPrint('   ✅ Ready for OTP input screen');
         },
         codeAutoRetrievalTimeout: (String verificationId) {
-          debugPrint('───────────────────────────────────────────────────────');
+          if (isTest) return;  // 🔥 Ignore timeout for test numbers
           debugPrint('⏱️  [PHONE AUTH] Auto-retrieval timeout');
-          debugPrint('───────────────────────────────────────────────────────');
-          debugPrint('   🆔 Verification ID: $verificationId');
-          debugPrint('   ⏰ Timeout at: ${DateTime.now().toIso8601String()}');
-          debugPrint('   💡 Auto-retrieval failed, user must enter code manually');
+          debugPrint('   💡 User must enter code manually');
         },
-        timeout: const Duration(seconds: 60),
+        // 🔥 Test numbers: zero timeout disables auto-retrieval
+        // Real numbers: 60s for SMS auto-read
+        timeout: isTest ? Duration.zero : const Duration(seconds: 60),
       );
       
       debugPrint('✅ [PHONE AUTH] verifyPhoneNumber() call completed');
-      debugPrint('   ⏳ Waiting for verification response...');
     } catch (e) {
       debugPrint('───────────────────────────────────────────────────────');
       debugPrint('❌ [PHONE AUTH] Unexpected error');
@@ -749,6 +834,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
     try {
       debugPrint('🚪 [AUTH] Starting sign out...');
       
+      // 🔥 FIX 5: Disconnect availability socket on logout
+      // This emits offline and cleans up the connection
+      try {
+        AvailabilitySocketService.instance.onLogout();
+        debugPrint('✅ [AUTH] Availability socket disconnected');
+      } catch (e) {
+        debugPrint('⚠️  [AUTH] Availability socket disconnect error (non-critical): $e');
+      }
+      
       if (_auth != null) {
         final currentUser = _auth!.currentUser;
         if (currentUser != null) {
@@ -773,6 +867,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.clear();
       debugPrint('✅ [AUTH] Local storage cleared');
+      
+      // 🔥 Reset ALL guards on sign out
+      _otpVerified = false;
+      _isSyncingToBackend = false;
+      _lastSyncedUid = null;
+      _phoneVerificationInProgress = false;
       
       state = AuthState();
       debugPrint('✅ [AUTH] Sign out completed');
@@ -861,12 +961,19 @@ class AuthNotifier extends StateNotifier<AuthState> {
       debugPrint('   🆔 Verification ID: $verificationId');
       debugPrint('   🔢 OTP: $otp');
       
+      // 🔥 CRITICAL GUARD: Prevent double verification
+      if (_otpVerified) {
+        debugPrint('⏭️ [OTP] Already verified, skipping duplicate');
+        return;
+      }
+      
       if (_auth == null) {
         debugPrint('❌ [OTP] Firebase not initialized');
         state = state.copyWith(error: 'Firebase not initialized');
         return;
       }
       
+      _otpVerified = true;  // 🔥 Set BEFORE async work
       state = state.copyWith(isLoading: true, error: null);
       
       // Create credential from verification ID and OTP
@@ -944,6 +1051,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       }
       
       // User is not authenticated, show the error
+      _otpVerified = false;  // 🔥 Reset so user can retry
       debugPrint('❌ [OTP] Verification error');
       if (e is FirebaseAuthException) {
         debugPrint('   Code: ${e.code}');
@@ -1010,5 +1118,26 @@ class AuthNotifier extends StateNotifier<AuthState> {
       phoneNumber: null,
       error: null,
     );
+  }
+
+  /// Clear error state
+  void clearError() {
+    debugPrint('🗑️  [AUTH] Clearing error state');
+    state = state.copyWith(error: null);
+  }
+
+  /// Public method to retry backend sync
+  /// Can be called from UI to retry after network error
+  Future<void> syncUserToBackend() async {
+    final firebaseUser = state.firebaseUser;
+    if (firebaseUser != null) {
+      debugPrint('🔄 [AUTH] Retrying backend sync...');
+      await _syncUserToBackend(firebaseUser);
+    } else {
+      debugPrint('⚠️  [AUTH] Cannot retry sync: No Firebase user found');
+      state = state.copyWith(
+        error: 'No user authenticated. Please sign in again.',
+      );
+    }
   }
 }

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:stream_chat_flutter/stream_chat_flutter.dart';
+import 'firebase_options.dart';
 import 'app/router/app_router.dart';
 import 'app/widgets/app_lifecycle_wrapper.dart';
 import 'app/widgets/stream_chat_wrapper.dart';
@@ -21,7 +22,14 @@ void main() async {
   // Note: You'll need to add your firebase_options.dart file
   // Run: flutterfire configure
   try {
+<<<<<<< HEAD
     await Firebase.initializeApp();
+=======
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+    _firebaseInitialized = true;
+>>>>>>> 6caedcda0209c58437b74b5a57398940c89ff7ed
     debugPrint('✅ Firebase initialized successfully');
   } catch (e) {
     debugPrint('❌ Firebase initialization error: $e');

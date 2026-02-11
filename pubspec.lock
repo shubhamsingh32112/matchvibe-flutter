@@ -981,6 +981,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.20.2"
+  intl_phone_field:
+    dependency: "direct main"
+    description:
+      name: intl_phone_field
+      sha256: "73819d3dfcb68d2c85663606f6842597c3ddf6688ac777f051b17814fe767bbf"
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.2.0"
   io:
     dependency: transitive
     description:
@@ -1670,18 +1678,32 @@ packages:
     dependency: "direct main"
     description:
       name: socket_io_client
+<<<<<<< HEAD
       sha256: ef6c989e5eee8d04baf18482ec3d7699b91bc41e279794a99d8e3bef897b074a
       url: "https://pub.dev"
     source: hosted
     version: "3.1.4"
+=======
+      sha256: ede469f3e4c55e8528b4e023bdedbc20832e8811ab9b61679d1ba3ed5f01f23b
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.0.3+1"
+>>>>>>> 6caedcda0209c58437b74b5a57398940c89ff7ed
   socket_io_common:
     dependency: transitive
     description:
       name: socket_io_common
+<<<<<<< HEAD
       sha256: "162fbaecbf4bf9a9372a62a341b3550b51dcef2f02f3e5830a297fd48203d45b"
       url: "https://pub.dev"
     source: hosted
     version: "3.1.1"
+=======
+      sha256: "2ab92f8ff3ebbd4b353bf4a98bee45cc157e3255464b2f90f66e09c4472047eb"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.0.3"
+>>>>>>> 6caedcda0209c58437b74b5a57398940c89ff7ed
   source_gen:
     dependency: transitive
     description:

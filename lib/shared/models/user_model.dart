@@ -10,7 +10,11 @@ class UserModel extends Equatable {
   final List<String>? categories;
   final int usernameChangeCount;
   final int coins;
+<<<<<<< HEAD
   final bool welcomeBonusClaimed;
+=======
+  final int freeTextUsed; // Count of free text messages used (first 3 are free)
+>>>>>>> 6caedcda0209c58437b74b5a57398940c89ff7ed
   final String? role; // 'user', 'creator', or 'admin'
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -25,7 +29,11 @@ class UserModel extends Equatable {
     this.categories,
     this.usernameChangeCount = 0,
     required this.coins,
+<<<<<<< HEAD
     this.welcomeBonusClaimed = false,
+=======
+    this.freeTextUsed = 0,
+>>>>>>> 6caedcda0209c58437b74b5a57398940c89ff7ed
     this.role,
     this.createdAt,
     this.updatedAt,
@@ -44,7 +52,11 @@ class UserModel extends Equatable {
           : null,
       usernameChangeCount: json['usernameChangeCount'] as int? ?? 0,
       coins: json['coins'] as int? ?? 0,
+<<<<<<< HEAD
       welcomeBonusClaimed: json['welcomeBonusClaimed'] as bool? ?? false,
+=======
+      freeTextUsed: json['freeTextUsed'] as int? ?? 0,
+>>>>>>> 6caedcda0209c58437b74b5a57398940c89ff7ed
       role: json['role'] as String?,
       createdAt: json['createdAt'] != null
           ? DateTime.parse(json['createdAt'] as String)
@@ -66,7 +78,11 @@ class UserModel extends Equatable {
       'categories': categories,
       'usernameChangeCount': usernameChangeCount,
       'coins': coins,
+<<<<<<< HEAD
       'welcomeBonusClaimed': welcomeBonusClaimed,
+=======
+      'freeTextUsed': freeTextUsed,
+>>>>>>> 6caedcda0209c58437b74b5a57398940c89ff7ed
       'role': role,
       'createdAt': createdAt?.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
@@ -83,7 +99,11 @@ class UserModel extends Equatable {
     List<String>? categories,
     int? usernameChangeCount,
     int? coins,
+<<<<<<< HEAD
     bool? welcomeBonusClaimed,
+=======
+    int? freeTextUsed,
+>>>>>>> 6caedcda0209c58437b74b5a57398940c89ff7ed
     String? role,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -98,7 +118,11 @@ class UserModel extends Equatable {
       categories: categories ?? this.categories,
       usernameChangeCount: usernameChangeCount ?? this.usernameChangeCount,
       coins: coins ?? this.coins,
+<<<<<<< HEAD
       welcomeBonusClaimed: welcomeBonusClaimed ?? this.welcomeBonusClaimed,
+=======
+      freeTextUsed: freeTextUsed ?? this.freeTextUsed,
+>>>>>>> 6caedcda0209c58437b74b5a57398940c89ff7ed
       role: role ?? this.role,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -116,7 +140,11 @@ class UserModel extends Equatable {
         categories,
         usernameChangeCount,
         coins,
+<<<<<<< HEAD
         welcomeBonusClaimed,
+=======
+        freeTextUsed,
+>>>>>>> 6caedcda0209c58437b74b5a57398940c89ff7ed
         role,
         createdAt,
         updatedAt,

@@ -7,9 +7,15 @@
   "client": [
     {
       "client_info": {
+<<<<<<< HEAD
         "mobilesdk_app_id": "1:911372372113:android:65d2a2d572d7cc564d1730",
         "android_client_info": {
           "package_name": "com.example.zztherapy"
+=======
+        "mobilesdk_app_id": "1:911372372113:android:6ce266d982bb6b174d1730",
+        "android_client_info": {
+          "package_name": "com.example.zztherapy.dev"
+>>>>>>> 6caedcda0209c58437b74b5a57398940c89ff7ed
         }
       },
       "oauth_client": [],
@@ -21,6 +27,7 @@
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": []
+<<<<<<< HEAD
         }
       }
     },
@@ -40,6 +47,8 @@
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": []
+=======
+>>>>>>> 6caedcda0209c58437b74b5a57398940c89ff7ed
         }
       }
     }

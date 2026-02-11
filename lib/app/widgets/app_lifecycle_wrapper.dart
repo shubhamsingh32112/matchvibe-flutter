@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../features/auth/providers/auth_provider.dart';
@@ -6,6 +7,7 @@ import '../../features/creator/providers/creator_dashboard_provider.dart';
 import '../../features/creator/providers/creator_status_provider.dart';
 import '../../features/video/controllers/call_connection_controller.dart';
 import '../../features/home/providers/home_provider.dart';
+import '../../features/video/services/call_navigation_service.dart';
 
 /// Widget that wraps the app and handles lifecycle events.
 ///
@@ -59,6 +61,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
             controllerPhase != CallConnectionPhase.failed;
 
     if (state == AppLifecycleState.resumed) {
+<<<<<<< HEAD
       // 🔥 CRITICAL: DO NOT navigate from lifecycle — causes race conditions.
       // Only log / refresh data.  Navigation is owned by CallConnectionController.
       if (hasActiveCall) {
@@ -66,6 +69,24 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
             '📱 [APP LIFECYCLE] App resumed with active call (phase: $controllerPhase)');
         debugPrint(
             '   Call screen should already be visible — not navigating');
+=======
+      // FIX 4: Re-check active call on resume (permission dialogs can pause app)
+      // If call state advanced while app was paused, navigate to call screen
+      final streamVideo = ref.read(streamVideoProvider);
+      final activeCall = streamVideo?.state.activeCall.valueOrNull;
+      
+      if (activeCall != null) {
+        debugPrint('📱 [APP LIFECYCLE] App resumed with active call: ${activeCall.id}');
+        
+        // Check if we're already on call screen
+        if (!CallNavigationService.isOnCallScreen) {
+          debugPrint('   📱 [APP LIFECYCLE] Active call exists but not on call screen - navigating');
+          // Navigate to call screen (call was accepted while app was paused)
+          CallNavigationService.navigateToCall(activeCall);
+        } else {
+          debugPrint('   📱 [APP LIFECYCLE] Already on call screen - no navigation needed');
+        }
+>>>>>>> 6caedcda0209c58437b74b5a57398940c89ff7ed
       }
 
       // Refresh home feed when app resumes (so users see newly online creators)

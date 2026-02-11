@@ -73,16 +73,18 @@ class CallService {
     }
   }
 
-  /// Join an existing call
-  Future<void> joinCall(Call call) async {
-    try {
-      debugPrint('📞 [CALL] Joining call: ${call.id}');
-      await call.join();
-      debugPrint('✅ [CALL] Joined call successfully');
-    } catch (e) {
-      debugPrint('❌ [CALL] Error joining call: $e');
-      rethrow;
-    }
+  /// Join an existing call (fire-and-forget)
+  /// 
+  /// 🔥 CRITICAL: This is fire-and-forget. Do NOT await this.
+  /// Stream SDK handles retries internally. UI should react to call.state changes.
+  void joinCall(Call call) {
+    debugPrint('📞 [CALL] Joining call: ${call.id} (fire-and-forget)');
+    call.join().then((_) {
+      debugPrint('✅ [CALL] Join completed successfully');
+    }).catchError((error) {
+      debugPrint('❌ [CALL] Error joining call: $error');
+      // Error is handled by call screen via call.state stream
+    });
   }
 
   /// Leave/end a call
