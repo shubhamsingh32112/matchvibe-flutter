@@ -58,18 +58,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     debugPrint('   ⏰ Timestamp: ${DateTime.now().toIso8601String()}');
     debugPrint('   📱 Screen: Login Screen');
     debugPrint('   🔘 Action: Phone Sign In');
-<<<<<<< HEAD
 
     final digits = _phoneController.text.trim();
 
     if (digits.isEmpty) {
-=======
-    
-    if (_completePhoneNumber.isEmpty) {
-      debugPrint('───────────────────────────────────────────────────────');
-      debugPrint('⚠️  [UI] Validation failed');
-      debugPrint('───────────────────────────────────────────────────────');
->>>>>>> 6caedcda0209c58437b74b5a57398940c89ff7ed
       debugPrint('   ❌ Phone number field is empty');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter your phone number')),
@@ -93,12 +85,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       return;
     }
 
-<<<<<<< HEAD
     // Prepend +91 country code
     final phoneNumber = '+91$digits';
-=======
-    final phoneNumber = _completePhoneNumber.trim();
->>>>>>> 6caedcda0209c58437b74b5a57398940c89ff7ed
     debugPrint('───────────────────────────────────────────────────────');
     debugPrint('📱 [UI] Phone number entered');
     debugPrint('───────────────────────────────────────────────────────');
@@ -482,9 +470,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               IntlPhoneField(
                 initialCountryCode: 'IN', // 🇮🇳 Default to India (+91)
                 controller: _phoneController,
-<<<<<<< HEAD
                 keyboardType: TextInputType.phone,
-                maxLength: 10,
+                disableLengthCheck: false,
                 decoration: InputDecoration(
                   labelText: 'Mobile Number',
                   prefixIcon: Padding(
@@ -509,11 +496,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                   ),
                   counterText: '', // hide the "0/10" counter
-=======
-                decoration: const InputDecoration(
-                  labelText: 'Mobile Number',
-                  border: OutlineInputBorder(),
->>>>>>> 6caedcda0209c58437b74b5a57398940c89ff7ed
                 ),
                 onChanged: (phone) {
                   // Store complete number with country code (e.g., +919876543210)

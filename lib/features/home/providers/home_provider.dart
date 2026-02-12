@@ -1,17 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_client.dart';
-import '../../../core/services/availability_socket_service.dart';
 import '../../../shared/models/creator_model.dart';
 import '../../../shared/models/profile_model.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../admin/providers/admin_view_provider.dart';
-<<<<<<< HEAD
-=======
-
-// 🔥 REMOVED: All Stream Chat presence imports
-// Availability is now handled by Socket.IO via creatorStatusProvider
->>>>>>> 6caedcda0209c58437b74b5a57398940c89ff7ed
+import 'availability_provider.dart';
 
 // Provider to fetch creators (for users)
 // 🔥 FIX: Seeds creatorAvailabilityProvider with initial availability from API
@@ -41,13 +35,6 @@ final creatorsProvider = FutureProvider<List<CreatorModel>>((ref) async {
         
         // 🔥 FIX: Seed creatorAvailabilityProvider with initial availability
         // from the API response (backed by Redis on the server).
-        // This ensures cards render with correct status on FIRST load,
-        // before any socket events arrive.
-        //
-        // ⚠️  Uses seedFromApi() which runs ONCE only.
-        // After the first seed, socket events are authoritative.
-        // Re-invalidating creatorsProvider (pull-to-refresh, etc.)
-        // will NOT overwrite newer socket data.
         final apiAvailability = <String, CreatorAvailability>{};
         for (final creator in creators) {
           if (creator.firebaseUid != null) {
@@ -96,18 +83,6 @@ final usersProvider = FutureProvider<List<UserProfileModel>>((ref) async {
 });
 
 /// 🔥 BACKEND-AUTHORITATIVE Provider that returns ALL creators/users based on user role
-/// 
-/// CRITICAL ARCHITECTURE RULE:
-/// - /creator API = SOURCE OF TRUTH (who exists)
-/// - Socket.IO = REAL-TIME AVAILABILITY (status badges)
-/// - Availability should NEVER decide existence
-/// 
-/// 👉 NEVER hide creators based on availability
-/// 👉 Availability only affects the TAG (Online/Busy), not visibility
-/// 👉 Busy should disable call button, not hide the creator
-/// 
-/// 🔥 NO STREAM CHAT PRESENCE: All presence logic removed.
-/// Status is pushed from backend via Socket.IO and consumed by creatorStatusProvider.
 final homeFeedProvider = Provider<List<dynamic>>((ref) {
   final authState = ref.watch(authProvider);
   final user = authState.user;
@@ -115,10 +90,6 @@ final homeFeedProvider = Provider<List<dynamic>>((ref) {
   if (user == null) {
     return [];
   }
-  
-  // 🔥 NO PRESENCE WATCHING HERE
-  // Availability is handled by Socket.IO → creatorAvailabilityProvider
-  // Individual cards watch creatorStatusProvider(creatorId) for real-time updates
   
   // If user is an admin, check their view mode preference
   if (user.role == 'admin') {
@@ -154,30 +125,15 @@ final homeFeedProvider = Provider<List<dynamic>>((ref) {
     );
   }
   
-<<<<<<< HEAD
   // If user is a regular user, show ALL creators.
   // Availability (online/busy) is managed via Socket.IO + Redis in real-time.
-  final creators = await ref.watch(creatorsProvider.future);
-  return creators;
-});
-
-// NOTE: The old Stream-Chat-based creatorStatusEventListenerProvider has been
-// removed.  Real-time creator availability is now powered by Socket.IO + Redis
-// (see availability_provider.dart and socket_service.dart).
-=======
-  // If user is a regular user, show ALL creators (no filtering!)
   final creatorsAsync = ref.watch(creatorsProvider);
-  
   return creatorsAsync.when(
     data: (creators) {
-      // 🔥 RETURN ALL CREATORS - NO FILTERING
-      // Availability is handled by the status badge in the card via creatorStatusProvider
       debugPrint('✅ [HOME] Returning ALL ${creators.length} creator(s)');
-      debugPrint('   Creators: ${creators.map((c) => c.name).join(", ")}');
       return creators;
     },
     loading: () => [],
     error: (_, __) => [],
   );
 });
->>>>>>> 6caedcda0209c58437b74b5a57398940c89ff7ed

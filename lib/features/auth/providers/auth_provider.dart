@@ -209,7 +209,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
       debugPrint('   📧 Email: ${firebaseUser.email ?? "N/A"}');
       debugPrint('   📱 Phone: ${firebaseUser.phoneNumber ?? "N/A"}');
       
-      state = state.copyWith(isLoading: true, error: null);
+      // 🔥 FIX: Always set firebaseUser in state, even before sync attempt.
+      // This ensures state.firebaseUser is available for retry if sync fails.
+      state = state.copyWith(
+        isLoading: true,
+        error: null,
+        firebaseUser: firebaseUser,
+      );
       
       // CRITICAL: Test backend connectivity before attempting login
       debugPrint('🧪 [AUTH] Testing backend connectivity...');
@@ -443,7 +449,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
         errorMessage = 'Network error, no connection please try again.';
       }
       
+      // 🔥 FIX: Preserve firebaseUser in error state so retry mechanism works.
       state = state.copyWith(
+        firebaseUser: firebaseUser,
         isLoading: false,
         error: errorMessage,
       );
@@ -469,9 +477,26 @@ class AuthNotifier extends StateNotifier<AuthState> {
       }
       
       // 🔥 GUARD: Already signed in — don't call verifyPhoneNumber again
+      // BUT: If the app state isn't authenticated (e.g. backend sync failed
+      //       on a previous attempt), retry the sync instead of returning silently.
       if (_auth!.currentUser != null) {
-        debugPrint('⏭️ [PHONE AUTH] BLOCKED - User already signed in');
+        debugPrint('⏭️ [PHONE AUTH] User already signed in with Firebase');
         debugPrint('   🆔 UID: ${_auth!.currentUser!.uid}');
+        
+        if (!state.isAuthenticated) {
+          debugPrint('🔄 [PHONE AUTH] App state NOT authenticated — retrying backend sync');
+          // Clear previous error so UI shows loading instead of stale error
+          state = state.copyWith(
+            isLoading: true,
+            error: null,
+            firebaseUser: _auth!.currentUser,
+          );
+          _lastSyncedUid = null; // Reset so sync is allowed
+          _isSyncingToBackend = false; // Reset guard so sync proceeds
+          await _syncUserToBackend(_auth!.currentUser!);
+        } else {
+          debugPrint('✅ [PHONE AUTH] Already fully authenticated — no action needed');
+        }
         return;
       }
       

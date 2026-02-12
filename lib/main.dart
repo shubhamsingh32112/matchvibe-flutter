@@ -22,14 +22,7 @@ void main() async {
   // Note: You'll need to add your firebase_options.dart file
   // Run: flutterfire configure
   try {
-<<<<<<< HEAD
     await Firebase.initializeApp();
-=======
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-    _firebaseInitialized = true;
->>>>>>> 6caedcda0209c58437b74b5a57398940c89ff7ed
     debugPrint('✅ Firebase initialized successfully');
   } catch (e) {
     debugPrint('❌ Firebase initialization error: $e');

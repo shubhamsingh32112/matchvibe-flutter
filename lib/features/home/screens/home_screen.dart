@@ -17,11 +17,8 @@ import '../../auth/providers/auth_provider.dart';
 import '../../../core/services/welcome_service.dart';
 import '../../../core/services/permission_prompt_service.dart';
 import '../providers/home_provider.dart';
-<<<<<<< HEAD
 import '../providers/availability_provider.dart';
-=======
-// 🔥 REMOVED: creator_presence_provider.dart - replaced by Socket.IO availability
->>>>>>> 6caedcda0209c58437b74b5a57398940c89ff7ed
+import '../../../core/services/availability_socket_service.dart' hide creatorStatusProvider;
 import '../widgets/home_user_grid_card.dart';
 import '../../creator/providers/creator_dashboard_provider.dart';
 import '../../creator/providers/creator_task_provider.dart';
@@ -43,7 +40,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   void initState() {
     super.initState();
-<<<<<<< HEAD
     // Check and show welcome dialog if needed
     _checkAndShowWelcomeDialog();
     // Check and request video permissions for users
@@ -92,33 +88,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     } catch (e) {
       debugPrint('❌ [HOME] Failed to hydrate availability: $e');
     }
-=======
-    // ✅ DO NOT use ref.read() or ref.watch() in initState()
-    // ✅ DO NOT call async methods that use context here
-    // Logic moved to didChangeDependencies() where ProviderScope is available
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    
-    // ✅ SAFE: ProviderScope is now available
-    // ✅ Run initialization logic only once
-    if (_initialized) return;
-    _initialized = true;
-    
-    // 🔥 REMOVED: Stream presence listener
-    // Availability is now handled by Socket.IO via creatorStatusProvider
-    // Individual cards watch their own availability status
-    
-    // Schedule async operations after first frame
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      
-      _checkAndShowWelcomeDialog();
-      _checkAndRequestVideoPermissions();
-    });
->>>>>>> 6caedcda0209c58437b74b5a57398940c89ff7ed
   }
 
   Future<void> _checkAndShowWelcomeDialog() async {
@@ -171,9 +140,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   ///   1. User is a regular user (not creator/admin)
   ///   2. User hasn't already claimed the bonus (backend flag)
   ///   3. The dialog hasn't already been shown on this device (local flag)
-  ///
-  /// The local flag ensures that even if the user dismisses with "No thanks",
-  /// the popup never appears again.
   Future<void> _checkAndShowBonusDialog() async {
     if (!mounted) return;
     final authState = ref.read(authProvider);
@@ -251,15 +217,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   /// Check and request video permissions for users
-  /// Only shows dialog once (persisted across sessions) if permissions are not granted
-  /// 
-  /// 🔥 CRITICAL: Uses persistent flag to prevent showing on every rebuild
-  /// Prevents dialog spam on hot reloads, theme changes, navigation back, etc.
   Future<void> _checkAndRequestVideoPermissions() async {
     // Wait for auth state to be available
     await Future.delayed(const Duration(milliseconds: 500));
     
-    if (!mounted) return; // ✅ Guard: Check mounted before any context/ref usage
+    if (!mounted) return;
     
     final authState = ref.read(authProvider);
     final user = authState.user;
@@ -272,7 +234,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // Check if permissions are already granted
     final hasPermissions = await PermissionService.hasCameraAndMicrophonePermissions();
     
-    if (!mounted) return; // ✅ Guard: Check mounted after async operation
+    if (!mounted) return;
     
     if (hasPermissions) {
       debugPrint('✅ [HOME] Camera and microphone permissions already granted');
@@ -280,10 +242,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
     
     // 🔥 CRITICAL: Check persistent flag (not session flag)
-    // This prevents showing dialog on every rebuild/hot reload/navigation
     final hasShownPrompt = await PermissionPromptService.hasShownPermissionPrompt();
     
-    if (!mounted) return; // ✅ Guard: Check mounted after async operation
+    if (!mounted) return;
     
     if (hasShownPrompt) {
       debugPrint('⏭️  [HOME] Permission prompt already shown (persisted)');
@@ -293,18 +254,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // Wait a bit more for UI to stabilize
     await Future.delayed(const Duration(milliseconds: 1000));
     
-    if (!mounted) return; // ✅ Guard: Check mounted after async delay
+    if (!mounted) return;
     
     // Mark as shown BEFORE showing dialog (prevents race conditions)
     await PermissionPromptService.markPermissionPromptAsShown();
     
-    if (!mounted) return; // ✅ Guard: Check mounted before showing dialog
+    if (!mounted) return;
     _showVideoPermissionDialog();
   }
 
   /// Show dialog requesting video permissions
   void _showVideoPermissionDialog() {
-    if (!mounted) return; // ✅ Guard: Never show dialog if widget is disposed
+    if (!mounted) return;
     
     final scheme = Theme.of(context).colorScheme;
     
@@ -328,7 +289,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         actions: [
           TextButton(
             onPressed: () {
-              if (mounted && context.mounted) { // ✅ Guard: Check both mounted and context.mounted
+              if (mounted && context.mounted) {
                 Navigator.of(context).pop();
               }
             },
@@ -336,17 +297,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
           ElevatedButton(
             onPressed: () async {
-              if (mounted && context.mounted) { // ✅ Guard: Check before navigation
+              if (mounted && context.mounted) {
                 Navigator.of(context).pop();
               }
               
               try {
                 final granted = await PermissionService.ensureCameraAndMicrophonePermissions();
                 
-                if (!mounted) return; // ✅ Guard: Check mounted after async operation
+                if (!mounted) return;
                 
                 if (granted) {
-                  if (mounted && context.mounted) { // ✅ Guard: Check before showing snackbar
+                  if (mounted && context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: const Text('Permissions granted! You can now make video calls.'),
@@ -356,8 +317,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     );
                   }
                 } else {
-                  if (mounted && context.mounted) { // ✅ Guard: Check before showing snackbar
-                    // Permissions denied - show message about settings
+                  if (mounted && context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: const Text(
@@ -369,7 +329,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           label: 'Settings',
                           textColor: scheme.onErrorContainer,
                           onPressed: () async {
-                            // Open app settings so user can enable permissions manually
                             await PermissionService.openAppSettings();
                           },
                         ),
@@ -378,9 +337,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   }
                 }
               } catch (e) {
-                if (!mounted) return; // ✅ Guard: Check mounted after error
+                if (!mounted) return;
                 
-                if (mounted && context.mounted) { // ✅ Guard: Check before showing snackbar
+                if (mounted && context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Error: ${e.toString()}'),
@@ -406,9 +365,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final isCreator = user?.role == 'creator' || user?.role == 'admin';
     final isRegularUser = user?.role == 'user';
     final scheme = Theme.of(context).colorScheme;
-
-    // 🔥 REMOVED: Stream presence listener
-    // Availability is now handled by Socket.IO via creatorStatusProvider
 
     return MainLayout(
         selectedIndex: 0,
@@ -454,18 +410,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             height: MediaQuery.of(context).size.height - 200,
             child: EmptyState(
               icon: isCreator ? Icons.people_outline : Icons.person_outline,
-<<<<<<< HEAD
               title: isCreator ? 'No users available' : 'No creators available',
               message: isCreator ? 'Users will appear here when they join' : 'Creators will appear here when they join',
-            );
-=======
-              title: isCreator ? 'No users available' : 'No online creators available',
-              message: isCreator ? 'Users will appear here when they join' : 'Creators will appear here when they go online',
             ),
           ),
         ),
       );
     }
+
     // Users-only: separate favorites from the rest (favorites are pinned at top)
     final List<CreatorModel> favoriteCreators = [];
     final List<CreatorModel> otherCreators = [];
@@ -476,7 +428,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             favoriteCreators.add(item);
           } else {
             otherCreators.add(item);
->>>>>>> 6caedcda0209c58437b74b5a57398940c89ff7ed
           }
         }
       }

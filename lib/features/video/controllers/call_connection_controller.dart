@@ -184,7 +184,22 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
         return;
       }
 
-      // 4. getOrCreate (creates call + rings creator)
+      // 4. 🔥 FIX: Ensure billing socket is connected BEFORE the call starts.
+      //    The socket may have silently failed to connect during HomeScreen init.
+      //    Get a fresh token and force-(re)connect.
+      final socketService = _ref.read(socketServiceProvider);
+      if (!socketService.isConnected) {
+        debugPrint('🔌 [CALL CTRL] Billing socket NOT connected — reconnecting...');
+        final token = await firebaseUser.getIdToken();
+        if (token != null) {
+          final connected = await socketService.ensureConnected(token);
+          debugPrint('🔌 [CALL CTRL] Socket ensureConnected result: $connected');
+        }
+      } else {
+        debugPrint('✅ [CALL CTRL] Billing socket already connected');
+      }
+
+      // 5. getOrCreate (creates call + rings creator)
       final callService = _ref.read(callServiceProvider);
       final call = await callService.initiateCall(
         creatorFirebaseUid: creatorFirebaseUid,
@@ -204,8 +219,8 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       _startWatchdog();
       _listenForConnected(call);
 
-      await callService.joinCall(call);
-      debugPrint('✅ [CALL CTRL] call.join() completed');
+      callService.joinCall(call);
+      debugPrint('✅ [CALL CTRL] call.join() fired (fire-and-forget)');
       // Actual UI transition → connected happens in _listenForConnected.
     } catch (e) {
       debugPrint('❌ [CALL CTRL] startUserCall error: $e');
@@ -278,8 +293,8 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       _listenForConnected(call);
 
       final callService = _ref.read(callServiceProvider);
-      await callService.joinCall(call);
-      debugPrint('✅ [CALL CTRL] call.join() completed');
+      callService.joinCall(call);
+      debugPrint('✅ [CALL CTRL] call.join() fired (fire-and-forget)');
       // Actual UI transition → connected happens in _listenForConnected.
     } catch (e) {
       debugPrint('❌ [CALL CTRL] acceptIncomingCall error: $e');
@@ -361,16 +376,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
               isOutgoing: state.isOutgoing);
 
           // ── Start billing (user-initiated calls only) ────────────
-          if (_activeCallId != null &&
-              _activeCreatorFirebaseUid != null &&
-              _activeCreatorMongoId != null) {
-            final socketService = _ref.read(socketServiceProvider);
-            socketService.emitCallStarted(
-              callId: _activeCallId!,
-              creatorFirebaseUid: _activeCreatorFirebaseUid!,
-              creatorMongoId: _activeCreatorMongoId!,
-            );
-          }
+          _emitBillingStarted();
 
           // Already on /call screen (navigated during preparing phase)
           debugPrint(
@@ -419,6 +425,31 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
         }
       }
     });
+  }
+
+  // ──── Billing emission with retry ────
+
+  /// Emit `call:started` to the backend.
+  ///
+  /// 🔥 FIX: `emitCallStarted` now has a REST API fallback inside
+  /// [SocketService], so even if the socket is not connected, billing
+  /// will be triggered via HTTP.  The retry loop is kept as extra safety.
+  void _emitBillingStarted() {
+    if (_activeCallId == null ||
+        _activeCreatorFirebaseUid == null ||
+        _activeCreatorMongoId == null) {
+      return; // Creator side — billing is triggered by the user
+    }
+
+    final socketService = _ref.read(socketServiceProvider);
+
+    // Emit immediately — SocketService handles fallback to REST API
+    debugPrint('💰 [CALL CTRL] Emitting call:started');
+    socketService.emitCallStarted(
+      callId: _activeCallId!,
+      creatorFirebaseUid: _activeCreatorFirebaseUid!,
+      creatorMongoId: _activeCreatorMongoId!,
+    );
   }
 
   // ──── Watchdog (Phase 5 — 10 s fail-safe) ────

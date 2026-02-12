@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../constants/app_constants.dart';
+import '../api/api_client.dart';
 
 /// Singleton Socket.IO service for real-time creator availability
 /// and per-second call billing.
@@ -13,10 +15,17 @@ import '../constants/app_constants.dart';
 ///
 /// The service automatically re-sends the last availability request
 /// on reconnect so the UI stays fresh without manual intervention.
+///
+/// Billing events have a **REST API fallback**: if the socket is not
+/// connected, [emitCallStarted] / [emitCallEnded] will call the HTTP
+/// endpoint directly so billing is never silently dropped.
 class SocketService {
   io.Socket? _socket;
   bool _isConnected = false;
   List<String> _lastRequestedIds = [];
+  // ── Pending billing events (queued when socket is disconnected) ─────────
+  Map<String, dynamic>? _pendingCallStarted;
+  Map<String, dynamic>? _pendingCallEnded;
 
   // ── Availability callbacks ──────────────────────────────────────────────
   void Function(Map<String, String>)? onAvailabilityBatch;
@@ -38,10 +47,25 @@ class SocketService {
   bool get isConnected => _isConnected;
 
   // ── Connect ─────────────────────────────────────────────────────────────
+  /// Connect to the Socket.IO server.
+  ///
+  /// 🔥 FIX: If the socket exists but is NOT connected (stale), it is
+  /// disposed and re-created.  The old code had `if (_socket != null) return`
+  /// which silently skipped reconnection attempts after the first failure.
   void connect(String firebaseToken) {
-    if (_socket != null) {
-      debugPrint('🔌 [SOCKET] Already initialised, skipping connect');
+    // Already connected — nothing to do
+    if (_socket != null && _isConnected) {
+      debugPrint('🔌 [SOCKET] Already connected, skipping');
       return;
+    }
+
+    // Socket exists but is NOT connected → dispose stale socket first
+    if (_socket != null) {
+      debugPrint('🔌 [SOCKET] Stale socket detected (not connected). Disposing and reconnecting...');
+      _socket!.disconnect();
+      _socket!.dispose();
+      _socket = null;
+      _isConnected = false;
     }
 
     debugPrint('🔌 [SOCKET] Connecting to ${AppConstants.socketUrl}...');
@@ -53,11 +77,14 @@ class SocketService {
           .setAuth({'token': firebaseToken})
           .disableAutoConnect()
           .enableReconnection()
+          .setReconnectionAttempts(10)
+          .setReconnectionDelay(1000)
+          .setReconnectionDelayMax(5000)
           .build(),
     );
 
     _socket!.onConnect((_) {
-      debugPrint('✅ [SOCKET] Connected');
+      debugPrint('✅ [SOCKET] Connected to ${AppConstants.socketUrl}');
       _isConnected = true;
 
       // Re-request availability on (re)connect
@@ -67,6 +94,9 @@ class SocketService {
         );
         _socket!.emit('availability:get', {'creatorIds': _lastRequestedIds});
       }
+
+      // Flush any pending billing events that were queued while disconnected
+      _flushPendingBillingEvents();
     });
 
     _socket!.on('availability:batch', (data) {
@@ -146,6 +176,13 @@ class SocketService {
       if (_lastRequestedIds.isNotEmpty) {
         _socket!.emit('availability:get', {'creatorIds': _lastRequestedIds});
       }
+
+      // Flush any pending billing events that were queued while disconnected
+      _flushPendingBillingEvents();
+    });
+
+    _socket!.onConnectError((error) {
+      debugPrint('❌ [SOCKET] Connection error: $error');
     });
 
     _socket!.onError((error) {
@@ -153,6 +190,30 @@ class SocketService {
     });
 
     _socket!.connect();
+  }
+
+  // ── Ensure Connected ───────────────────────────────────────────────────
+  /// Ensure the socket is connected.  If not, (re)connect with the given
+  /// [token] and wait up to 3 seconds for the connection to establish.
+  ///
+  /// Returns `true` if connected, `false` if the timeout elapsed.
+  Future<bool> ensureConnected(String token) async {
+    if (_isConnected) return true;
+
+    debugPrint('🔄 [SOCKET] ensureConnected — socket is NOT connected, reconnecting...');
+    connect(token);
+
+    // Wait up to 3 seconds for the connection to establish
+    for (int i = 0; i < 30; i++) {
+      if (_isConnected) {
+        debugPrint('✅ [SOCKET] ensureConnected — connected after ${i * 100}ms');
+        return true;
+      }
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+
+    debugPrint('⚠️ [SOCKET] ensureConnected — timed out after 3s, socket still not connected');
+    return false;
   }
 
   // ── Request Availability ────────────────────────────────────────────────
@@ -180,31 +241,90 @@ class SocketService {
   // ── Billing Emitters ────────────────────────────────────────────────────
 
   /// Notify the backend that a call has started (triggers billing loop).
+  ///
+  /// 🔥 FIX: If the socket is not connected, we now call the REST API
+  /// directly as a fallback so billing is never silently dropped.
   void emitCallStarted({
     required String callId,
     required String creatorFirebaseUid,
     required String creatorMongoId,
   }) {
-    if (_socket == null || !_isConnected) {
-      debugPrint('⚠️ [SOCKET] Cannot emit call:started — not connected');
-      return;
-    }
-    debugPrint('💰 [SOCKET] Emitting call:started for $callId');
-    _socket!.emit('call:started', {
+    final data = {
       'callId': callId,
       'creatorFirebaseUid': creatorFirebaseUid,
       'creatorMongoId': creatorMongoId,
-    });
+    };
+
+    if (_socket != null && _isConnected) {
+      debugPrint('💰 [SOCKET] Emitting call:started for $callId');
+      _socket!.emit('call:started', data);
+      _pendingCallStarted = null;
+      return;
+    }
+
+    // Socket not connected → use REST API fallback
+    debugPrint(
+        '⚠️ [SOCKET] Cannot emit call:started — not connected. Using REST API fallback for $callId');
+    _pendingCallStarted = data;
+    _billingViaHttp('call-started', data);
   }
 
   /// Notify the backend that a call has ended (triggers settlement).
+  ///
+  /// 🔥 FIX: If the socket is not connected, we now call the REST API
+  /// directly as a fallback so settlement is never silently dropped.
   void emitCallEnded({required String callId}) {
-    if (_socket == null || !_isConnected) {
-      debugPrint('⚠️ [SOCKET] Cannot emit call:ended — not connected');
+    final data = {'callId': callId};
+
+    if (_socket != null && _isConnected) {
+      debugPrint('💰 [SOCKET] Emitting call:ended for $callId');
+      _socket!.emit('call:ended', data);
+      _pendingCallEnded = null;
       return;
     }
-    debugPrint('💰 [SOCKET] Emitting call:ended for $callId');
-    _socket!.emit('call:ended', {'callId': callId});
+
+    // Socket not connected → use REST API fallback
+    debugPrint(
+        '⚠️ [SOCKET] Cannot emit call:ended — not connected. Using REST API fallback for $callId');
+    _pendingCallEnded = data;
+    _billingViaHttp('call-ended', data);
+  }
+
+  /// REST API fallback for billing events when the socket is down.
+  Future<void> _billingViaHttp(String event, Map<String, dynamic> data) async {
+    try {
+      debugPrint('🌐 [BILLING HTTP] POST /billing/$event with data: $data');
+      final response = await ApiClient().post('/billing/$event', data: data);
+      debugPrint('✅ [BILLING HTTP] $event response: ${response.statusCode}');
+      // Clear the pending event on success
+      if (event == 'call-started') {
+        _pendingCallStarted = null;
+      } else if (event == 'call-ended') {
+        _pendingCallEnded = null;
+      }
+    } catch (e) {
+      debugPrint('❌ [BILLING HTTP] $event failed: $e');
+      // Keep the pending event so it can be flushed on socket reconnect
+    }
+  }
+
+  /// Flush any pending billing events that were queued while disconnected.
+  void _flushPendingBillingEvents() {
+    if (_socket == null || !_isConnected) return;
+
+    if (_pendingCallStarted != null) {
+      debugPrint(
+          '💰 [SOCKET] Flushing queued call:started for ${_pendingCallStarted!['callId']}');
+      _socket!.emit('call:started', _pendingCallStarted!);
+      _pendingCallStarted = null;
+    }
+
+    if (_pendingCallEnded != null) {
+      debugPrint(
+          '💰 [SOCKET] Flushing queued call:ended for ${_pendingCallEnded!['callId']}');
+      _socket!.emit('call:ended', _pendingCallEnded!);
+      _pendingCallEnded = null;
+    }
   }
 
   // ── Disconnect ──────────────────────────────────────────────────────────
@@ -215,5 +335,7 @@ class SocketService {
     _socket = null;
     _isConnected = false;
     _lastRequestedIds = [];
+    _pendingCallStarted = null;
+    _pendingCallEnded = null;
   }
 }

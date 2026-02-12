@@ -1,1 +1,1 @@
-powershell -ExecutionPolicy Bypass -File .\setup-adb-tunnels.ps1
+_powershell -ExecutionPolicy Bypass -File .\setup-adb-tunnels.ps1_

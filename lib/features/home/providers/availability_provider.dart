@@ -31,6 +31,13 @@ class CreatorAvailabilityNotifier
     state = newState;
   }
 
+  /// Seed initial availability from the REST API response.
+  /// Runs once on first load; after that socket events are authoritative.
+  void seedFromApi(Map<String, CreatorAvailability> data) {
+    if (state.isNotEmpty) return; // Already seeded by socket events
+    state = Map<String, CreatorAvailability>.from(data);
+  }
+
   /// Get availability for one creator. **Default = busy**.
   CreatorAvailability getAvailability(String? creatorId) {
     if (creatorId == null) return CreatorAvailability.busy;
