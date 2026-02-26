@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/constants/app_constants.dart';
 import '../../features/auth/providers/auth_provider.dart';
+import '../../features/chat/providers/stream_chat_provider.dart';
 import '../../features/creator/providers/creator_dashboard_provider.dart';
 import '../../features/creator/providers/creator_status_provider.dart';
 import '../../features/recent/providers/recent_provider.dart';
@@ -45,8 +46,11 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
+    final unreadCountAsync = ref.watch(chatUnreadCountProvider);
     final billingState = ref.watch(callBillingProvider);
+    final unreadCount = unreadCountAsync.valueOrNull ?? 0;
     final isCreator = authState.user?.role == 'creator' || authState.user?.role == 'admin';
+    final isRegularUser = authState.user?.role == 'user';
     final isHomePage = widget.selectedIndex == 0;
 
     // During an active call, show live Redis coins; otherwise show MongoDB coins
@@ -137,6 +141,13 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                 },
               ),
             ],
+            // Favorites shortcut for users on homepage only
+            if (isHomePage && isRegularUser)
+              IconButton(
+                tooltip: 'Favorite creators',
+                icon: const Icon(Icons.favorite_border),
+                onPressed: () => context.push('/home/favorites'),
+              ),
             // Coins display
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -172,23 +183,31 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
       bottomNavigationBar: NavigationBar(
           selectedIndex: widget.selectedIndex,
           onDestinationSelected: _onItemTapped,
-          destinations: const [
-            NavigationDestination(
+          destinations: [
+            const NavigationDestination(
               icon: Icon(Icons.home_outlined),
               selectedIcon: Icon(Icons.home),
               label: 'Home',
             ),
-            NavigationDestination(
+            const NavigationDestination(
               icon: Icon(Icons.history_outlined),
               selectedIcon: Icon(Icons.history),
               label: 'Recent',
             ),
             NavigationDestination(
-              icon: Icon(Icons.chat_bubble_outline),
-              selectedIcon: Icon(Icons.chat_bubble),
+              icon: Badge(
+                isLabelVisible: unreadCount > 0,
+                label: Text(unreadCount.toString()),
+                child: const Icon(Icons.chat_bubble_outline),
+              ),
+              selectedIcon: Badge(
+                isLabelVisible: unreadCount > 0,
+                label: Text(unreadCount.toString()),
+                child: const Icon(Icons.chat_bubble),
+              ),
               label: 'Chat',
             ),
-            NavigationDestination(
+            const NavigationDestination(
               icon: Icon(Icons.person_outline),
               selectedIcon: Icon(Icons.person),
               label: 'Account',

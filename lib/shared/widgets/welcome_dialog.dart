@@ -42,7 +42,7 @@ class WelcomeDialog extends StatelessWidget {
                 ),
                 child: Center(
                   child: Text(
-                    'e',
+                    'M',
                     style: TextStyle(
                       fontSize: 36,
                       fontWeight: FontWeight.bold,
@@ -55,7 +55,7 @@ class WelcomeDialog extends StatelessWidget {
               
               // Title
               const Text(
-                'Welcome to Eaze',
+                'Welcome to Match Vibe',
                 style: TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.bold,
@@ -105,7 +105,7 @@ class WelcomeDialog extends StatelessWidget {
                   ),
                   children: [
                     TextSpan(
-                      text: 'By using Eaze, you\'re agreeing to adhere to our values as well as our ',
+                      text: 'By using Match Vibe, you\'re agreeing to adhere to our values as well as our ',
                     ),
                     TextSpan(
                       text: 'guidelines',

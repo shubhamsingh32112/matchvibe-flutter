@@ -5,6 +5,7 @@ class CallHistoryModel extends Equatable {
   final String callId;
   final String ownerUserId;
   final String otherUserId;
+  final String? otherCreatorId; // Creator._id (only when other party is a creator)
   final String otherName;
   final String? otherAvatar;
   final String otherFirebaseUid;
@@ -19,6 +20,7 @@ class CallHistoryModel extends Equatable {
     required this.callId,
     required this.ownerUserId,
     required this.otherUserId,
+    this.otherCreatorId,
     required this.otherName,
     this.otherAvatar,
     required this.otherFirebaseUid,
@@ -29,12 +31,16 @@ class CallHistoryModel extends Equatable {
     required this.createdAt,
   });
 
+  /// The Mongo ID to use for billing (Creator._id preferred, User._id fallback).
+  String get otherMongoIdForCall => otherCreatorId ?? otherUserId;
+
   factory CallHistoryModel.fromJson(Map<String, dynamic> json) {
     return CallHistoryModel(
       id: json['_id'] as String? ?? '',
       callId: json['callId'] as String? ?? '',
       ownerUserId: json['ownerUserId'] as String? ?? '',
       otherUserId: json['otherUserId'] as String? ?? '',
+      otherCreatorId: json['otherCreatorId'] as String?,
       otherName: json['otherName'] as String? ?? 'Unknown',
       otherAvatar: json['otherAvatar'] as String?,
       otherFirebaseUid: json['otherFirebaseUid'] as String? ?? '',
@@ -62,5 +68,5 @@ class CallHistoryModel extends Equatable {
   bool get isOutgoing => ownerRole == 'user';
 
   @override
-  List<Object?> get props => [id, callId, ownerUserId, otherUserId, createdAt];
+  List<Object?> get props => [id, callId, ownerUserId, otherUserId, otherCreatorId, createdAt];
 }

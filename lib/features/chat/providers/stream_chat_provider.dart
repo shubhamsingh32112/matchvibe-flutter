@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stream_chat_flutter/stream_chat_flutter.dart';
@@ -32,6 +33,7 @@ class StreamChatNotifier extends StateNotifier<StreamChatClient?> {
     required String username,
     String? avatarUrl,
     required String streamToken,
+    String? mongoId, // MongoDB user id for call/chat metadata
     String? appRole, // 'user' | 'creator' | 'admin'
     bool? available, // For creators: whether they want to accept calls
   }) async {
@@ -55,6 +57,7 @@ class StreamChatNotifier extends StateNotifier<StreamChatClient?> {
           name: username,
           image: avatarUrl,
           extraData: {
+            if (mongoId != null) 'mongoId': mongoId,
             if (appRole != null) 'appRole': appRole,
             if (available != null) 'available': available,
           },
@@ -88,4 +91,28 @@ class StreamChatNotifier extends StateNotifier<StreamChatClient?> {
 final streamChatNotifierProvider =
     StateNotifierProvider<StreamChatNotifier, StreamChatClient?>((ref) {
   return StreamChatNotifier();
+});
+
+/// Total unread chat messages for the currently connected Stream user.
+final chatUnreadCountProvider = StreamProvider<int>((ref) {
+  final client = ref.watch(streamChatNotifierProvider);
+  if (client == null) {
+    return Stream<int>.value(0);
+  }
+
+  int getUnread() => client.state.currentUser?.totalUnreadCount ?? 0;
+
+  final controller = StreamController<int>();
+  controller.add(getUnread());
+
+  final sub = client.on().listen((_) {
+    controller.add(getUnread());
+  });
+
+  ref.onDispose(() async {
+    await sub.cancel();
+    await controller.close();
+  });
+
+  return controller.stream.distinct();
 });

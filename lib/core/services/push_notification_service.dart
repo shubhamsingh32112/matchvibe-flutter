@@ -1,9 +1,11 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:stream_chat_flutter/stream_chat_flutter.dart';
+import '../../app/router/app_router.dart';
 
 /// Top-level notification tap handler.
 /// Used by main.dart when initializing the plugin globally.
@@ -37,12 +39,9 @@ class PushNotificationService {
 
   /// The single shared plugin instance — injected once from main.dart.
   /// MUST call [setNotificationsPlugin] before [initialize].
-  late final FlutterLocalNotificationsPlugin _localNotifications;
-
   /// Inject the globally-initialized [FlutterLocalNotificationsPlugin].
   /// Call this exactly once from main.dart after initializing the plugin.
-  void setNotificationsPlugin(FlutterLocalNotificationsPlugin plugin) {
-    _localNotifications = plugin;
+  void setNotificationsPlugin(FlutterLocalNotificationsPlugin _) {
     debugPrint('🔔 [PUSH] Notifications plugin injected');
   }
 
@@ -55,19 +54,16 @@ class PushNotificationService {
   /// When set, notifications for this channel are suppressed.
   static String? activeChannelId;
 
-  // ─── Android notification channel ──────────────────────────────────
-  static const String _channelId = 'chat_messages';
-  static const String _channelName = 'Chat Messages';
-  static const String _channelDescription =
-      'Notifications for new chat messages';
-
   // ─── Public API ────────────────────────────────────────────────────
 
   /// Initialize the push notification service and register with Stream.
   ///
   /// Call this **after** `client.connectUser()` succeeds.
   /// Safe to call multiple times — will re-attach event listeners.
-  Future<void> initialize(StreamChatClient client) async {
+  Future<void> initialize(
+    StreamChatClient client, {
+    bool enableOutsideAppNotifications = false,
+  }) async {
     debugPrint('🔔 [PUSH] initialize() called, _initialized=$_initialized');
 
     // Always update client reference and re-attach WebSocket listener
@@ -103,15 +99,18 @@ class PushNotificationService {
 
       // 2. (Local notifications plugin is already initialized in main.dart)
 
-      // 3. Get FCM token and register with Stream
+      // 3. Never register FCM device token: app uses in-app previews only.
+      if (enableOutsideAppNotifications) {
+        debugPrint('🔕 [PUSH] Outside-app notifications are disabled in in-app mode');
+      }
       final token = await _firebaseMessaging.getToken();
       debugPrint('🔔 [PUSH] FCM token: ${token != null ? '${token.substring(0, 20)}...' : 'NULL'}');
       if (token != null) {
-        await _registerDeviceToken(token);
+        await _removeDeviceToken(token);
       }
 
-      // 4. Listen for token refreshes
-      _firebaseMessaging.onTokenRefresh.listen(_registerDeviceToken);
+      // 4. Ensure refreshed tokens also remain unregistered.
+      _firebaseMessaging.onTokenRefresh.listen(_removeDeviceToken);
 
       // 5. Listen for foreground FCM messages (fallback for when WS is down)
       FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
@@ -186,15 +185,10 @@ class PushNotificationService {
 
     debugPrint('📨 [PUSH] Showing notification: $senderName → $messageText');
 
-    _showLocalNotification(
-      id: message.id.hashCode,
+    _showInAppNotificationPreview(
       title: senderName,
       body: messageText,
-      payload: jsonEncode({
-        'channel_id': rawChannelId,
-        'channel_cid': channelCid,
-        'message_id': message.id,
-      }),
+      channelId: rawChannelId,
     );
   }
 
@@ -212,18 +206,15 @@ class PushNotificationService {
     );
   }
 
-  /// Register FCM token with Stream Chat backend.
-  Future<void> _registerDeviceToken(String token) async {
+  Future<void> _removeDeviceToken(String token) async {
     try {
       if (_streamClient == null || _streamClient!.state.currentUser == null) {
-        debugPrint('⚠️ [PUSH] Cannot register token — client not connected');
         return;
       }
-
-      await _streamClient!.addDevice(token, PushProvider.firebase);
-      debugPrint('✅ [PUSH] Device token registered with Stream');
+      await _streamClient!.removeDevice(token);
+      debugPrint('🗑️ [PUSH] Device token removed from Stream');
     } catch (e) {
-      debugPrint('❌ [PUSH] Error registering device token: $e');
+      debugPrint('⚠️ [PUSH] Error removing device token: $e');
     }
   }
 
@@ -248,7 +239,6 @@ class PushNotificationService {
 
   void _showFcmChatNotification(RemoteMessage message) {
     final data = message.data;
-    final messageId = data['id'] as String? ?? '';
     final type = data['type'] as String?;
 
     if (type != 'message.new') return;
@@ -271,11 +261,10 @@ class PushNotificationService {
       body = message.notification!.body ?? body;
     }
 
-    _showLocalNotification(
-      id: messageId.hashCode,
+    _showInAppNotificationPreview(
       title: title,
       body: body,
-      payload: jsonEncode(data),
+      channelId: channelId,
     );
   }
 
@@ -283,43 +272,43 @@ class PushNotificationService {
     final notification = message.notification;
     if (notification == null) return;
 
-    _showLocalNotification(
-      id: notification.hashCode,
+    _showInAppNotificationPreview(
       title: notification.title ?? 'New Message',
       body: notification.body ?? 'You have a new message',
-      payload: jsonEncode(message.data),
+      channelId: message.data['channel_id'] as String?,
     );
   }
 
-  /// Display a local notification.
-  Future<void> _showLocalNotification({
-    required int id,
+  /// Display an in-app popup preview with notification sound.
+  Future<void> _showInAppNotificationPreview({
     required String title,
     required String body,
-    String? payload,
+    String? channelId,
   }) async {
-    const androidDetails = AndroidNotificationDetails(
-      _channelId,
-      _channelName,
-      channelDescription: _channelDescription,
-      importance: Importance.high,
-      priority: Priority.high,
-      showWhen: true,
-    );
+    final context = appRouter.routerDelegate.navigatorKey.currentContext;
+    if (context == null) return;
 
-    const iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-    );
+    // In-app sound only (no system notification tray entry).
+    SystemSound.play(SystemSoundType.alert);
 
-    const details = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) return;
 
-    await _localNotifications.show(id, title, body, details, payload: payload);
-    debugPrint('🔔 [PUSH] Local notification shown: "$title" — "$body"');
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 4),
+        content: Text('$title: $body'),
+        action: channelId == null
+            ? null
+            : SnackBarAction(
+                label: 'Open',
+                onPressed: () => appRouter.push('/chat/$channelId'),
+              ),
+      ),
+    );
+    debugPrint('🔔 [PUSH] In-app preview shown: "$title" — "$body"');
   }
 
   void _handleNotificationTap(RemoteMessage message) {
@@ -333,56 +322,6 @@ class PushNotificationService {
 /// Called when a message arrives and the app is in the background or terminated.
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  debugPrint('📨 [PUSH] Background message received: ${message.data}');
-
-  final localNotifications = FlutterLocalNotificationsPlugin();
-
-  const androidSettings =
-      AndroidInitializationSettings('@mipmap/ic_launcher');
-  const initSettings = InitializationSettings(android: androidSettings);
-  await localNotifications.initialize(initSettings);
-
-  final data = message.data;
-  final sender = data['sender'] as String?;
-  final type = data['type'] as String?;
-
-  if (sender == 'stream.chat' && type == 'message.new') {
-    String title = 'New Message';
-    String body = 'You have a new message';
-
-    if (data.containsKey('channel_name')) {
-      title = data['channel_name'] as String? ?? title;
-    }
-    if (data.containsKey('message_text')) {
-      body = data['message_text'] as String? ?? body;
-    }
-
-    final messageId = data['id'] as String? ?? '';
-
-    const androidDetails = AndroidNotificationDetails(
-      'chat_messages',
-      'Chat Messages',
-      channelDescription: 'Notifications for new chat messages',
-      importance: Importance.high,
-      priority: Priority.high,
-      showWhen: true,
-    );
-
-    const details = NotificationDetails(android: androidDetails);
-
-    await localNotifications.show(
-      messageId.hashCode,
-      title,
-      body,
-      details,
-      payload: jsonEncode(data),
-    );
-  }
-
-  if (message.notification != null) {
-    debugPrint(
-      '📨 [PUSH] Background notification payload: '
-      '${message.notification?.title} - ${message.notification?.body}',
-    );
-  }
+  // In-app only notifications: no background/system notification should be shown.
+  debugPrint('📨 [PUSH] Background message ignored (in-app only mode): ${message.data}');
 }

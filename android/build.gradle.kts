@@ -5,20 +5,20 @@ allprojects {
     }
 }
 
-val newBuildDir: Directory =
-    rootProject.layout.buildDirectory
-        .dir("../../build")
-        .get()
-rootProject.layout.buildDirectory.value(newBuildDir)
+rootProject.buildDir = file("../build")
 
 subprojects {
-    val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
-    project.layout.buildDirectory.value(newSubprojectBuildDir)
+    val newBuildDir = file("${rootProject.buildDir}/${project.name}")
+    // Skip build dir override for plugins on a different drive (Windows cross-drive issue)
+    if (project.projectDir.toPath().root == newBuildDir.toPath().root) {
+        project.buildDir = newBuildDir
+    }
 }
+
 subprojects {
-    project.evaluationDependsOn(":app")
+    evaluationDependsOn(":app")
 }
 
 tasks.register<Delete>("clean") {
-    delete(rootProject.layout.buildDirectory)
+    delete(rootProject.buildDir)
 }

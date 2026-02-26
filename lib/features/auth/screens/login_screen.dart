@@ -557,7 +557,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             ),
                             const TextSpan(
                               text:
-                                  ' of Eaze. I also agree to receiving updates on WhatsApp/SMS.',
+                                  ' of Match Vibe. I also agree to receiving updates on WhatsApp/SMS.',
                             ),
                           ],
                         ),

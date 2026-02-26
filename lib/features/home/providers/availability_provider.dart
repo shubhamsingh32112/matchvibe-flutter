@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/services/socket_service.dart';
 import '../../creator/providers/creator_dashboard_provider.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../wallet/providers/wallet_pricing_provider.dart';
 
 // ── Enum ──────────────────────────────────────────────────────────────────
 enum CreatorAvailability { online, busy }
@@ -75,6 +76,17 @@ final socketServiceProvider = Provider<SocketService>((ref) {
     ref.invalidate(creatorDashboardProvider);
     // Also refresh the auth user so coin balance updates everywhere
     ref.read(authProvider.notifier).refreshUser();
+  };
+
+  // ── Coins updated: refresh auth state so balance updates everywhere ──
+  service.onCoinsUpdated = (data) {
+    debugPrint('💰 [SOCKET→PROVIDER] coins_updated received: $data');
+    ref.read(authProvider.notifier).refreshUser();
+  };
+
+  service.onWalletPricingUpdated = (data) {
+    debugPrint('💳 [SOCKET→PROVIDER] wallet_pricing_updated received: $data');
+    ref.invalidate(walletPricingProvider);
   };
 
   ref.onDispose(() {

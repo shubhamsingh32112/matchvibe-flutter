@@ -1,14 +1,15 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:stream_video_flutter/stream_video_flutter.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../controllers/call_connection_controller.dart';
 import '../providers/call_billing_provider.dart';
 import '../services/permission_service.dart';
 import '../services/security_service.dart';
+import '../utils/call_remote_image_resolver.dart';
 import '../../auth/providers/auth_provider.dart';
 
 /// Screen for active video call — **pure renderer**.
@@ -21,17 +22,41 @@ import '../../auth/providers/auth_provider.dart';
 /// call content on `connected`.
 ///
 /// On `idle` / `disconnecting`, navigates to `/home`.
-class VideoCallScreen extends ConsumerWidget {
+class VideoCallScreen extends ConsumerStatefulWidget {
   const VideoCallScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<VideoCallScreen> createState() => _VideoCallScreenState();
+}
+
+class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Keep the screen on for the entire duration of the call screen
+    WakelockPlus.enable();
+    debugPrint('🔆 [WAKELOCK] Screen wake lock ENABLED (call screen opened)');
+  }
+
+  @override
+  void dispose() {
+    // Release the wake lock when leaving the call screen
+    WakelockPlus.disable();
+    debugPrint('🔅 [WAKELOCK] Screen wake lock DISABLED (call screen closed)');
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final callState = ref.watch(callConnectionControllerProvider);
 
     switch (callState.phase) {
       case CallConnectionPhase.preparing:
       case CallConnectionPhase.joining:
-        return _OutgoingCallView(isOutgoing: callState.isOutgoing);
+        return _OutgoingCallView(
+          isOutgoing: callState.isOutgoing,
+          call: callState.call,
+        );
 
       case CallConnectionPhase.connected:
         return _VideoCallScreenContent(call: callState.call!);
@@ -64,7 +89,12 @@ class VideoCallScreen extends ConsumerWidget {
 /// For creators (incoming-accepted): "Connecting…" with a spinner.
 class _OutgoingCallView extends ConsumerStatefulWidget {
   final bool isOutgoing;
-  const _OutgoingCallView({required this.isOutgoing});
+  final Call? call;
+
+  const _OutgoingCallView({
+    required this.isOutgoing,
+    required this.call,
+  });
 
   @override
   ConsumerState<_OutgoingCallView> createState() => _OutgoingCallViewState();
@@ -97,108 +127,154 @@ class _OutgoingCallViewState extends ConsumerState<_OutgoingCallView>
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final statusText = widget.isOutgoing ? 'Calling…' : 'Connecting…';
+    final currentUserId = ref.watch(authProvider).firebaseUser?.uid;
+    final callConnectionState = ref.watch(callConnectionControllerProvider);
+    final remoteImageUrl = resolveRemoteImageUrl(
+      call: widget.call,
+      currentUserId: currentUserId,
+      fallbackImageUrl: callConnectionState.remoteImageFallbackUrl,
+      enableDebugLogs: true,
+      debugSourceTag: 'outgoing',
+    );
 
     return Scaffold(
       backgroundColor: scheme.surface,
-      body: SafeArea(
-        child: Column(
-          children: [
-            const Spacer(flex: 2),
-
-            // ── Pulsating avatar ──────────────────────────────────────
-            AnimatedBuilder(
-              animation: _pulseAnimation,
-              builder: (context, child) {
-                return Transform.scale(
-                  scale: _pulseAnimation.value,
-                  child: child,
-                );
-              },
-              child: Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: scheme.primaryContainer,
-                  boxShadow: [
-                    BoxShadow(
-                      color: scheme.primary.withValues(alpha: 0.3),
-                      blurRadius: 30,
-                      spreadRadius: 5,
-                    ),
-                  ],
-                ),
-                child: Icon(
-                  Icons.person,
-                  size: 60,
-                  color: scheme.onPrimaryContainer,
-                ),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (remoteImageUrl != null)
+            Image.network(
+              remoteImageUrl,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) =>
+                  Container(color: scheme.surface),
+            ),
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withValues(alpha: 0.35),
+                  Colors.black.withValues(alpha: 0.6),
+                ],
               ),
             ),
+          ),
+          SafeArea(
+            child: Column(
+              children: [
+                const Spacer(flex: 2),
 
-            const SizedBox(height: 32),
-
-            // ── Status text ──────────────────────────────────────────
-            Text(
-              statusText,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: scheme.onSurface,
+                // ── Pulsating avatar ──────────────────────────────────────
+                AnimatedBuilder(
+                  animation: _pulseAnimation,
+                  builder: (context, child) {
+                    return Transform.scale(
+                      scale: _pulseAnimation.value,
+                      child: child,
+                    );
+                  },
+                  child: Container(
+                    width: 120,
+                    height: 120,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withValues(alpha: 0.2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.25),
+                          blurRadius: 30,
+                          spreadRadius: 5,
+                        ),
+                      ],
+                    ),
+                    child: ClipOval(
+                      child: remoteImageUrl != null
+                          ? Image.network(
+                              remoteImageUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) =>
+                                  const Icon(
+                                Icons.person,
+                                size: 60,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(
+                              Icons.person,
+                              size: 60,
+                              color: Colors.white,
+                            ),
+                    ),
                   ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Video Call',
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-            ),
-            const SizedBox(height: 16),
+                ),
 
-            // ── Animated dots ────────────────────────────────────────
-            _AnimatedDots(color: scheme.primary),
+                const SizedBox(height: 32),
 
-            const Spacer(flex: 3),
+                // ── Status text ──────────────────────────────────────────
+                Text(
+                  statusText,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Video Call',
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: Colors.white70,
+                      ),
+                ),
+                const SizedBox(height: 16),
 
-            // ── End call button ──────────────────────────────────────
-            GestureDetector(
-              onTap: () {
-                ref
-                    .read(callConnectionControllerProvider.notifier)
-                    .endCall();
-              },
-              child: Container(
-                width: 72,
-                height: 72,
-                decoration: const BoxDecoration(
-                  color: Colors.red,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
+                // ── Animated dots ────────────────────────────────────────
+                const _AnimatedDots(color: Colors.white),
+
+                const Spacer(flex: 3),
+
+                // ── End call button ──────────────────────────────────────
+                GestureDetector(
+                  onTap: () {
+                    ref
+                        .read(callConnectionControllerProvider.notifier)
+                        .endCall();
+                  },
+                  child: Container(
+                    width: 72,
+                    height: 72,
+                    decoration: const BoxDecoration(
                       color: Colors.red,
-                      blurRadius: 16,
-                      spreadRadius: 1,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.red,
+                          blurRadius: 16,
+                          spreadRadius: 1,
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.call_end,
-                  color: Colors.white,
-                  size: 32,
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              widget.isOutgoing ? 'Cancel' : 'End',
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: scheme.onSurfaceVariant,
+                    child: const Icon(
+                      Icons.call_end,
+                      color: Colors.white,
+                      size: 32,
+                    ),
                   ),
-            ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  widget.isOutgoing ? 'Cancel' : 'End',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: Colors.white70,
+                      ),
+                ),
 
-            const SizedBox(height: 48),
-          ],
-        ),
+                const SizedBox(height: 48),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -397,8 +473,7 @@ class _VideoCallScreenContentState
   @override
   void dispose() {
     _participantsSubscription?.cancel();
-    // Disable security when leaving call screen
-    SecurityService.disableCallSecurity();
+    SecurityService.clearOnScreenCaptureChanged();
     super.dispose();
   }
 
@@ -445,11 +520,8 @@ class _VideoCallScreenContentState
 
   // ──── Security (Phase 6) ────
 
-  /// Setup platform-level security.
-  /// Android: FLAG_SECURE  ·  iOS: screen capture detection
-  Future<void> _setupSecurity() async {
-    await SecurityService.enableCallSecurity();
-
+  /// Register call-level reaction to app-wide screen capture detection.
+  void _setupSecurity() {
     SecurityService.setOnScreenCaptureChanged((isCaptured) {
       if (mounted) {
         setState(() {
@@ -490,6 +562,23 @@ class _VideoCallScreenContentState
   Widget build(BuildContext context) {
     final billingState = ref.watch(callBillingProvider);
     final authState = ref.watch(authProvider);
+    final callConnectionState = ref.watch(callConnectionControllerProvider);
+    final materialTheme = Theme.of(context);
+    final baseStreamTheme = materialTheme.extension<StreamVideoTheme>() ??
+        StreamVideoTheme.fromTheme(materialTheme);
+    final transparentCallContentTheme = baseStreamTheme.copyWith(
+      callContentTheme: baseStreamTheme.callContentTheme.copyWith(
+        callContentBackgroundColor: Colors.transparent,
+      ),
+    );
+    final currentUserId = authState.firebaseUser?.uid;
+    final remoteImageUrl = resolveRemoteImageUrl(
+      call: widget.call,
+      currentUserId: currentUserId,
+      fallbackImageUrl: callConnectionState.remoteImageFallbackUrl,
+      enableDebugLogs: true,
+      debugSourceTag: 'connected',
+    );
     final isCreator =
         authState.user?.role == 'creator' || authState.user?.role == 'admin';
 
@@ -511,20 +600,54 @@ class _VideoCallScreenContentState
     return Scaffold(
       body: Stack(
         children: [
-          StreamCallContainer(
-            call: widget.call,
-            callConnectOptions: CallConnectOptions(
-              camera: TrackOption.enabled(),
-              microphone: TrackOption.enabled(),
-              screenShare: TrackOption.disabled(),
+          if (remoteImageUrl != null)
+            Positioned.fill(
+              child: Image.network(
+                remoteImageUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) =>
+                    Container(color: Colors.black),
+              ),
+            )
+          else
+            const Positioned.fill(
+              child: ColoredBox(color: Colors.black),
             ),
-            onCallDisconnected: (CallDisconnectedProperties properties) {
-              debugPrint('📞 [CALL] Call disconnected');
-              debugPrint('   Reason: ${properties.reason}');
-              ref
-                  .read(callConnectionControllerProvider.notifier)
-                  .endCall();
-            },
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.2),
+                    Colors.black.withValues(alpha: 0.45),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Theme(
+            data: materialTheme.copyWith(
+              extensions: <ThemeExtension<dynamic>>[
+                transparentCallContentTheme,
+              ],
+            ),
+            child: StreamCallContainer(
+              call: widget.call,
+              callConnectOptions: CallConnectOptions(
+                camera: TrackOption.enabled(),
+                microphone: TrackOption.enabled(),
+                screenShare: TrackOption.disabled(),
+              ),
+              onCallDisconnected: (CallDisconnectedProperties properties) {
+                debugPrint('📞 [CALL] Call disconnected');
+                debugPrint('   Reason: ${properties.reason}');
+                ref
+                    .read(callConnectionControllerProvider.notifier)
+                    .endCall();
+              },
+            ),
           ),
 
           // ── Billing overlay (top of screen, below call controls) ────

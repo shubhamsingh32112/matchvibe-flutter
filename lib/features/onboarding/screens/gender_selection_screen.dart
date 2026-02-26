@@ -25,13 +25,11 @@ class _GenderSelectionScreenState extends ConsumerState<GenderSelectionScreen> {
   bool _welcomeDialogShown = false;
   final ApiClient _apiClient = ApiClient();
 
-  // Male avatars
+  // Preset avatars seeded in Firebase Storage.
   final List<String> _maleAvatars =
-      List.generate(10, (i) => 'a${i + 1}.png');
-
-  // Female avatars
+      AvatarUploadService.getAvailablePresetAvatarNames('male');
   final List<String> _femaleAvatars =
-      List.generate(10, (i) => 'fa${i + 1}.png');
+      AvatarUploadService.getAvailablePresetAvatarNames('female');
 
   @override
   void initState() {
@@ -51,11 +49,8 @@ class _GenderSelectionScreenState extends ConsumerState<GenderSelectionScreen> {
     return [];
   }
 
-  String _getAvatarAssetPath(String avatarName) {
-    if (_selectedGender == 'female') {
-      return 'lib/assets/female/$avatarName';
-    }
-    return 'lib/assets/male/$avatarName';
+  String _defaultAvatarForGender(String gender) {
+    return AvatarUploadService.getDefaultAvatarName(gender);
   }
 
   Future<void> _checkAndShowWelcomeDialog() async {
@@ -112,27 +107,19 @@ class _GenderSelectionScreenState extends ConsumerState<GenderSelectionScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final authState = ref.read(authProvider);
-      final firebaseUid = authState.firebaseUser?.uid;
-
-      if (firebaseUid == null) {
-        throw Exception('Not authenticated');
-      }
-
       debugPrint('───────────────────────────────────────────────────────');
       debugPrint('🔄 [ONBOARDING] Saving profile...');
       debugPrint('   Name: $name');
       debugPrint('   Gender: $_selectedGender');
       debugPrint('   Avatar: $_selectedAvatar');
 
-      // 1. Upload avatar to Firebase Storage
-      debugPrint('🖼️  [ONBOARDING] Uploading avatar to Firebase Storage...');
-      final avatarUrl = await AvatarUploadService.uploadAvatar(
-        firebaseUid: firebaseUid,
+      // 1. Resolve preset avatar URL from Firebase Storage
+      debugPrint('🖼️  [ONBOARDING] Resolving preset avatar URL...');
+      final avatarUrl = await AvatarUploadService.getPresetAvatarUrl(
         avatarName: _selectedAvatar!,
         gender: _selectedGender!,
       );
-      debugPrint('✅ [ONBOARDING] Avatar uploaded: $avatarUrl');
+      debugPrint('✅ [ONBOARDING] Preset avatar URL resolved: $avatarUrl');
 
       // 2. Save everything to backend in a single call
       final response = await _apiClient.put(
@@ -412,7 +399,7 @@ class _GenderSelectionScreenState extends ConsumerState<GenderSelectionScreen> {
       onTap: () {
         setState(() {
           _selectedGender = value;
-          _selectedAvatar = null; // reset avatar when switching gender
+          _selectedAvatar = _defaultAvatarForGender(value);
         });
       },
       child: AnimatedContainer(
@@ -477,58 +464,109 @@ class _GenderSelectionScreenState extends ConsumerState<GenderSelectionScreen> {
 
   Widget _buildAvatarGrid() {
     final avatars = _currentAvatars;
+    if (avatars.isEmpty) return const SizedBox.shrink();
 
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 5,
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-      ),
-      itemCount: avatars.length,
-      itemBuilder: (context, index) {
-        final avatar = avatars[index];
-        final isSelected = _selectedAvatar == avatar;
-
-        return GestureDetector(
-          onTap: () => setState(() => _selectedAvatar = avatar),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: isSelected ? Colors.white : Colors.transparent,
-                width: 3,
-              ),
-              boxShadow: isSelected
-                  ? [
-                      BoxShadow(
-                        color: Colors.white.withOpacity(0.3),
-                        blurRadius: 12,
-                        spreadRadius: 2,
+    return Center(
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 20,
+        runSpacing: 20,
+        children: avatars.map((avatar) {
+          final isSelected = _selectedAvatar == avatar;
+          return SizedBox(
+            width: 170,
+            height: 250,
+            child: GestureDetector(
+              onTap: () => setState(() => _selectedAvatar = avatar),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: isSelected ? Colors.white : Colors.white24,
+                    width: isSelected ? 3 : 1.5,
+                  ),
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.white.withOpacity(0.14),
+                      Colors.white.withOpacity(0.06),
+                    ],
+                  ),
+                  boxShadow: isSelected
+                      ? [
+                          BoxShadow(
+                            color: Colors.white.withOpacity(0.3),
+                            blurRadius: 16,
+                            spreadRadius: 2,
+                          ),
+                        ]
+                      : null,
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(22),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      FutureBuilder<String>(
+                        future: AvatarUploadService.getPresetAvatarUrl(
+                          avatarName: avatar,
+                          gender: _selectedGender ?? 'male',
+                        ),
+                        builder: (context, snapshot) {
+                          if (snapshot.hasData && snapshot.data != null) {
+                            return Image.network(
+                              snapshot.data!,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Container(
+                                  color: Colors.white.withOpacity(0.1),
+                                  child: const Icon(
+                                    Icons.person,
+                                    color: Colors.white54,
+                                    size: 52,
+                                  ),
+                                );
+                              },
+                            );
+                          }
+                          return Container(
+                            color: Colors.white.withOpacity(0.1),
+                            child: const Icon(
+                              Icons.person,
+                              color: Colors.white54,
+                              size: 52,
+                            ),
+                          );
+                        },
                       ),
-                    ]
-                  : null,
-            ),
-            child: ClipOval(
-              child: Image.asset(
-                _getAvatarAssetPath(avatar),
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    color: Colors.white.withOpacity(0.1),
-                    child: const Icon(
-                      Icons.person,
-                      color: Colors.white54,
-                    ),
-                  );
-                },
+                      if (isSelected)
+                        Positioned(
+                          right: 10,
+                          top: 10,
+                          child: Container(
+                            width: 28,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: const Icon(
+                              Icons.check,
+                              size: 18,
+                              color: Color(0xFF2D1B3D),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               ),
             ),
-          ),
-        );
-      },
+          );
+        }).toList(),
+      ),
     );
   }
 }

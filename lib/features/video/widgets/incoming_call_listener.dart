@@ -3,8 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stream_video_flutter/stream_video_flutter.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../controllers/call_connection_controller.dart';
 import '../providers/stream_video_provider.dart';
+import '../services/call_ringtone_service.dart';
+import '../utils/call_remote_image_resolver.dart';
+import '../utils/remote_avatar_lookup.dart';
 import 'incoming_call_widget.dart';
 
 /// Widget that listens for incoming calls and shows UI when call arrives.
@@ -42,6 +46,7 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
   /// Call IDs that have already been handled (accepted, rejected, or ended).
   /// Prevents the overlay from re-appearing due to stale SDK state.
   final Set<String> _handledCallIds = {};
+  final Map<String, String> _incomingFallbackImageByCallId = {};
 
   @override
   void initState() {
@@ -93,6 +98,8 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
         );
 
         debugPrint('✅ [INCOMING CALL] Call object retrieved: ${call.id}');
+        unawaited(_prefetchIncomingCallerAvatar(call));
+        CallRingtoneService.startIncomingRingtone();
         if (mounted) {
           setState(() {
             _incomingCall = call;
@@ -113,6 +120,8 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
         }
         debugPrint(
             '📞 [INCOMING CALL] Incoming call detected via state: ${call.id}');
+        unawaited(_prefetchIncomingCallerAvatar(call));
+        CallRingtoneService.startIncomingRingtone();
         if (mounted) {
           setState(() {
             _incomingCall = call;
@@ -120,9 +129,13 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
         }
       } else {
         debugPrint('📞 [INCOMING CALL] Incoming call cleared by SDK');
+        CallRingtoneService.stop();
         if (mounted) {
           setState(() {
             _incomingCall = null;
+            if (call != null) {
+              _incomingFallbackImageByCallId.remove(call.id);
+            }
           });
         }
       }
@@ -137,6 +150,8 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
   void _dismissIncomingCall(String callId) {
     debugPrint('🚫 [INCOMING CALL] Dismissing call: $callId');
     _handledCallIds.add(callId);
+    _incomingFallbackImageByCallId.remove(callId);
+    CallRingtoneService.stop();
     if (mounted) {
       setState(() {
         _incomingCall = null;
@@ -156,9 +171,52 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
 
   @override
   void dispose() {
+    CallRingtoneService.stop();
+    _incomingFallbackImageByCallId.clear();
     _ringingSubscription?.cancel();
     _incomingCallSubscription?.cancel();
     super.dispose();
+  }
+
+  Future<void> _prefetchIncomingCallerAvatar(Call call) async {
+    final currentUserId = ref.read(authProvider).firebaseUser?.uid;
+    final fromCall = resolveRemoteImageUrl(
+      call: call,
+      currentUserId: currentUserId,
+      enableDebugLogs: true,
+      debugSourceTag: 'incoming_prefetch',
+    );
+    if (fromCall != null) {
+      if (mounted) {
+        setState(() {
+          _incomingFallbackImageByCallId[call.id] = fromCall;
+        });
+      }
+      return;
+    }
+
+    try {
+      final dynamic callState = (call as dynamic).state?.value;
+      final createdBy = callState?.createdBy;
+      final remoteFirebaseUid = createdBy?.id?.toString() ??
+          createdBy?.userId?.toString() ??
+          extractCallerFirebaseUidFromCallId(call.id);
+      final remoteUsername = createdBy?.name?.toString() ??
+          createdBy?.extraData?['username']?.toString();
+
+      final lookedUp = await lookupAvatarFromUserList(
+        remoteFirebaseUid: remoteFirebaseUid,
+        remoteUsername: remoteUsername,
+        debugSourceTag: 'incoming_prefetch',
+      );
+      if (lookedUp != null && mounted) {
+        setState(() {
+          _incomingFallbackImageByCallId[call.id] = lookedUp;
+        });
+      }
+    } catch (_) {
+      // Best-effort prefetch only.
+    }
   }
 
   @override
@@ -189,6 +247,7 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
           next.phase != CallConnectionPhase.failed &&
           _incomingCall != null) {
         _handledCallIds.add(_incomingCall!.id);
+        CallRingtoneService.stop();
         setState(() {
           _incomingCall = null;
         });
@@ -213,6 +272,7 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
             color: Colors.black54,
             child: IncomingCallWidget(
               incomingCall: incomingCall,
+              fallbackImageUrl: _incomingFallbackImageByCallId[incomingCall.id],
               onDismiss: () => _dismissIncomingCall(incomingCall.id),
             ),
           ),

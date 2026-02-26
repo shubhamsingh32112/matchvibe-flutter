@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../creator/providers/creator_dashboard_provider.dart';
-import '../services/wallet_service.dart';
+import '../../home/providers/availability_provider.dart';
+import '../providers/wallet_pricing_provider.dart';
+import '../services/payment_service.dart';
+import '../services/coin_image_service.dart';
 import '../models/earnings_model.dart';
+import '../models/wallet_pricing_model.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/styles/app_brand_styles.dart';
@@ -17,16 +22,22 @@ class WalletScreen extends ConsumerStatefulWidget {
 }
 
 class _WalletScreenState extends ConsumerState<WalletScreen> {
-  final WalletService _walletService = WalletService();
+  final PaymentService _paymentService = PaymentService();
   bool _isAddingCoins = false;
 
   @override
   void initState() {
     super.initState();
+
     // Refresh user data to ensure balance is up-to-date when screen loads
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _refreshUserData();
     });
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
   }
 
   /// Refresh user data from backend to get latest coin balance
@@ -46,75 +57,101 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
     final user = authState.user;
     final coins = user?.coins ?? 0;
     final isCreator = user?.role == 'creator' || user?.role == 'admin';
+    final walletPricingAsync = isCreator
+        ? null
+        : ref.watch(walletPricingProvider);
 
     // Watch the dashboard provider for creator earnings (auto-refreshes via socket)
-    final earningsAsync = isCreator ? ref.watch(dashboardEarningsProvider) : null;
+    final earningsAsync = isCreator
+        ? ref.watch(dashboardEarningsProvider)
+        : null;
+    ref.watch(socketServiceProvider);
 
     return AppScaffold(
       padded: false,
       child: Column(
         children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                child: Row(
-                  children: [
-                    IconButton(
-                      onPressed: () => Navigator.of(context).maybePop(),
-                      icon: Icon(Icons.arrow_back_ios_new, color: Theme.of(context).colorScheme.onSurface),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+            child: Row(
+              children: [
+                IconButton(
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  icon: Icon(
+                    Icons.arrow_back_ios_new,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'Wallet',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
                     ),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        'Wallet',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurface,
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    _CoinsPill(coins: coins),
-                  ],
+                  ),
+                ),
+                _CoinsPill(coins: coins),
+              ],
+            ),
+          ),
+          if (isCreator)
+            earningsAsync!.when(
+              data: (earnings) => _CreatorWalletView(
+                earnings: earnings,
+                isLoadingEarnings: false,
+                earningsError: null,
+                onRefresh: () async {
+                  await _refreshUserData();
+                  ref.invalidate(creatorDashboardProvider);
+                },
+                onRetry: () => ref.invalidate(creatorDashboardProvider),
+                buildCallEarningCard: _buildCallEarningCard,
+              ),
+              loading: () => _CreatorWalletView(
+                earnings: null,
+                isLoadingEarnings: true,
+                earningsError: null,
+                onRefresh: () async {},
+                onRetry: () {},
+                buildCallEarningCard: _buildCallEarningCard,
+              ),
+              error: (error, _) => _CreatorWalletView(
+                earnings: null,
+                isLoadingEarnings: false,
+                earningsError: error.toString(),
+                onRefresh: () async {
+                  ref.invalidate(creatorDashboardProvider);
+                },
+                onRetry: () => ref.invalidate(creatorDashboardProvider),
+                buildCallEarningCard: _buildCallEarningCard,
+              ),
+            )
+          else
+            walletPricingAsync!.when(
+              data: (pricingData) => _UserWalletView(
+                isAddingCoins: _isAddingCoins,
+                packages: pricingData.packages,
+                onRefresh: () async {
+                  await _refreshUserData();
+                  ref.invalidate(walletPricingProvider);
+                },
+                onRetry: () => ref.invalidate(walletPricingProvider),
+                onAddCoins: _addCoins,
+              ),
+              loading: () =>
+                  const Expanded(child: Center(child: LoadingIndicator())),
+              error: (error, _) => Expanded(
+                child: ErrorState(
+                  title: 'Failed to load wallet pricing',
+                  message: error.toString(),
+                  actionLabel: 'Retry',
+                  onAction: () => ref.invalidate(walletPricingProvider),
                 ),
               ),
-              if (isCreator)
-                earningsAsync!.when(
-                  data: (earnings) => _CreatorWalletView(
-                    earnings: earnings,
-                    isLoadingEarnings: false,
-                    earningsError: null,
-                    onRefresh: () async {
-                      await _refreshUserData();
-                      ref.invalidate(creatorDashboardProvider);
-                    },
-                    onRetry: () => ref.invalidate(creatorDashboardProvider),
-                    buildCallEarningCard: _buildCallEarningCard,
-                  ),
-                  loading: () => _CreatorWalletView(
-                    earnings: null,
-                    isLoadingEarnings: true,
-                    earningsError: null,
-                    onRefresh: () async {},
-                    onRetry: () {},
-                    buildCallEarningCard: _buildCallEarningCard,
-                  ),
-                  error: (error, _) => _CreatorWalletView(
-                    earnings: null,
-                    isLoadingEarnings: false,
-                    earningsError: error.toString(),
-                    onRefresh: () async {
-                      ref.invalidate(creatorDashboardProvider);
-                    },
-                    onRetry: () => ref.invalidate(creatorDashboardProvider),
-                    buildCallEarningCard: _buildCallEarningCard,
-                  ),
-                )
-              else
-                _UserWalletView(
-                  isAddingCoins: _isAddingCoins,
-                  onRefresh: _refreshUserData,
-                  onAddCoins: _addCoins,
-                ),
+            ),
         ],
       ),
     );
@@ -178,10 +215,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
               ),
               Text(
                 'coins',
-                style: TextStyle(
-                  color: scheme.onSurfaceVariant,
-                  fontSize: 12,
-                ),
+                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
               ),
             ],
           ),
@@ -190,55 +224,67 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
     );
   }
 
+  /// Start web checkout flow for selected pack.
   Future<void> _addCoins(int coins) async {
     if (_isAddingCoins) return; // Prevent multiple simultaneous requests
 
+    bool loadingDialogVisible = false;
     setState(() {
       _isAddingCoins = true;
     });
 
     try {
-      // Show loading dialog
+      // Show loading dialog while creating order
       if (!mounted) return;
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) => const Center(
-          child: CircularProgressIndicator(),
-        ),
+        builder: (context) => const Center(child: CircularProgressIndicator()),
       );
+      loadingDialogVisible = true;
 
-      // Add coins via API
-      await _walletService.addCoins(coins);
+      // Step 1: Initiate web checkout session
+      final checkoutData = await _paymentService.initiateWebCheckout(coins);
+      final checkoutUrl = checkoutData['checkoutUrl'] as String;
 
       // Close loading dialog
-      if (mounted) {
+      if (mounted && loadingDialogVisible) {
         Navigator.of(context).pop();
+        loadingDialogVisible = false;
       }
 
-      // Phase C3: No refreshUser() here — coins are updated via coins_updated socket event
+      // Step 2: Open website checkout in external browser
+      final uri = Uri.parse(checkoutUrl);
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched) {
+        throw Exception('Unable to open checkout website');
+      }
 
-      // Show success message
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('✅ $coins coins added to your account!'),
-            backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-            duration: const Duration(seconds: 2),
+          const SnackBar(
+            content: Text(
+              'Complete payment on the website. App will reopen automatically.',
+            ),
+            duration: Duration(seconds: 3),
           ),
         );
       }
     } catch (e) {
       // Close loading dialog if still open
-      if (mounted) {
+      if (mounted && loadingDialogVisible) {
         Navigator.of(context).pop();
+        loadingDialogVisible = false;
       }
 
       // Show error message
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('❌ Failed to add coins: ${e.toString()}'),
+            content: Text('❌ Failed to start checkout: ${e.toString()}'),
             backgroundColor: Theme.of(context).colorScheme.error,
             duration: const Duration(seconds: 3),
           ),
@@ -252,8 +298,6 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
       }
     }
   }
-
-
 }
 
 class _CreatorWalletView extends StatelessWidget {
@@ -277,11 +321,7 @@ class _CreatorWalletView extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     if (isLoadingEarnings) {
-      return const Expanded(
-        child: Center(
-          child: LoadingIndicator(),
-        ),
-      );
+      return const Expanded(child: Center(child: LoadingIndicator()));
     }
 
     if (earningsError != null) {
@@ -300,7 +340,8 @@ class _CreatorWalletView extends StatelessWidget {
         child: EmptyState(
           icon: Icons.account_balance_wallet_outlined,
           title: 'No earnings data',
-          message: 'Your earnings will appear here once you start receiving calls',
+          message:
+              'Your earnings will appear here once you start receiving calls',
         ),
       );
     }
@@ -403,7 +444,11 @@ class _CreatorWalletView extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.info_outline, color: scheme.onSurfaceVariant, size: 20),
+                        Icon(
+                          Icons.info_outline,
+                          color: scheme.onSurfaceVariant,
+                          size: 20,
+                        ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
@@ -417,7 +462,8 @@ class _CreatorWalletView extends StatelessWidget {
                         ),
                       ],
                     ),
-                    if (e.avgEarningsPerMinute != null && e.avgEarningsPerMinute! != e.earningsPerMinute) ...[
+                    if (e.avgEarningsPerMinute != null &&
+                        e.avgEarningsPerMinute! != e.earningsPerMinute) ...[
                       const SizedBox(height: 8),
                       Padding(
                         padding: const EdgeInsets.only(left: 32),
@@ -493,10 +539,7 @@ class _CreatorStatItem extends StatelessWidget {
               ),
               Text(
                 label,
-                style: TextStyle(
-                  color: scheme.onSurfaceVariant,
-                  fontSize: 12,
-                ),
+                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
               ),
             ],
           ),
@@ -508,66 +551,127 @@ class _CreatorStatItem extends StatelessWidget {
 
 class _UserWalletView extends StatelessWidget {
   final bool isAddingCoins;
+  final List<WalletCoinPack> packages;
   final Future<void> Function() onRefresh;
+  final VoidCallback onRetry;
   final void Function(int coins) onAddCoins;
 
   const _UserWalletView({
     required this.isAddingCoins,
+    required this.packages,
     required this.onRefresh,
+    required this.onRetry,
     required this.onAddCoins,
   });
 
   @override
   Widget build(BuildContext context) {
-    final packages = <_CoinPack>[
-      const _CoinPack(
-        coins: 250,
-        price: 75,
-        oldPrice: 149,
-        badge: 'Flat 50% off',
-      ),
-      const _CoinPack(coins: 300, price: 199),
-      const _CoinPack(coins: 350, price: 299),
-      const _CoinPack(coins: 550, price: 499),
-      const _CoinPack(coins: 850, price: 799),
-      const _CoinPack(coins: 1400, price: 999),
-      const _CoinPack(coins: 3500, price: 2099),
-      const _CoinPack(coins: 7500, price: 3999),
-      const _CoinPack(coins: 11500, price: 7999),
-    ];
+    final scheme = Theme.of(context).colorScheme;
+    final uiPackages = packages
+        .asMap()
+        .entries
+        .map(
+          (entry) => _CoinPack(
+            imageOrdinal: (entry.key % 9) + 1,
+            coins: entry.value.coins,
+            price: entry.value.priceInr,
+            oldPrice: entry.value.oldPriceInr,
+            badge: entry.value.badge,
+          ),
+        )
+        .toList();
+    final promoPack = uiPackages.firstWhere(
+      (p) => p.oldPrice != null || p.badge != null,
+      orElse: () => const _CoinPack(coins: 0, price: 0, imageOrdinal: 1),
+    );
+
+    if (uiPackages.isEmpty) {
+      return Expanded(
+        child: EmptyState(
+          icon: Icons.account_balance_wallet_outlined,
+          title: 'No coin packs available',
+          message: 'Please try again shortly',
+          actionLabel: 'Retry',
+          onAction: onRetry,
+        ),
+      );
+    }
 
     return Expanded(
       child: RefreshIndicator(
         onRefresh: onRefresh,
         color: Theme.of(context).colorScheme.onSurface,
         backgroundColor: AppBrandGradients.walletRefreshIndicatorBackground,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
-              child: _PromoBanner(oldPrice: 149, newPrice: 75),
-            ),
-            Expanded(
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: GridView.builder(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.only(bottom: 16),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    crossAxisSpacing: 14,
-                    mainAxisSpacing: 14,
-                    childAspectRatio: 0.78,
-                  ),
-                  itemCount: packages.length,
-                  itemBuilder: (context, index) {
-                    final pack = packages[index];
-                    return _CoinPackCard(
-                      pack: pack,
-                      onTap: isAddingCoins ? null : () => onAddCoins(pack.coins),
-                    );
-                  },
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Choose your coin pack',
+                            style: TextStyle(
+                              color: scheme.onSurface,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Secure payment and instant balance update',
+                            style: TextStyle(
+                              color: scheme.onSurfaceVariant,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (isAddingCoins)
+                      const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                  ],
                 ),
+              ),
+            ),
+            if (promoPack.oldPrice != null && promoPack.price > 0)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 8, 8, 14),
+                  child: _PromoBanner(
+                    coins: promoPack.coins,
+                    badge: promoPack.badge,
+                    oldPrice: promoPack.oldPrice!,
+                    newPrice: promoPack.price,
+                  ),
+                ),
+              ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              sliver: SliverGrid(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  crossAxisSpacing: 14,
+                  mainAxisSpacing: 14,
+                  childAspectRatio: 0.62,
+                ),
+                delegate: SliverChildBuilderDelegate((context, index) {
+                  final pack = uiPackages[index];
+                  return _CoinPackCard(
+                    pack: pack,
+                    onTap: isAddingCoins ? null : () => onAddCoins(pack.coins),
+                  );
+                }, childCount: uiPackages.length),
               ),
             ),
           ],
@@ -587,9 +691,16 @@ class _CoinsPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: scheme.scrim.withOpacity(0.35),
+        color: scheme.scrim.withValues(alpha: 0.35),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: scheme.outlineVariant),
+        boxShadow: [
+          BoxShadow(
+            color: scheme.shadow.withValues(alpha: 0.18),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -627,9 +738,16 @@ class _CoinsPill extends StatelessWidget {
 }
 
 class _PromoBanner extends StatelessWidget {
+  final int coins;
+  final String? badge;
   final int oldPrice;
   final int newPrice;
-  const _PromoBanner({required this.oldPrice, required this.newPrice});
+  const _PromoBanner({
+    required this.coins,
+    required this.oldPrice,
+    required this.newPrice,
+    this.badge,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -641,7 +759,7 @@ class _PromoBanner extends StatelessWidget {
         gradient: AppBrandGradients.walletPromoBanner,
         boxShadow: [
           BoxShadow(
-            color: scheme.shadow.withOpacity(0.25),
+            color: scheme.shadow.withValues(alpha: 0.25),
             blurRadius: 18,
             offset: const Offset(0, 10),
           ),
@@ -656,9 +774,17 @@ class _PromoBanner extends StatelessWidget {
               opacity: 0.9,
               child: Row(
                 children: const [
-                  Icon(Icons.account_balance, color: AppBrandGradients.walletPromoIcon, size: 28),
+                  Icon(
+                    Icons.account_balance,
+                    color: AppBrandGradients.walletPromoIcon,
+                    size: 28,
+                  ),
                   SizedBox(width: 8),
-                  Icon(Icons.flag, color: AppBrandGradients.walletPromoIcon, size: 28),
+                  Icon(
+                    Icons.flag,
+                    color: AppBrandGradients.walletPromoIcon,
+                    size: 28,
+                  ),
                 ],
               ),
             ),
@@ -669,10 +795,10 @@ class _PromoBanner extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Flat 50% off',
+                  badge ?? 'Limited-time offer',
                   style: TextStyle(
                     color: scheme.onSurface,
-                    fontSize: 20,
+                    fontSize: 18,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -680,12 +806,12 @@ class _PromoBanner extends StatelessWidget {
                 RichText(
                   text: TextSpan(
                     style: TextStyle(
-                      color: scheme.onSurface.withOpacity(0.9),
+                      color: scheme.onSurface.withValues(alpha: 0.9),
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
                     ),
                     children: [
-                      const TextSpan(text: '250 coins  @  '),
+                      TextSpan(text: '$coins coins  @  '),
                       TextSpan(
                         text: '₹$oldPrice',
                         style: TextStyle(
@@ -696,7 +822,10 @@ class _PromoBanner extends StatelessWidget {
                       const TextSpan(text: '  '),
                       TextSpan(
                         text: '₹$newPrice',
-                        style: TextStyle(color: scheme.onSurface, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          color: scheme.onSurface,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const TextSpan(text: '  \u00BB\u00BB'),
                     ],
@@ -712,12 +841,14 @@ class _PromoBanner extends StatelessWidget {
 }
 
 class _CoinPack {
+  final int imageOrdinal;
   final int coins;
   final int price;
   final int? oldPrice;
   final String? badge;
 
   const _CoinPack({
+    required this.imageOrdinal,
     required this.coins,
     required this.price,
     this.oldPrice,
@@ -734,84 +865,129 @@ class _CoinPackCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final hasDiscount = pack.oldPrice != null && pack.oldPrice! > pack.price;
+    final discountPercent = hasDiscount
+        ? (((pack.oldPrice! - pack.price) / pack.oldPrice!) * 100).round()
+        : null;
 
     return AppCard(
       padding: EdgeInsets.zero,
       onTap: onTap,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _CoinStackIcon(
-            size: pack.coins >= 7500 ? 42 : 36,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            pack.coins.toString(),
-            style: TextStyle(
-              color: scheme.onSurface,
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.max,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.only(top: 8, right: 8),
+              alignment: Alignment.topRight,
+              child: hasDiscount
+                  ? Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: scheme.tertiaryContainer,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '-$discountPercent%',
+                        style: TextStyle(
+                          color: scheme.onTertiaryContainer,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    )
+                  : const SizedBox(height: 16),
             ),
-          ),
-          const SizedBox(height: 4),
-          if (pack.oldPrice != null)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  '₹${pack.oldPrice}',
-                  style: TextStyle(
-                    color: scheme.onSurfaceVariant,
-                    decoration: TextDecoration.lineThrough,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '₹${pack.price}',
-                  style: TextStyle(
-                    color: scheme.onSurface,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            )
-          else
+            const SizedBox(height: 2),
+            _CoinPackFirebaseImage(
+              ordinal: pack.imageOrdinal,
+              size: pack.coins >= 7500 ? 42 : 36,
+            ),
+            const SizedBox(height: 8),
             Text(
-              '₹${pack.price}',
+              pack.coins.toString(),
               style: TextStyle(
                 color: scheme.onSurface,
-                fontSize: 16,
+                fontSize: 27,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Text(
+              'coins',
+              style: TextStyle(
+                color: scheme.onSurfaceVariant,
+                fontSize: 11,
                 fontWeight: FontWeight.w600,
               ),
             ),
-          const SizedBox(height: 10),
-          if (pack.badge != null)
+            const SizedBox(height: 4),
+            if (pack.oldPrice != null)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    '₹${pack.oldPrice}',
+                    style: TextStyle(
+                      color: scheme.onSurfaceVariant,
+                      decoration: TextDecoration.lineThrough,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '₹${pack.price}',
+                    style: TextStyle(
+                      color: scheme.onSurface,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              )
+            else
+              Text(
+                '₹${pack.price}',
+                style: TextStyle(
+                  color: scheme.onSurface,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            const Spacer(),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 8),
               decoration: BoxDecoration(
-                color: scheme.primaryContainer,
+                color: onTap == null
+                    ? scheme.surfaceContainerHighest
+                    : scheme.primaryContainer,
                 borderRadius: const BorderRadius.only(
                   bottomLeft: Radius.circular(18),
                   bottomRight: Radius.circular(18),
                 ),
               ),
               child: Text(
-                pack.badge!,
+                pack.badge ?? 'Tap to buy',
                 textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: scheme.onPrimaryContainer,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
+                  color: onTap == null
+                      ? scheme.onSurfaceVariant
+                      : scheme.onPrimaryContainer,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-            )
-          else
-            const SizedBox(height: 16),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -849,7 +1025,7 @@ class _CoinStackIcon extends StatelessWidget {
         color: scheme.secondaryContainer,
         boxShadow: [
           BoxShadow(
-            color: scheme.shadow.withOpacity(0.25),
+            color: scheme.shadow.withValues(alpha: 0.25),
             blurRadius: 6,
             offset: const Offset(0, 3),
           ),
@@ -865,6 +1041,36 @@ class _CoinStackIcon extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _CoinPackFirebaseImage extends StatelessWidget {
+  final int ordinal;
+  final double size;
+
+  const _CoinPackFirebaseImage({required this.ordinal, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String?>(
+      future: CoinImageService.getCoinImageUrl(ordinal),
+      builder: (context, snapshot) {
+        final imageUrl = snapshot.data;
+        if (imageUrl != null && imageUrl.isNotEmpty) {
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(size * 0.18),
+            child: Image.network(
+              imageUrl,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => _CoinStackIcon(size: size),
+            ),
+          );
+        }
+        return _CoinStackIcon(size: size);
+      },
     );
   }
 }

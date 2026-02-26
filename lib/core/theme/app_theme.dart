@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
   /// Single canonical dark theme for the entire app.
@@ -11,6 +12,10 @@ class AppTheme {
         seedColor: const Color(0xFF9F7AEA),
         brightness: Brightness.dark,
       ),
+      textTheme: GoogleFonts.montserratTextTheme(
+        ThemeData(brightness: Brightness.dark).textTheme,
+      ),
+      fontFamily: GoogleFonts.montserrat().fontFamily,
     );
 
     final scheme = base.colorScheme;

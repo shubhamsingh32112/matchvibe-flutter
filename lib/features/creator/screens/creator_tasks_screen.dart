@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/creator_dashboard_provider.dart';
 import '../providers/creator_task_provider.dart';
@@ -174,7 +176,7 @@ class _TasksContent extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Total Minutes Completed',
+                  "Today's Minutes",
                   style: TextStyle(
                     color: scheme.onSurface.withOpacity(0.7),
                     fontSize: 14,
@@ -202,10 +204,9 @@ class _TasksContent extends StatelessWidget {
                         ),
                       ),
                     ),
-                    // 🔒 PHASE T4: Withdraw button stub (disabled, shows "Coming soon")
                     OutlinedButton(
-                      onPressed: null, // Disabled - withdrawals need separate threat model
-                      child: const Text('Withdraw (Coming Soon)'),
+                      onPressed: () => context.push('/creator/withdraw'),
+                      child: const Text('Withdraw'),
                     ),
                   ],
                 ),
@@ -217,7 +218,7 @@ class _TasksContent extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Earnings are calculated from completed calls. View your wallet for total coins earned.',
+                  'Tasks reset daily at 11:59 PM. Complete calls to earn bonus coins!',
                   style: TextStyle(
                     color: scheme.onSurface.withOpacity(0.6),
                     fontSize: 12,
@@ -284,6 +285,10 @@ class _TasksContent extends StatelessWidget {
               ],
             ),
           ),
+
+          // Daily Reset Countdown
+          if (tasksResponse.resetsAt != null)
+            _DailyResetCountdown(resetsAt: tasksResponse.resetsAt!),
 
           // Task List
           Text(
@@ -684,6 +689,128 @@ class _NextTaskPreview extends StatelessWidget {
         ),
       );
     }
+  }
+}
+
+/// Live countdown showing time remaining until the daily task reset.
+class _DailyResetCountdown extends StatefulWidget {
+  final DateTime resetsAt;
+
+  const _DailyResetCountdown({required this.resetsAt});
+
+  @override
+  State<_DailyResetCountdown> createState() => _DailyResetCountdownState();
+}
+
+class _DailyResetCountdownState extends State<_DailyResetCountdown> {
+  late Timer _timer;
+  Duration _remaining = Duration.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    _updateRemaining();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _updateRemaining();
+    });
+  }
+
+  void _updateRemaining() {
+    final now = DateTime.now();
+    final diff = widget.resetsAt.toLocal().difference(now);
+    setState(() {
+      _remaining = diff.isNegative ? Duration.zero : diff;
+    });
+  }
+
+  @override
+  void didUpdateWidget(_DailyResetCountdown oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.resetsAt != widget.resetsAt) {
+      _updateRemaining();
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final hours = _remaining.inHours;
+    final minutes = _remaining.inMinutes.remainder(60);
+    final seconds = _remaining.inSeconds.remainder(60);
+
+    final timeText = hours > 0
+        ? '${hours}h ${minutes}m ${seconds}s'
+        : minutes > 0
+            ? '${minutes}m ${seconds}s'
+            : '${seconds}s';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: scheme.tertiaryContainer.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: scheme.tertiary.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.timer_outlined,
+            size: 20,
+            color: scheme.tertiary,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Daily Tasks Reset',
+                  style: TextStyle(
+                    color: scheme.onTertiaryContainer,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Progress resets daily at 11:59 PM',
+                  style: TextStyle(
+                    color: scheme.onTertiaryContainer.withOpacity(0.7),
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: scheme.tertiary.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              timeText,
+              style: TextStyle(
+                color: scheme.tertiary,
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

@@ -24,10 +24,21 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
   bool _isConnecting = false;
   bool _socketInitialized = false; // ⚠️ Guard: prevent re-init on every rebuild
 
+  bool _isNetworkLike(String? value) {
+    if (value == null || value.isEmpty) return false;
+    return value.startsWith('http://') ||
+        value.startsWith('https://') ||
+        value.startsWith('data:');
+  }
+
   Future<void> _connectToStreamChat(AuthState authState) async {
     // Extract variables at method level so they're accessible to both try-catch blocks
     final firebaseUser = authState.firebaseUser!;
     final user = authState.user!;
+    final isCreatorRole =
+        user.role == 'creator' || user.role == 'admin';
+    final creatorSafeAvatar =
+        isCreatorRole ? (_isNetworkLike(user.avatar) ? user.avatar : null) : user.avatar;
 
     // Calculate display name once (used by both Stream Chat and Stream Video)
     final displayName = (user.username != null && user.username!.trim().isNotEmpty)
@@ -51,11 +62,12 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
       await ref.read(streamChatNotifierProvider.notifier).connectUser(
             firebaseUid: firebaseUser.uid,
             username: displayName,
-            avatarUrl: user.avatar,
+            avatarUrl: creatorSafeAvatar,
             streamToken: streamToken,
+            mongoId: user.id,
             appRole: user.role, // Pass app role to Stream
             available: user.role == 'creator' || user.role == 'admin' 
-                ? false // Creators start as unavailable (must toggle on)
+                ? true // Creators should be available while app is running
                 : null, // Regular users don't have available flag
           );
 
@@ -64,7 +76,12 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
       // Register FCM device for push notifications
       final currentClient = ref.read(streamChatNotifierProvider);
       if (currentClient != null) {
-        await PushNotificationService().initialize(currentClient);
+        final outsideAppNotificationsAllowed =
+            user.role == 'creator' || user.role == 'admin';
+        await PushNotificationService().initialize(
+          currentClient,
+          enableOutsideAppNotifications: outsideAppNotificationsAllowed,
+        );
       }
     } catch (e) {
       debugPrint('❌ [STREAM WRAPPER] Failed to connect to Stream Chat: $e');
@@ -78,7 +95,7 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
       await ref.read(streamVideoProvider.notifier).initialize(
         userId: firebaseUser.uid,
         userName: displayName,
-        userImage: user.avatar,
+        userImage: creatorSafeAvatar,
       );
 
       debugPrint('✅ [STREAM WRAPPER] Stream Video initialized');

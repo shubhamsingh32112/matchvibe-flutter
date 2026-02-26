@@ -12,6 +12,7 @@ import '../../chat/services/chat_service.dart';
 import '../providers/home_provider.dart';
 import '../providers/availability_provider.dart';
 import '../../video/controllers/call_connection_controller.dart';
+import '../../../core/services/avatar_upload_service.dart';
 
 class HomeUserGridCard extends ConsumerStatefulWidget {
   final CreatorModel? creator;
@@ -112,6 +113,7 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
           .startUserCall(
             creatorFirebaseUid: creatorFirebaseUid,
             creatorMongoId: widget.creator!.id,
+            creatorImageUrl: widget.creator!.photo,
           );
     } finally {
       if (mounted) {
@@ -213,6 +215,7 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
     final scheme = Theme.of(context).colorScheme;
 
     final String title = widget.creator?.name ?? widget.user?.username ?? 'User';
+    final age = _creatorAge();
     final authState = ref.watch(authProvider);
     final isRegularUser = authState.user?.role == 'user';
     final showFavorite = isRegularUser && widget.creator != null;
@@ -275,19 +278,19 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Expanded(
-                    child: _CardText(
-                      title: title,
-                      subtitle: _subtitle(),
+                    child: _CreatorInfoText(
+                      name: title,
+                      age: age,
                       textColor: scheme.onSurface,
                     ),
                   ),
                   if (showVideoCall) ...[
-                    const SizedBox(width: AppSpacing.sm),
+                    const SizedBox(width: AppSpacing.md),
                     _ChatActionButton(
                       isLoading: _isOpeningChat,
                       onPressed: _openChat,
                     ),
-                    const SizedBox(width: AppSpacing.xs),
+                    const SizedBox(width: AppSpacing.sm),
                     _VideoCallButton(
                       isLoading: _isInitiatingCall,
                       // Only allow calling if creator is online
@@ -304,9 +307,15 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
     );
   }
 
-  String? _subtitle() {
-    // Only show if something relevant is available (don't hardcode).
-    return null;
+  int _creatorAge() {
+    final creator = widget.creator;
+    if (creator == null) return 24;
+
+    // Age is not explicit in the model yet, so infer from available text.
+    final source = '${creator.name} ${creator.about}';
+    final match = RegExp(r'\b(1[89]|[2-9]\d)\b').firstMatch(source);
+    if (match == null) return 24;
+    return int.tryParse(match.group(0) ?? '') ?? 24;
   }
 }
 
@@ -322,6 +331,8 @@ class _ChatActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    const double buttonSize = 38;
+    const double iconSize = 19;
 
     return Material(
       color: scheme.surfaceContainerHigh.withValues(alpha: 0.85),
@@ -329,22 +340,25 @@ class _ChatActionButton extends StatelessWidget {
       child: InkWell(
         onTap: isLoading ? null : onPressed,
         borderRadius: BorderRadius.circular(999),
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.sm),
-          child: isLoading
-              ? SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(scheme.primary),
+        child: SizedBox(
+          width: buttonSize,
+          height: buttonSize,
+          child: Center(
+            child: isLoading
+                ? SizedBox(
+                    width: iconSize,
+                    height: iconSize,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(scheme.primary),
+                    ),
+                  )
+                : Icon(
+                    Icons.chat_bubble_outline,
+                    color: scheme.primary,
+                    size: iconSize,
                   ),
-                )
-              : Icon(
-                  Icons.chat_bubble_outline,
-                  color: scheme.primary,
-                  size: 20,
-                ),
+          ),
         ),
       ),
     );
@@ -366,6 +380,8 @@ class _VideoCallButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final effectiveDisabled = disabled || onPressed == null;
+    const double buttonSize = 38;
+    const double iconSize = 19;
 
     return Material(
       color: effectiveDisabled
@@ -375,24 +391,27 @@ class _VideoCallButton extends StatelessWidget {
       child: InkWell(
         onTap: isLoading || effectiveDisabled ? null : onPressed,
         borderRadius: BorderRadius.circular(999),
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.sm),
-          child: isLoading
-              ? SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(scheme.onPrimary),
+        child: SizedBox(
+          width: buttonSize,
+          height: buttonSize,
+          child: Center(
+            child: isLoading
+                ? SizedBox(
+                    width: iconSize,
+                    height: iconSize,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(scheme.onPrimary),
+                    ),
+                  )
+                : Icon(
+                    Icons.videocam,
+                    color: effectiveDisabled
+                        ? scheme.onSurface.withValues(alpha: 0.4)
+                        : scheme.onPrimary,
+                    size: iconSize,
                   ),
-                )
-              : Icon(
-                  Icons.videocam,
-                  color: effectiveDisabled
-                      ? scheme.onSurface.withValues(alpha: 0.4)
-                      : scheme.onPrimary,
-                  size: 20,
-                ),
+          ),
         ),
       ),
     );
@@ -469,14 +488,14 @@ class _FavoriteButton extends StatelessWidget {
   }
 }
 
-class _CardText extends StatelessWidget {
-  final String title;
-  final String? subtitle;
+class _CreatorInfoText extends StatelessWidget {
+  final String name;
+  final int age;
   final Color textColor;
 
-  const _CardText({
-    required this.title,
-    required this.subtitle,
+  const _CreatorInfoText({
+    required this.name,
+    required this.age,
     required this.textColor,
   });
 
@@ -485,6 +504,7 @@ class _CardText extends StatelessWidget {
     final titleStyle = Theme.of(context).textTheme.titleMedium?.copyWith(
           color: textColor,
           fontWeight: FontWeight.w700,
+          height: 1.12,
         );
     final subtitleStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
           color: textColor,
@@ -495,20 +515,19 @@ class _CardText extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+          name,
+          maxLines: 2,
+          softWrap: true,
+          overflow: TextOverflow.fade,
           style: titleStyle,
         ),
-        if (subtitle != null) ...[
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            subtitle!,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: subtitleStyle,
-          ),
-        ],
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          age.toString(),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: subtitleStyle,
+        ),
       ],
     );
   }
@@ -522,7 +541,30 @@ class _CardImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final avatarStr = creator?.photo ?? user?.avatar;
+    final creatorPhoto = creator?.photo;
+    if (creator != null) {
+      // Creators must use Firebase/network image only.
+      if (creatorPhoto != null &&
+          creatorPhoto.isNotEmpty &&
+          (creatorPhoto.startsWith('http://') ||
+              creatorPhoto.startsWith('https://') ||
+              creatorPhoto.startsWith('data:'))) {
+        return Image.network(
+          creatorPhoto,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            final scheme = Theme.of(context).colorScheme;
+            return DecoratedBox(
+                decoration: BoxDecoration(color: scheme.surfaceContainerHigh));
+          },
+        );
+      }
+      final scheme = Theme.of(context).colorScheme;
+      return DecoratedBox(
+          decoration: BoxDecoration(color: scheme.surfaceContainerHigh));
+    }
+
+    final avatarStr = user?.avatar;
     if (avatarStr == null || avatarStr.isEmpty) {
       // Fallback to a semantic surface tone (no hardcoded colors).
       final scheme = Theme.of(context).colorScheme;
@@ -542,16 +584,53 @@ class _CardImage extends StatelessWidget {
       );
     }
 
-    // Treat as premade avatar asset (user only).
+    // Treat as a preset avatar key and resolve via Firebase Storage.
     final gender = user?.gender ?? 'male';
-    final assetPath = gender == 'female' ? 'lib/assets/female/$avatarStr' : 'lib/assets/male/$avatarStr';
-    return Image.asset(
-      assetPath,
-      fit: BoxFit.cover,
-      errorBuilder: (context, error, stackTrace) {
-        final scheme = Theme.of(context).colorScheme;
-        return DecoratedBox(decoration: BoxDecoration(color: scheme.surfaceContainerHigh));
+    final safeGender = gender == 'female' ? 'female' : 'male';
+    return FutureBuilder<String>(
+      future: _resolvePresetAvatarUrl(avatarStr, safeGender),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          final scheme = Theme.of(context).colorScheme;
+          return DecoratedBox(
+              decoration: BoxDecoration(color: scheme.surfaceContainerHigh));
+        }
+        final resolvedUrl = snapshot.data;
+        if (resolvedUrl == null || resolvedUrl.isEmpty) {
+          final scheme = Theme.of(context).colorScheme;
+          return DecoratedBox(
+              decoration: BoxDecoration(color: scheme.surfaceContainerHigh));
+        }
+        return Image.network(
+          resolvedUrl,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            final scheme = Theme.of(context).colorScheme;
+            return DecoratedBox(
+                decoration: BoxDecoration(color: scheme.surfaceContainerHigh));
+          },
+        );
       },
     );
+  }
+
+  Future<String> _resolvePresetAvatarUrl(String avatar, String gender) async {
+    try {
+      return await AvatarUploadService.getPresetAvatarUrl(
+        avatarName: avatar,
+        gender: gender,
+      );
+    } catch (_) {
+      final defaultAvatar = AvatarUploadService.getDefaultAvatarName(gender);
+      try {
+        return await AvatarUploadService.getPresetAvatarUrl(
+          avatarName: defaultAvatar,
+          gender: gender,
+        );
+      } catch (_) {
+        return '';
+      }
+    }
   }
 }

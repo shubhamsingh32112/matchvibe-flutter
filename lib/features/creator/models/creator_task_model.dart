@@ -4,9 +4,14 @@ class CreatorTasksResponse extends Equatable {
   final double totalMinutes;
   final List<CreatorTask> tasks;
 
+  /// When the current daily period ends (tasks reset).
+  /// `null` if the backend hasn't provided it yet (backwards compat).
+  final DateTime? resetsAt;
+
   const CreatorTasksResponse({
     required this.totalMinutes,
     required this.tasks,
+    this.resetsAt,
   });
 
   factory CreatorTasksResponse.fromJson(Map<String, dynamic> json) {
@@ -18,16 +23,22 @@ class CreatorTasksResponse extends Equatable {
     // Accept either 'tasks' (standalone endpoint) or 'items' (dashboard endpoint)
     final tasksList = (json['tasks'] ?? json['items']) as List<dynamic>;
 
+    DateTime? resetsAt;
+    if (json['resetsAt'] != null) {
+      resetsAt = DateTime.tryParse(json['resetsAt'] as String);
+    }
+
     return CreatorTasksResponse(
       totalMinutes: _toDouble(json['totalMinutes']),
       tasks: tasksList
           .map((task) => CreatorTask.fromJson(task as Map<String, dynamic>))
           .toList(),
+      resetsAt: resetsAt,
     );
   }
 
   @override
-  List<Object?> get props => [totalMinutes, tasks];
+  List<Object?> get props => [totalMinutes, tasks, resetsAt];
 }
 
 class CreatorTask extends Equatable {

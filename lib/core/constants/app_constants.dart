@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 class AppConstants {
-  static const String appName = 'eazy talks';
+  static const String appName = 'Match Vibe';
   
   // Backend API Base URL
   // For USB debugging on physical device, use your desktop's local IP address
@@ -25,6 +25,7 @@ class AppConstants {
   static const bool USE_USB_TUNNEL = true; // Set to true if using adb reverse
   static const String LAN_IP_ADDRESS = '192.168.1.5';
   static const int BACKEND_PORT = 3000;
+  static const int WEBSITE_PORT = 8080;
   static const String API_VERSION = 'v1';
   
   // Platform-aware base URL getter
@@ -120,6 +121,33 @@ class AppConstants {
     }
     
     return 'http://$LAN_IP_ADDRESS:$BACKEND_PORT/health';
+  }
+
+  // Website URL (used for static/legal pages such as Privacy Policy)
+  static String get websiteBaseUrl {
+    if (kIsWeb) {
+      return 'http://localhost:$WEBSITE_PORT';
+    }
+
+    if (USE_USB_TUNNEL) {
+      return 'http://localhost:$WEBSITE_PORT';
+    }
+
+    if (Platform.isAndroid) {
+      const bool useEmulatorIp = bool.fromEnvironment('USE_EMULATOR_IP', defaultValue: false);
+      if (useEmulatorIp) {
+        return 'http://10.0.2.2:$WEBSITE_PORT';
+      }
+      return 'http://$LAN_IP_ADDRESS:$WEBSITE_PORT';
+    } else if (Platform.isIOS) {
+      const bool useSimulatorIp = bool.fromEnvironment('USE_SIMULATOR_IP', defaultValue: true);
+      if (useSimulatorIp) {
+        return 'http://localhost:$WEBSITE_PORT';
+      }
+      return 'http://$LAN_IP_ADDRESS:$WEBSITE_PORT';
+    }
+
+    return 'http://$LAN_IP_ADDRESS:$WEBSITE_PORT';
   }
   
   // SharedPreferences keys

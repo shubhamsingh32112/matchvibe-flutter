@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../services/transaction_service.dart';
 import '../models/transaction_model.dart';
@@ -233,9 +234,19 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
     final icon = isCredit ? Icons.add_circle : Icons.remove_circle;
     final prefix = isCredit ? '+' : '-';
 
+    final isPaymentTransaction = !isCreator &&
+        (transaction.source == 'payment_gateway' ||
+            (transaction.description ?? '').toLowerCase().contains('purchase'));
+
     return AppCard(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
+      onTap: isPaymentTransaction
+          ? () => context.push(
+                '/support/payment-complaint',
+                extra: transaction,
+              )
+          : null,
       child: Row(
         children: [
           // Icon
@@ -283,6 +294,17 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                       _formatDate(transaction.createdAt),
                       style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
                     ),
+                    if (isPaymentTransaction) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        '• Tap to complain',
+                        style: TextStyle(
+                          color: scheme.error,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ],

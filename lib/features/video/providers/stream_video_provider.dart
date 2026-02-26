@@ -47,12 +47,22 @@ class StreamVideoNotifier extends StateNotifier<StreamVideo?> {
         }
       }
 
+      // Reset any existing singleton to avoid "already initialised" errors
+      // on re-login (logout → login cycle).
+      if (StreamVideo.isInitialized()) {
+        debugPrint('🔄 [STREAM VIDEO] Resetting existing singleton...');
+        await StreamVideo.reset(disconnect: true);
+      }
+
       // Initialize Stream Video client
       final client = StreamVideo(
         AppConstants.streamApiKey,
         user: User.regular(
           userId: userId,
           name: userName,
+          image: userImage != null && userImage.trim().isNotEmpty
+              ? userImage.trim()
+              : null,
         ),
         tokenLoader: tokenLoader,
         options: StreamVideoOptions(
@@ -62,8 +72,15 @@ class StreamVideoNotifier extends StateNotifier<StreamVideo?> {
         ),
       );
 
+      // 🔥 CRITICAL: Connect to the coordinator WebSocket.
+      // Without this, the SDK never opens the WebSocket to Stream's servers,
+      // so incoming call events (CoordinatorCallRingingEvent) are never
+      // received and creators never see incoming calls.
+      final connectResult = await client.connect();
+      debugPrint('🔌 [STREAM VIDEO] connect() result: $connectResult');
+
       state = client;
-      debugPrint('✅ [STREAM VIDEO] Client initialized successfully');
+      debugPrint('✅ [STREAM VIDEO] Client initialized and connected successfully');
     } catch (e) {
       debugPrint('❌ [STREAM VIDEO] Error initializing client: $e');
       rethrow;
@@ -77,7 +94,9 @@ class StreamVideoNotifier extends StateNotifier<StreamVideo?> {
         debugPrint('🔌 [STREAM VIDEO] Disconnecting...');
         await state!.disconnect();
         state = null;
-        debugPrint('✅ [STREAM VIDEO] Disconnected');
+        // Reset the singleton so the next initialize() can create a fresh one
+        await StreamVideo.reset();
+        debugPrint('✅ [STREAM VIDEO] Disconnected and singleton reset');
       }
     } catch (e) {
       debugPrint('❌ [STREAM VIDEO] Error disconnecting: $e');

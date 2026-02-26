@@ -5,15 +5,25 @@ import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/otp_screen.dart';
 import '../../features/onboarding/screens/gender_selection_screen.dart';
 import '../../features/home/screens/home_screen.dart';
+import '../../features/home/screens/favorite_creators_screen.dart';
 import '../../features/recent/screens/recent_screen.dart';
 import '../../features/account/screens/account_screen.dart';
+import '../../features/account/screens/account_settings_screen.dart';
+import '../../features/account/screens/blocked_buddies_screen.dart';
+import '../../features/account/screens/delete_account_screen.dart';
 import '../../features/account/screens/edit_profile_screen.dart';
 import '../../features/wallet/screens/wallet_screen.dart';
+import '../../features/wallet/screens/payment_status_screen.dart';
 import '../../features/wallet/screens/transactions_screen.dart';
+import '../../features/account/screens/help_support_screen.dart';
 import '../../features/creator/screens/creator_tasks_screen.dart';
 import '../../features/chat/screens/chat_screen.dart';
 import '../../features/chat/screens/chat_list_screen.dart';
 import '../../features/video/screens/video_call_screen.dart';
+import '../../features/withdrawal/screens/withdrawal_screen.dart';
+import '../../features/support/screens/support_screen.dart';
+import '../../features/support/screens/payment_complaint_screen.dart';
+import '../../features/wallet/models/transaction_model.dart';
 
 /// Global GoRouter instance
 /// 
@@ -60,6 +70,10 @@ final appRouter = GoRouter(
             path: '/home',
             builder: (context, state) => const HomeScreen(),
           ),
+          GoRoute(
+            path: '/home/favorites',
+            builder: (context, state) => const FavoriteCreatorsScreen(),
+          ),
     GoRoute(
       path: '/recent',
       builder: (context, state) => const RecentScreen(),
@@ -81,8 +95,41 @@ final appRouter = GoRouter(
             builder: (context, state) => const WalletScreen(),
           ),
           GoRoute(
+            path: '/wallet/payment-status',
+            builder: (context, state) {
+              final payment = state.uri.queryParameters['payment'] ?? '';
+              final isSuccess = payment == 'success';
+              final coinsAdded =
+                  int.tryParse(state.uri.queryParameters['coinsAdded'] ?? '0') ??
+                      0;
+              final message = state.uri.queryParameters['message'];
+
+              return PaymentStatusScreen(
+                isSuccess: isSuccess,
+                coinsAdded: coinsAdded,
+                message: message,
+              );
+            },
+          ),
+          GoRoute(
             path: '/transactions',
             builder: (context, state) => const TransactionsScreen(),
+          ),
+          GoRoute(
+            path: '/help-support',
+            builder: (context, state) => const HelpSupportScreen(),
+          ),
+          GoRoute(
+            path: '/account/settings',
+            builder: (context, state) => const AccountSettingsScreen(),
+          ),
+          GoRoute(
+            path: '/account/settings/blocked-buddies',
+            builder: (context, state) => const BlockedBuddiesScreen(),
+          ),
+          GoRoute(
+            path: '/account/settings/delete-account',
+            builder: (context, state) => const DeleteAccountScreen(),
           ),
           GoRoute(
             path: '/creator/tasks',
@@ -90,6 +137,26 @@ final appRouter = GoRouter(
               // 🔒 PHASE T2: Role guard at route level (backend also checks, but never trust just UI)
               // This is handled in the screen itself, but we can add a redirect here too
               return const CreatorTasksScreen();
+            },
+          ),
+          GoRoute(
+            path: '/creator/withdraw',
+            builder: (context, state) => const WithdrawalScreen(),
+          ),
+          GoRoute(
+            path: '/support',
+            builder: (context, state) => const SupportScreen(),
+          ),
+          GoRoute(
+            path: '/support/payment-complaint',
+            builder: (context, state) {
+              final transaction = state.extra as TransactionModel?;
+              if (transaction == null) {
+                return const Scaffold(
+                  body: Center(child: Text('Missing transaction details')),
+                );
+              }
+              return PaymentComplaintScreen(transaction: transaction);
             },
           ),
     GoRoute(

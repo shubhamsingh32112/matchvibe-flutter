@@ -6,17 +6,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:stream_chat_flutter/stream_chat_flutter.dart';
-import 'firebase_options.dart';
 import 'app/router/app_router.dart';
 import 'app/widgets/app_lifecycle_wrapper.dart';
 import 'app/widgets/stream_chat_wrapper.dart';
 import 'core/services/push_notification_service.dart';
 import 'core/theme/app_theme.dart';
 import 'features/chat/providers/stream_chat_provider.dart';
+import 'features/video/services/security_service.dart';
 import 'features/video/widgets/incoming_call_listener.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Enforce app-wide screenshot/screen recording/screen-share protection.
+  await SecurityService.initializeAppSecurity();
   
   // Initialize Firebase
   // Note: You'll need to add your firebase_options.dart file
@@ -87,7 +90,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return StreamChatWrapper(
       child: MaterialApp.router(
-        title: 'Eazy Talks',
+        title: 'Match Vibe',
         theme: AppTheme.darkTheme,
         routerConfig: appRouter,
         debugShowCheckedModeBanner: false,

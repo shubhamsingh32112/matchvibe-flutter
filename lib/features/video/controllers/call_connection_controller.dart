@@ -5,8 +5,12 @@ import 'package:stream_video_flutter/stream_video_flutter.dart';
 import '../services/call_service.dart';
 import '../services/permission_service.dart';
 import '../services/call_navigation_service.dart';
+import '../services/call_ringtone_service.dart';
 import '../providers/stream_video_provider.dart';
 import '../providers/call_billing_provider.dart';
+import '../providers/call_feedback_prompt_provider.dart';
+import '../utils/call_remote_image_resolver.dart';
+import '../utils/remote_avatar_lookup.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../home/providers/availability_provider.dart';
 
@@ -41,6 +45,7 @@ class CallConnectionState {
   final Call? call;
   final String? error;
   final CallFailureReason? failureReason;
+  final String? remoteImageFallbackUrl;
 
   /// `true` when the local user initiated the call (outgoing).
   /// `false` when the local user received the call (incoming / creator side).
@@ -51,6 +56,7 @@ class CallConnectionState {
     this.call,
     this.error,
     this.failureReason,
+    this.remoteImageFallbackUrl,
     this.isOutgoing = false,
   });
 
@@ -59,6 +65,7 @@ class CallConnectionState {
         call = null,
         error = null,
         failureReason = null,
+        remoteImageFallbackUrl = null,
         isOutgoing = false;
 }
 
@@ -93,6 +100,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
   String? _activeCallId;
   String? _activeCreatorFirebaseUid;
   String? _activeCreatorMongoId;
+  bool _wasConnected = false;
 
   CallConnectionController(this._ref)
       : super(const CallConnectionState.idle());
@@ -110,6 +118,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
   Future<void> startUserCall({
     required String creatorFirebaseUid,
     required String creatorMongoId,
+    String? creatorImageUrl,
   }) async {
     // Allow retry from failed state
     if (state.phase != CallConnectionPhase.idle &&
@@ -137,9 +146,15 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
 
     // ── Reset billing state from any previous call ─────────────────
     _ref.read(callBillingProvider.notifier).reset();
+    _wasConnected = false;
 
-    state = const CallConnectionState(
-        phase: CallConnectionPhase.preparing, isOutgoing: true);
+    // Outgoing call tone while dialing / connecting.
+    CallRingtoneService.startOutgoingTone();
+    state = CallConnectionState(
+      phase: CallConnectionPhase.preparing,
+      isOutgoing: true,
+      remoteImageFallbackUrl: creatorImageUrl,
+    );
 
     // Navigate to /call immediately so user sees the outgoing call screen
     CallNavigationService.navigateToCallScreen();
@@ -149,6 +164,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       final hasPerms =
           await PermissionService.ensurePermissions(video: true);
       if (!hasPerms) {
+        CallRingtoneService.stop();
         state = const CallConnectionState(
           phase: CallConnectionPhase.failed,
           error:
@@ -162,6 +178,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       // 2. Stream Video client
       final streamVideo = _ref.read(streamVideoProvider);
       if (streamVideo == null) {
+        CallRingtoneService.stop();
         state = const CallConnectionState(
           phase: CallConnectionPhase.failed,
           error: 'Video service not available. Please try again later.',
@@ -175,6 +192,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       final authState = _ref.read(authProvider);
       final firebaseUser = authState.firebaseUser;
       if (firebaseUser == null) {
+        CallRingtoneService.stop();
         state = const CallConnectionState(
           phase: CallConnectionPhase.failed,
           error: 'User not authenticated',
@@ -184,16 +202,18 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
         return;
       }
 
-      // 4. 🔥 FIX: Ensure billing socket is connected BEFORE the call starts.
-      //    The socket may have silently failed to connect during HomeScreen init.
-      //    Get a fresh token and force-(re)connect.
+      // 4. Best-effort billing socket reconnect (non-blocking).
+      // Do NOT delay call setup on socket readiness; billing has HTTP fallback.
       final socketService = _ref.read(socketServiceProvider);
       if (!socketService.isConnected) {
-        debugPrint('🔌 [CALL CTRL] Billing socket NOT connected — reconnecting...');
+        debugPrint(
+            '🔌 [CALL CTRL] Billing socket NOT connected — reconnecting in background...');
         final token = await firebaseUser.getIdToken();
         if (token != null) {
-          final connected = await socketService.ensureConnected(token);
-          debugPrint('🔌 [CALL CTRL] Socket ensureConnected result: $connected');
+          unawaited(socketService.ensureConnected(token).then(
+                (connected) => debugPrint(
+                    '🔌 [CALL CTRL] Socket ensureConnected result: $connected'),
+              ));
         }
       } else {
         debugPrint('✅ [CALL CTRL] Billing socket already connected');
@@ -215,7 +235,11 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
 
       // 5. Transition to joining (stay on /call screen — outgoing UI)
       state = CallConnectionState(
-          phase: CallConnectionPhase.joining, call: call, isOutgoing: true);
+        phase: CallConnectionPhase.joining,
+        call: call,
+        isOutgoing: true,
+        remoteImageFallbackUrl: creatorImageUrl,
+      );
       _startWatchdog();
       _listenForConnected(call);
 
@@ -224,6 +248,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       // Actual UI transition → connected happens in _listenForConnected.
     } catch (e) {
       debugPrint('❌ [CALL CTRL] startUserCall error: $e');
+      CallRingtoneService.stop();
       await _cleanupCall();
       if (mounted) {
         state = CallConnectionState(
@@ -257,8 +282,23 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
 
     // Reset billing state from any previous call
     _ref.read(callBillingProvider.notifier).reset();
+    CallRingtoneService.stop();
+    _wasConnected = false;
+    final currentUserId = _ref.read(authProvider).firebaseUser?.uid;
+    final initialFallbackImage = resolveRemoteImageUrl(
+      call: call,
+      currentUserId: currentUserId,
+      enableDebugLogs: true,
+      debugSourceTag: 'accept_incoming',
+    );
 
-    state = const CallConnectionState(phase: CallConnectionPhase.preparing);
+    state = CallConnectionState(
+      phase: CallConnectionPhase.preparing,
+      remoteImageFallbackUrl: initialFallbackImage,
+    );
+    if (initialFallbackImage == null) {
+      unawaited(_hydrateIncomingFallbackImage(call));
+    }
 
     // Navigate to /call immediately so creator sees connecting screen
     CallNavigationService.navigateToCallScreen();
@@ -288,7 +328,10 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
 
       // 3. Transition to joining
       state = CallConnectionState(
-          phase: CallConnectionPhase.joining, call: call);
+        phase: CallConnectionPhase.joining,
+        call: call,
+        remoteImageFallbackUrl: state.remoteImageFallbackUrl,
+      );
       _startWatchdog();
       _listenForConnected(call);
 
@@ -298,6 +341,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       // Actual UI transition → connected happens in _listenForConnected.
     } catch (e) {
       debugPrint('❌ [CALL CTRL] acceptIncomingCall error: $e');
+      CallRingtoneService.stop();
       await _cleanupCall();
       if (mounted) {
         state = CallConnectionState(
@@ -306,6 +350,41 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
           failureReason: CallFailureReason.sfuFailure,
         );
       }
+    }
+  }
+
+  Future<void> _hydrateIncomingFallbackImage(Call call) async {
+    try {
+      final dynamic callState = (call as dynamic).state?.value;
+      final createdBy = callState?.createdBy;
+      final remoteFirebaseUid = createdBy?.id?.toString() ??
+          createdBy?.userId?.toString() ??
+          extractCallerFirebaseUidFromCallId(call.id);
+      final remoteUsername = createdBy?.name?.toString() ??
+          createdBy?.extraData?['username']?.toString();
+
+      final lookedUp = await lookupAvatarFromUserList(
+        remoteFirebaseUid: remoteFirebaseUid,
+        remoteUsername: remoteUsername,
+        debugSourceTag: 'accept_incoming',
+      );
+      if (lookedUp == null || !mounted) return;
+
+      final currentCallId = state.call?.id;
+      final isSameCall = currentCallId == null || currentCallId == call.id;
+      if (!isSameCall) return;
+      if (state.remoteImageFallbackUrl == lookedUp) return;
+
+      state = CallConnectionState(
+        phase: state.phase,
+        call: state.call,
+        error: state.error,
+        failureReason: state.failureReason,
+        isOutgoing: state.isOutgoing,
+        remoteImageFallbackUrl: lookedUp,
+      );
+    } catch (_) {
+      // Best-effort fallback hydration only.
     }
   }
 
@@ -323,12 +402,19 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
   /// - "Go Back" on the failed view
   Future<void> endCall() async {
     if (state.phase == CallConnectionPhase.idle) return;
+    CallRingtoneService.stop();
 
+    final wasOutgoing = state.isOutgoing;
     final call = state.call;
     state = CallConnectionState(
         phase: CallConnectionPhase.disconnecting, call: call);
 
     _cancelSubscriptions(); // stop status listener first
+
+    final endedCallId = _activeCallId;
+    final endedCreatorFirebaseUid = _activeCreatorFirebaseUid;
+    final endedCreatorLookupId = _activeCreatorMongoId;
+    final wasConnected = _wasConnected;
 
     // ── Emit call:ended to trigger MongoDB settlement ──────────
     if (_activeCallId != null) {
@@ -338,6 +424,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     _activeCallId = null;
     _activeCreatorFirebaseUid = null;
     _activeCreatorMongoId = null;
+    _wasConnected = false;
 
     if (call != null) {
       try {
@@ -346,6 +433,18 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       } catch (e) {
         debugPrint('❌ [CALL CTRL] endCall leave error: $e');
       }
+    }
+
+    if (wasConnected &&
+        wasOutgoing &&
+        endedCallId != null &&
+        endedCallId.isNotEmpty) {
+      _queuePostCallFeedbackPrompt(
+        callId: endedCallId,
+        creatorFirebaseUid: endedCreatorFirebaseUid,
+        creatorLookupId: endedCreatorLookupId,
+        call: call,
+      );
     }
 
     // Navigate to home — both user and creator land on their home page
@@ -368,12 +467,15 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       debugPrint('📞 [CALL CTRL] status → $status');
 
       if (status is CallStatusConnected) {
+        CallRingtoneService.stop();
         _cancelWatchdog();
         if (state.phase == CallConnectionPhase.joining) {
+          _wasConnected = true;
           state = CallConnectionState(
               phase: CallConnectionPhase.connected,
               call: call,
-              isOutgoing: state.isOutgoing);
+              isOutgoing: state.isOutgoing,
+              remoteImageFallbackUrl: state.remoteImageFallbackUrl);
 
           // ── Start billing (user-initiated calls only) ────────────
           _emitBillingStarted();
@@ -383,6 +485,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
               '✅ [CALL CTRL] phase → connected — call is live');
         }
       } else if (status is CallStatusDisconnected) {
+        CallRingtoneService.stop();
         // Only handle unexpected disconnects (not our own endCall)
         if (state.phase != CallConnectionPhase.disconnecting &&
             state.phase != CallConnectionPhase.idle) {
@@ -393,6 +496,10 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
           _cancelSubscriptions();
 
           // ── Stop billing on any unexpected disconnect ──────────
+          final endedCallId = _activeCallId;
+          final endedCreatorFirebaseUid = _activeCreatorFirebaseUid;
+          final endedCreatorLookupId = _activeCreatorMongoId;
+          final wasConnected = _wasConnected;
           if (_activeCallId != null) {
             debugPrint(
                 '💰 [CALL CTRL] Emitting call:ended for $_activeCallId (unexpected disconnect)');
@@ -402,9 +509,14 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
           _activeCallId = null;
           _activeCreatorFirebaseUid = null;
           _activeCreatorMongoId = null;
+          _wasConnected = false;
 
           // Map disconnect reason → failure or clean exit
-          if (reason == DisconnectReason.rejected) {
+          final isRejected = reason
+              .toString()
+              .toLowerCase()
+              .contains('rejected');
+          if (isRejected) {
             debugPrint('📞 [CALL CTRL] Call was rejected by remote party');
             if (mounted) {
               state = CallConnectionState(
@@ -412,9 +524,22 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
                 error: 'Call was declined',
                 failureReason: CallFailureReason.rejected,
                 isOutgoing: state.isOutgoing,
+                remoteImageFallbackUrl: state.remoteImageFallbackUrl,
               );
             }
           } else {
+            if (wasConnected &&
+                state.isOutgoing &&
+                endedCallId != null &&
+                endedCallId.isNotEmpty) {
+              _queuePostCallFeedbackPrompt(
+                callId: endedCallId,
+                creatorFirebaseUid: endedCreatorFirebaseUid,
+                creatorLookupId: endedCreatorLookupId,
+                call: call,
+              );
+            }
+
             // Normal disconnect (other party left, network, etc.)
             // Navigate both user and creator to home
             CallNavigationService.navigateToHome();
@@ -486,14 +611,60 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
 
   /// Cancel subscriptions **and** try to leave the current call.
   Future<void> _cleanupCall() async {
+    CallRingtoneService.stop();
     _cancelSubscriptions();
     try {
       await state.call?.leave();
     } catch (_) {}
   }
 
+  void _queuePostCallFeedbackPrompt({
+    required String callId,
+    required String? creatorFirebaseUid,
+    required String? creatorLookupId,
+    required Call? call,
+  }) {
+    final creatorName = _extractRemoteCreatorName(call);
+    _ref.read(callFeedbackPromptProvider.notifier).enqueue(
+          CallFeedbackPrompt(
+            callId: callId,
+            creatorLookupId: creatorLookupId,
+            creatorFirebaseUid: creatorFirebaseUid,
+            creatorName: creatorName,
+          ),
+        );
+  }
+
+  String? _extractRemoteCreatorName(Call? call) {
+    if (call == null) return null;
+    final currentUserId = _ref.read(authProvider).firebaseUser?.uid;
+    if (currentUserId == null || currentUserId.isEmpty) return null;
+
+    try {
+      final dynamic callState = (call as dynamic).state?.value;
+      final dynamic members = callState?.members;
+      if (members is Iterable) {
+        for (final dynamic member in members) {
+          final memberId = (member as dynamic).userId?.toString();
+          if (memberId == null || memberId == currentUserId) continue;
+          final dynamic user = (member as dynamic).user;
+          final name = user?.name?.toString() ??
+              user?.extraData?['username']?.toString() ??
+              user?.id?.toString();
+          if (name != null && name.trim().isNotEmpty) {
+            return name.trim();
+          }
+        }
+      }
+    } catch (_) {
+      // Best-effort only.
+    }
+    return null;
+  }
+
   @override
   void dispose() {
+    CallRingtoneService.stop();
     _cancelSubscriptions();
     super.dispose();
   }

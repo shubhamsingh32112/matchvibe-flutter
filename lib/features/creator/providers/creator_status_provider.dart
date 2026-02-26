@@ -48,13 +48,20 @@ class CreatorStatusNotifier extends StateNotifier<CreatorStatus> {
   Future<void> _loadStatus() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final isAvailable = prefs.getBool(_statusKey) ?? false;
+      final authState = _ref.read(authProvider);
+      final user = authState.user;
+      final isCreator = user != null &&
+          (user.role == 'creator' || user.role == 'admin');
+
+      // Product requirement: creators are online whenever they open the app.
+      final isAvailable = isCreator ? true : (prefs.getBool(_statusKey) ?? false);
+      if (isCreator) {
+        await prefs.setBool(_statusKey, true);
+      }
       state = isAvailable ? CreatorStatus.online : CreatorStatus.offline;
       
       // 🔥 Sync loaded status via Socket.IO
       // Note: Socket connection must be initialized first (happens in app startup)
-      final authState = _ref.read(authProvider);
-      final user = authState.user;
       if (user != null && (user.role == 'creator' || user.role == 'admin')) {
         // 🔥 FIX 1 & 3: Use new API without creatorId (server uses authenticated ID)
         _emitSocketStatus(isAvailable);

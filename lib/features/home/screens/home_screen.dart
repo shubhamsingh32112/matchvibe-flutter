@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../core/constants/app_constants.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../../shared/widgets/skeleton_card.dart';
@@ -18,13 +17,13 @@ import '../../../core/services/welcome_service.dart';
 import '../../../core/services/permission_prompt_service.dart';
 import '../providers/home_provider.dart';
 import '../providers/availability_provider.dart';
-import '../../../core/services/availability_socket_service.dart' hide creatorStatusProvider;
 import '../widgets/home_user_grid_card.dart';
 import '../../creator/providers/creator_dashboard_provider.dart';
 import '../../creator/providers/creator_task_provider.dart';
 import '../../creator/models/creator_task_model.dart';
-import '../../creator/providers/creator_status_provider.dart';
 import '../../video/services/permission_service.dart';
+import '../../support/services/support_service.dart';
+import '../../video/providers/call_feedback_prompt_provider.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -35,8 +34,8 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _welcomeDialogShown = false;
-  bool _initialized = false;
-
+  final SupportService _supportService = SupportService();
+  String? _lastHandledFeedbackCallId;
   @override
   void initState() {
     super.initState();
@@ -72,21 +71,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final socketService = ref.read(socketServiceProvider);
     socketService.connect(token);
 
-    // Wait for the REST creators list to arrive, then request availability
-    try {
-      final creators = await ref.read(creatorsProvider.future);
-      if (!mounted) return;
+    // Only request creator availability if the current user is a regular user
+    // (or admin).  Creators don't need this — they see users, not creators.
+    final user = authState.user;
+    if (user?.role != 'creator') {
+      try {
+        final creators = await ref.read(creatorsProvider.future);
+        if (!mounted) return;
 
-      final creatorFirebaseUids = creators
-          .where((c) => c.firebaseUid != null)
-          .map((c) => c.firebaseUid!)
-          .toList();
+        final creatorFirebaseUids = creators
+            .where((c) => c.firebaseUid != null)
+            .map((c) => c.firebaseUid!)
+            .toList();
 
-      if (creatorFirebaseUids.isNotEmpty) {
-        socketService.requestAvailability(creatorFirebaseUids);
+        if (creatorFirebaseUids.isNotEmpty) {
+          socketService.requestAvailability(creatorFirebaseUids);
+        }
+      } catch (e) {
+        debugPrint('❌ [HOME] Failed to hydrate availability: $e');
       }
-    } catch (e) {
-      debugPrint('❌ [HOME] Failed to hydrate availability: $e');
     }
   }
 
@@ -359,11 +362,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final pendingFeedbackPrompt = ref.watch(callFeedbackPromptProvider);
+    if (pendingFeedbackPrompt != null &&
+        _lastHandledFeedbackCallId != pendingFeedbackPrompt.callId) {
+      _lastHandledFeedbackCallId = pendingFeedbackPrompt.callId;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _showPostCallFeedbackDialog(pendingFeedbackPrompt);
+      });
+    }
+
     final homeFeedItems = ref.watch(homeFeedProvider); // Now a Provider, not FutureProvider
     final authState = ref.watch(authProvider);
     final user = authState.user;
     final isCreator = user?.role == 'creator' || user?.role == 'admin';
-    final isRegularUser = user?.role == 'user';
     final scheme = Theme.of(context).colorScheme;
 
     return MainLayout(
@@ -372,12 +384,216 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           padded: true,
           child: isCreator
             ? _CreatorTasksView()
-            : _buildHomeFeedContent(homeFeedItems, isRegularUser, scheme, authState, isCreator),
+            : _buildHomeFeedContent(homeFeedItems, scheme, isCreator),
       ),
     );
   }
 
-  Widget _buildHomeFeedContent(List<dynamic> items, bool isRegularUser, ColorScheme scheme, AuthState authState, bool isCreator) {
+  void _showPostCallFeedbackDialog(CallFeedbackPrompt prompt) {
+    ref.read(callFeedbackPromptProvider.notifier).clear();
+    int selectedStars = 0;
+    bool isSubmitting = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(
+            prompt.creatorName?.trim().isNotEmpty == true
+                ? 'Rate ${prompt.creatorName}'
+                : 'Rate Creator',
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('How was your video call experience?'),
+              const SizedBox(height: 14),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(5, (index) {
+                  final starIndex = index + 1;
+                  return IconButton(
+                    onPressed: isSubmitting
+                        ? null
+                        : () => setDialogState(() => selectedStars = starIndex),
+                    icon: Icon(
+                      starIndex <= selectedStars ? Icons.star : Icons.star_border,
+                      color: Colors.amber,
+                    ),
+                  );
+                }),
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: isSubmitting
+                      ? null
+                      : () {
+                          Navigator.of(ctx).pop();
+                          _showCreatorReportDialog(
+                            creatorLookupId: prompt.creatorLookupId,
+                            creatorFirebaseUid: prompt.creatorFirebaseUid,
+                            creatorName: prompt.creatorName,
+                            relatedCallId: prompt.callId,
+                            source: 'post_call',
+                          );
+                        },
+                  icon: const Icon(Icons.flag_outlined),
+                  label: const Text('Report creator'),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSubmitting ? null : () => Navigator.of(ctx).pop(),
+              child: const Text('Later'),
+            ),
+            FilledButton(
+              onPressed: (isSubmitting || selectedStars < 1)
+                  ? null
+                  : () async {
+                      setDialogState(() => isSubmitting = true);
+                      try {
+                        await _supportService.submitCallFeedback(
+                          callId: prompt.callId,
+                          rating: selectedStars,
+                        );
+                        if (!mounted || !ctx.mounted) return;
+                        Navigator.of(ctx).pop();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Thanks! Your rating was submitted.'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      } catch (e) {
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Failed to submit rating: $e')),
+                        );
+                        setDialogState(() => isSubmitting = false);
+                      }
+                    },
+              child: isSubmitting
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Submit'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showCreatorReportDialog({
+    String? creatorLookupId,
+    String? creatorFirebaseUid,
+    String? creatorName,
+    String? relatedCallId,
+    required String source,
+  }) {
+    final controller = TextEditingController();
+    bool isSubmitting = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Report Creator'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  creatorName?.trim().isNotEmpty == true
+                      ? 'Tell us what happened with ${creatorName!.trim()}.'
+                      : 'Tell us what happened.',
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: controller,
+                  minLines: 3,
+                  maxLines: 5,
+                  decoration: const InputDecoration(
+                    hintText: 'Write your complaint',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSubmitting ? null : () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: isSubmitting
+                  ? null
+                  : () async {
+                      final message = controller.text.trim();
+                      if (message.length < 10) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Please write at least 10 characters.'),
+                          ),
+                        );
+                        return;
+                      }
+
+                      if (!ctx.mounted) return;
+                      setDialogState(() => isSubmitting = true);
+                      try {
+                        await _supportService.reportCreator(
+                          reasonMessage: message,
+                          source: source,
+                          creatorLookupId: creatorLookupId,
+                          creatorFirebaseUid: creatorFirebaseUid,
+                          creatorName: creatorName,
+                          relatedCallId: relatedCallId,
+                        );
+                        if (!mounted || !ctx.mounted) return;
+                        Navigator.of(ctx).pop();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Report submitted to admin team.'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      } catch (e) {
+                        if (!mounted || !ctx.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Failed to send report: $e')),
+                        );
+                        setDialogState(() => isSubmitting = false);
+                      }
+                    },
+              child: isSubmitting
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Send Report'),
+            ),
+          ],
+        ),
+      ),
+    ).whenComplete(() {
+      // Delay disposal to avoid transient "used after disposed" during route
+      // transition / IME teardown on some Android builds.
+      Future<void>.delayed(const Duration(milliseconds: 250), controller.dispose);
+    });
+  }
+
+  Widget _buildHomeFeedContent(List<dynamic> items, ColorScheme scheme, bool isCreator) {
     // Show loading state while creators are being fetched
     final creatorsAsync = ref.watch(creatorsProvider);
     final isLoading = creatorsAsync.isLoading;
@@ -387,9 +603,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         padding: const EdgeInsets.only(top: AppSpacing.lg),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 2,
-          crossAxisSpacing: AppSpacing.md,
-          mainAxisSpacing: AppSpacing.md,
-          childAspectRatio: 0.78,
+          crossAxisSpacing: AppSpacing.xs,
+          mainAxisSpacing: AppSpacing.xs,
+          childAspectRatio: 0.70,
         ),
         itemCount: 6,
         itemBuilder: (context, index) => const SkeletonCard(),
@@ -400,7 +616,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (items.isEmpty) {
       return RefreshIndicator(
         onRefresh: () async {
+          final beforeRole = ref.read(authProvider).user?.role;
+          await ref.read(authProvider.notifier).refreshUser();
+          final afterRole = ref.read(authProvider).user?.role;
+          if (mounted &&
+              beforeRole != 'creator' &&
+              afterRole == 'creator') {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('You are now a creator. Home has been updated.'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
           ref.invalidate(creatorsProvider);
+          ref.invalidate(usersProvider);
           ref.invalidate(homeFeedProvider);
           await Future.delayed(const Duration(milliseconds: 500));
         },
@@ -418,99 +648,44 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       );
     }
 
-    // Users-only: separate favorites from the rest (favorites are pinned at top)
-    final List<CreatorModel> favoriteCreators = [];
-    final List<CreatorModel> otherCreators = [];
-    if (isRegularUser) {
-      for (final item in items) {
-        if (item is CreatorModel) {
-          if (item.isFavorite) {
-            favoriteCreators.add(item);
-          } else {
-            otherCreators.add(item);
-          }
-        }
-      }
-    }
-
     return RefreshIndicator(
       onRefresh: () async {
         // Manual refresh - invalidate providers to force refetch
         debugPrint('🔄 [HOME] Manual refresh triggered');
+        final beforeRole = ref.read(authProvider).user?.role;
+        await ref.read(authProvider.notifier).refreshUser();
+        final afterRole = ref.read(authProvider).user?.role;
+        if (mounted &&
+            beforeRole != 'creator' &&
+            afterRole == 'creator') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('You are now a creator. Home has been updated.'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
         ref.invalidate(creatorsProvider);
+        ref.invalidate(usersProvider);
         ref.invalidate(homeFeedProvider);
         // Wait a bit for the refresh to complete
         await Future.delayed(const Duration(milliseconds: 500));
       },
       child: CustomScrollView(
         slivers: [
-          SliverToBoxAdapter(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: AppSpacing.md),
-                Row(
-                  children: [
-                    Text(
-                      AppConstants.appName,
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            color: scheme.onSurface,
-                            fontWeight: FontWeight.w800,
-                          ),
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                    _OnlinePill(),
-                    const Spacer(),
-                    _CoinsPill(coins: authState.user?.coins ?? 0, isLoading: authState.isLoading),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                Text(
-                  isRegularUser ? 'Creators (${items.length})' : 'Users (${items.length})',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: scheme.onSurfaceVariant,
-                      ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                if (isRegularUser && favoriteCreators.isNotEmpty) ...[
-                  Text(
-                    'Favourites (${favoriteCreators.length})',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: scheme.onSurfaceVariant,
-                        ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  SizedBox(
-                    height: 210,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: favoriteCreators.length,
-                      separatorBuilder: (context, index) => const SizedBox(width: AppSpacing.md),
-                      itemBuilder: (context, index) => SizedBox(
-                        width: 170,
-                        child: HomeUserGridCard(creator: favoriteCreators[index]),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                ],
-              ],
-            ),
-          ),
+          const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.md)),
           SliverPadding(
             padding: const EdgeInsets.only(bottom: AppSpacing.xl),
             sliver: SliverGrid(
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 2,
-                crossAxisSpacing: AppSpacing.md,
-                mainAxisSpacing: AppSpacing.md,
-                childAspectRatio: 0.78,
+                crossAxisSpacing: AppSpacing.xs,
+                mainAxisSpacing: AppSpacing.xs,
+                childAspectRatio: 0.70,
               ),
               delegate: SliverChildBuilderDelegate(
                 (context, index) {
-                  final item = isRegularUser ? otherCreators[index] : items[index];
+                  final item = items[index];
                   if (item is CreatorModel) {
                     return HomeUserGridCard(creator: item);
                   }
@@ -519,7 +694,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   }
                   return const SizedBox.shrink();
                 },
-                childCount: isRegularUser ? otherCreators.length : items.length,
+                childCount: items.length,
               ),
             ),
           ),
@@ -538,34 +713,28 @@ class _CreatorTasksView extends ConsumerStatefulWidget {
 
 class _CreatorTasksViewState extends ConsumerState<_CreatorTasksView> {
   @override
+  void initState() {
+    super.initState();
+    // Refresh dashboard every time the creator lands on the home screen
+    // (e.g. after a call ends and they navigate back).  This guarantees
+    // the earnings/calls/minutes are up to date regardless of socket timing.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.invalidate(creatorDashboardProvider);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final authState = ref.watch(authProvider);
-    final coins = authState.user?.coins ?? 0;
     // Use dashboard-derived providers (auto-synced via creator:data_updated socket event)
     final tasksAsync = ref.watch(dashboardTasksProvider);
     final earningsAsync = ref.watch(dashboardEarningsProvider);
+    final todayEarningsAsync = ref.watch(dashboardTodayEarningsProvider);
     final scheme = Theme.of(context).colorScheme;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: AppSpacing.md),
-        Row(
-          children: [
-            Text(
-              AppConstants.appName,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: scheme.onSurface,
-                    fontWeight: FontWeight.w800,
-                  ),
-            ),
-            const SizedBox(width: AppSpacing.md),
-            _OnlinePill(),
-            const Spacer(),
-            _CoinsPill(coins: coins, isLoading: authState.isLoading),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.lg),
         // Total Earnings Card
         earningsAsync.when(
           data: (earnings) => AppCard(
@@ -634,6 +803,75 @@ class _CreatorTasksViewState extends ConsumerState<_CreatorTasksView> {
             ),
           ),
           error: (error, stack) => const SizedBox.shrink(), // Hide on error, don't block UI
+        ),
+        // Today's Earnings Card
+        todayEarningsAsync.when(
+          data: (today) => AppCard(
+            margin: const EdgeInsets.only(bottom: AppSpacing.lg),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.today, size: 16, color: scheme.primary),
+                    const SizedBox(width: 6),
+                    Text(
+                      "Today's Earnings",
+                      style: TextStyle(
+                        color: scheme.onSurfaceVariant,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      today.totalEarnings.toStringAsFixed(0),
+                      style: TextStyle(
+                        color: scheme.onSurface,
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        'coins',
+                        style: TextStyle(
+                          color: scheme.onSurfaceVariant,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    _EarningsStatItem(
+                      label: 'Calls',
+                      value: today.totalCalls.toString(),
+                      icon: Icons.phone,
+                    ),
+                    const SizedBox(width: 24),
+                    _EarningsStatItem(
+                      label: 'Minutes',
+                      value: today.totalMinutes.toStringAsFixed(1),
+                      icon: Icons.timer,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          loading: () => const SizedBox.shrink(),
+          error: (error, stack) => const SizedBox.shrink(),
         ),
         Text(
           'Tasks & Rewards',
@@ -804,7 +1042,7 @@ class _TasksContent extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Total Minutes Completed',
+                  "Today's Minutes",
                   style: TextStyle(
                     color: scheme.onSurface.withOpacity(0.7),
                     fontSize: 14,
@@ -837,7 +1075,7 @@ class _TasksContent extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Complete video calls to earn bonus coins!',
+                  'Tasks reset daily at 11:59 PM. Complete calls to earn bonus coins!',
                   style: TextStyle(
                     color: scheme.onSurface.withOpacity(0.6),
                     fontSize: 12,
@@ -901,6 +1139,10 @@ class _TasksContent extends StatelessWidget {
             ),
           ),
 
+          // Daily Reset Countdown
+          if (tasksResponse.resetsAt != null)
+            _DailyResetBanner(resetsAt: tasksResponse.resetsAt!),
+
           // Task List
           Text(
             'Tasks',
@@ -915,6 +1157,97 @@ class _TasksContent extends StatelessWidget {
                 task: task,
                 onClaim: () => onClaim(task.taskKey),
               )),
+        ],
+      ),
+    );
+  }
+}
+
+/// Compact daily reset countdown for the home screen.
+class _DailyResetBanner extends StatefulWidget {
+  final DateTime resetsAt;
+
+  const _DailyResetBanner({required this.resetsAt});
+
+  @override
+  State<_DailyResetBanner> createState() => _DailyResetBannerState();
+}
+
+class _DailyResetBannerState extends State<_DailyResetBanner> {
+  late Timer _timer;
+  Duration _remaining = Duration.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    _updateRemaining();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _updateRemaining();
+    });
+  }
+
+  void _updateRemaining() {
+    final now = DateTime.now();
+    final diff = widget.resetsAt.toLocal().difference(now);
+    setState(() {
+      _remaining = diff.isNegative ? Duration.zero : diff;
+    });
+  }
+
+  @override
+  void didUpdateWidget(_DailyResetBanner oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.resetsAt != widget.resetsAt) {
+      _updateRemaining();
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final hours = _remaining.inHours;
+    final minutes = _remaining.inMinutes.remainder(60);
+    final seconds = _remaining.inSeconds.remainder(60);
+
+    final timeText = hours > 0
+        ? '${hours}h ${minutes}m ${seconds}s'
+        : minutes > 0
+            ? '${minutes}m ${seconds}s'
+            : '${seconds}s';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: scheme.tertiaryContainer.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.timer_outlined, size: 16, color: scheme.tertiary),
+          const SizedBox(width: 8),
+          Text(
+            'Resets in ',
+            style: TextStyle(
+              color: scheme.onTertiaryContainer.withOpacity(0.8),
+              fontSize: 12,
+            ),
+          ),
+          Text(
+            timeText,
+            style: TextStyle(
+              color: scheme.tertiary,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
         ],
       ),
     );
@@ -1095,118 +1428,6 @@ class _TaskCard extends StatelessWidget {
               ],
             ),
           ],
-        ],
-      ),
-    );
-  }
-}
-
-class _OnlinePill extends ConsumerWidget {
-  const _OnlinePill();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final scheme = Theme.of(context).colorScheme;
-    final authState = ref.watch(authProvider);
-    final isCreator = authState.user?.role == 'creator' || authState.user?.role == 'admin';
-    
-    // Only show status for creators, for users just show a static "Online" indicator
-    if (!isCreator) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
-        decoration: BoxDecoration(
-          color: scheme.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: scheme.outlineVariant),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: scheme.tertiary,
-              ),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            Text(
-              'Online',
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: scheme.onSurface,
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-          ],
-        ),
-      );
-    }
-    
-    // For creators, show actual online/offline status
-    final status = ref.watch(creatorStatusProvider);
-    final isOnline = status == CreatorStatus.online;
-    
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: scheme.outlineVariant),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isOnline ? scheme.primary : scheme.outlineVariant,
-            ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Text(
-            isOnline ? 'Online' : 'Offline',
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: scheme.onSurface,
-                  fontWeight: FontWeight.w600,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CoinsPill extends StatelessWidget {
-  final int coins;
-  final bool isLoading;
-
-  const _CoinsPill({required this.coins, required this.isLoading});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: scheme.outlineVariant),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.monetization_on, size: 18, color: scheme.onSurface),
-          const SizedBox(width: AppSpacing.xs),
-          Text(
-            isLoading ? '...' : coins.toString(),
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: scheme.onSurface,
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
         ],
       ),
     );

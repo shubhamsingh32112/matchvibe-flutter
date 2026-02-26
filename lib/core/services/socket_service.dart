@@ -22,7 +22,9 @@ import '../api/api_client.dart';
 class SocketService {
   io.Socket? _socket;
   bool _isConnected = false;
+  bool _isConnecting = false;
   List<String> _lastRequestedIds = [];
+  Completer<bool>? _connectCompleter;
   // ── Pending billing events (queued when socket is disconnected) ─────────
   Map<String, dynamic>? _pendingCallStarted;
   Map<String, dynamic>? _pendingCallEnded;
@@ -44,6 +46,17 @@ class SocketService {
   /// - Task reward claim (coins changed)
   void Function(Map<String, dynamic>)? onCreatorDataUpdated;
 
+  // ── Coins updated callback ─────────────────────────────────────────────
+  /// Fired when the backend emits `coins_updated` after:
+  /// - Buying coins (addCoins)
+  /// - Welcome bonus claim
+  /// - Any other server-side coin balance change
+  void Function(Map<String, dynamic>)? onCoinsUpdated;
+
+  // ── Wallet pricing callback ────────────────────────────────────────────
+  /// Fired when admin updates wallet package pricing.
+  void Function(Map<String, dynamic>)? onWalletPricingUpdated;
+
   bool get isConnected => _isConnected;
 
   // ── Connect ─────────────────────────────────────────────────────────────
@@ -56,6 +69,12 @@ class SocketService {
     // Already connected — nothing to do
     if (_socket != null && _isConnected) {
       debugPrint('🔌 [SOCKET] Already connected, skipping');
+      return;
+    }
+
+    // Connection in progress — avoid duplicate reconnect storms.
+    if (_isConnecting) {
+      debugPrint('🔌 [SOCKET] Connection already in progress, skipping');
       return;
     }
 
@@ -86,6 +105,10 @@ class SocketService {
     _socket!.onConnect((_) {
       debugPrint('✅ [SOCKET] Connected to ${AppConstants.socketUrl}');
       _isConnected = true;
+      _isConnecting = false;
+      if (_connectCompleter != null && !_connectCompleter!.isCompleted) {
+        _connectCompleter!.complete(true);
+      }
 
       // Re-request availability on (re)connect
       if (_lastRequestedIds.isNotEmpty) {
@@ -163,9 +186,25 @@ class SocketService {
       }
     });
 
+    // ── Coins updated event ─────────────────────────────────────────────
+    _socket!.on('coins_updated', (data) {
+      debugPrint('💰 [SOCKET] coins_updated: $data');
+      if (data is Map) {
+        onCoinsUpdated?.call(Map<String, dynamic>.from(data));
+      }
+    });
+
+    _socket!.on('wallet_pricing_updated', (data) {
+      debugPrint('💳 [SOCKET] wallet_pricing_updated: $data');
+      if (data is Map) {
+        onWalletPricingUpdated?.call(Map<String, dynamic>.from(data));
+      }
+    });
+
     _socket!.onDisconnect((_) {
       debugPrint('🔌 [SOCKET] Disconnected');
       _isConnected = false;
+      _isConnecting = false;
     });
 
     _socket!.onReconnect((_) {
@@ -183,37 +222,47 @@ class SocketService {
 
     _socket!.onConnectError((error) {
       debugPrint('❌ [SOCKET] Connection error: $error');
+      _isConnecting = false;
+      if (_connectCompleter != null && !_connectCompleter!.isCompleted) {
+        _connectCompleter!.complete(false);
+      }
     });
 
     _socket!.onError((error) {
       debugPrint('❌ [SOCKET] Error: $error');
     });
 
+    _isConnecting = true;
     _socket!.connect();
   }
 
   // ── Ensure Connected ───────────────────────────────────────────────────
   /// Ensure the socket is connected.  If not, (re)connect with the given
-  /// [token] and wait up to 3 seconds for the connection to establish.
+  /// [token] and wait up to 2 seconds for the connection to establish.
   ///
-  /// Returns `true` if connected, `false` if the timeout elapsed.
+  /// Returns `true` if connected, `false` on timeout/failure.
   Future<bool> ensureConnected(String token) async {
     if (_isConnected) return true;
 
     debugPrint('🔄 [SOCKET] ensureConnected — socket is NOT connected, reconnecting...');
+    _connectCompleter ??= Completer<bool>();
     connect(token);
 
-    // Wait up to 3 seconds for the connection to establish
-    for (int i = 0; i < 30; i++) {
-      if (_isConnected) {
-        debugPrint('✅ [SOCKET] ensureConnected — connected after ${i * 100}ms');
-        return true;
+    try {
+      final connected = await _connectCompleter!.future.timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => false,
+      );
+      if (connected) {
+        debugPrint('✅ [SOCKET] ensureConnected — connected');
+      } else {
+        debugPrint(
+            '⚠️ [SOCKET] ensureConnected — timed out/failed, continuing without socket');
       }
-      await Future.delayed(const Duration(milliseconds: 100));
+      return connected;
+    } finally {
+      _connectCompleter = null;
     }
-
-    debugPrint('⚠️ [SOCKET] ensureConnected — timed out after 3s, socket still not connected');
-    return false;
   }
 
   // ── Request Availability ────────────────────────────────────────────────
@@ -334,8 +383,13 @@ class SocketService {
     _socket?.dispose();
     _socket = null;
     _isConnected = false;
+    _isConnecting = false;
     _lastRequestedIds = [];
     _pendingCallStarted = null;
     _pendingCallEnded = null;
+    if (_connectCompleter != null && !_connectCompleter!.isCompleted) {
+      _connectCompleter!.complete(false);
+    }
+    _connectCompleter = null;
   }
 }

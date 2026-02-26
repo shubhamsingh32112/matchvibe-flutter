@@ -135,29 +135,30 @@ class AvailabilitySocketService {
     _authToken = authToken;
     _isCreator = isCreator;
     
-    // Load toggle state if creator
+    // Product requirement: creators are always online while app is running.
     if (isCreator) {
-      _loadToggleState();
+      _availabilityToggleOn = true;
+      _persistToggleState(true);
     }
     
     _connect();
   }
 
-  /// 🔥 FIX 3: Load the availability toggle state from SharedPreferences
-  Future<void> _loadToggleState() async {
+  /// Persist the availability toggle state for app restarts.
+  Future<void> _persistToggleState(bool isOn) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      _availabilityToggleOn = prefs.getBool(_toggleKey) ?? false;
-      debugPrint('📱 [SOCKET] Loaded toggle state: $_availabilityToggleOn');
+      await prefs.setBool(_toggleKey, isOn);
+      debugPrint('📱 [SOCKET] Persisted toggle state: $isOn');
     } catch (e) {
-      debugPrint('⚠️  [SOCKET] Failed to load toggle state: $e');
-      _availabilityToggleOn = false;
+      debugPrint('⚠️  [SOCKET] Failed to persist toggle state: $e');
     }
   }
 
   /// 🔥 FIX 3: Update the toggle state (called by creator_status_provider)
   void setToggleState(bool isOn) {
     _availabilityToggleOn = isOn;
+    _persistToggleState(isOn);
     debugPrint('📱 [SOCKET] Toggle state updated: $isOn');
   }
 

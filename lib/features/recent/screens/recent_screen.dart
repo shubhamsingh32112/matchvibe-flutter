@@ -4,7 +4,10 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../../shared/widgets/skeleton_list.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../../chat/services/chat_service.dart';
+import '../../home/providers/availability_provider.dart';
+import '../../video/controllers/call_connection_controller.dart';
 import '../models/call_history_model.dart';
 import '../providers/recent_provider.dart';
 
@@ -100,15 +103,20 @@ class _RecentScreenState extends ConsumerState<RecentScreen> {
 // Single call history tile
 // ═══════════════════════════════════════════════════════════════════════════
 
-class _CallHistoryTile extends StatelessWidget {
+class _CallHistoryTile extends ConsumerWidget {
   final CallHistoryModel call;
   const _CallHistoryTile({required this.call});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final isOutgoing = call.isOutgoing;
     final timeAgo = _formatTimeAgo(call.createdAt);
+
+    // Only show call button for regular users (outgoing calls to creators)
+    final authState = ref.watch(authProvider);
+    final isRegularUser = authState.user?.role == 'user';
+    final showCallButton = isRegularUser && isOutgoing;
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -172,7 +180,18 @@ class _CallHistoryTile extends StatelessWidget {
           ),
         ],
       ),
-      trailing: _ChatButton(otherFirebaseUid: call.otherFirebaseUid),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _ChatButton(otherFirebaseUid: call.otherFirebaseUid),
+          if (showCallButton)
+            _CallButton(
+              otherFirebaseUid: call.otherFirebaseUid,
+              otherMongoId: call.otherMongoIdForCall,
+              otherAvatar: call.otherAvatar,
+            ),
+        ],
+      ),
     );
   }
 
@@ -243,6 +262,98 @@ class _ChatButtonState extends State<_ChatButton> {
               color: Theme.of(context).colorScheme.primary,
             ),
       tooltip: 'Chat',
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Call button — initiates a video call with the creator
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _CallButton extends ConsumerStatefulWidget {
+  final String otherFirebaseUid;
+  final String otherMongoId;
+  final String? otherAvatar;
+
+  const _CallButton({
+    required this.otherFirebaseUid,
+    required this.otherMongoId,
+    this.otherAvatar,
+  });
+
+  @override
+  ConsumerState<_CallButton> createState() => _CallButtonState();
+}
+
+class _CallButtonState extends ConsumerState<_CallButton> {
+  bool _loading = false;
+
+  Future<void> _initiateCall() async {
+    if (_loading) return;
+
+    // Check coin balance
+    final authState = ref.read(authProvider);
+    final user = authState.user;
+    if (user != null && user.coins < 10) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Minimum 10 coins required to start a call'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            action: SnackBarAction(
+              label: 'Buy Coins',
+              textColor: Theme.of(context).colorScheme.onError,
+              onPressed: () => context.push('/wallet'),
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    setState(() => _loading = true);
+
+    try {
+      await ref
+          .read(callConnectionControllerProvider.notifier)
+          .startUserCall(
+            creatorFirebaseUid: widget.otherFirebaseUid,
+            creatorMongoId: widget.otherMongoId,
+            creatorImageUrl: widget.otherAvatar,
+          );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    // Check if creator is online
+    final availabilityMap = ref.watch(creatorAvailabilityProvider);
+    final isOnline =
+        (availabilityMap[widget.otherFirebaseUid] ?? CreatorAvailability.busy) ==
+            CreatorAvailability.online;
+
+    return IconButton(
+      onPressed: isOnline ? _initiateCall : null,
+      icon: _loading
+          ? SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(scheme.primary),
+              ),
+            )
+          : Icon(
+              Icons.videocam,
+              color: isOnline
+                  ? scheme.primary
+                  : scheme.onSurface.withValues(alpha: 0.3),
+            ),
+      tooltip: isOnline ? 'Video Call' : 'Offline',
     );
   }
 }

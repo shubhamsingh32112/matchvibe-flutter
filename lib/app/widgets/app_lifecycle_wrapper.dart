@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
+import 'dart:async';
+import 'package:app_links/app_links.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../router/app_router.dart';
 import '../../features/auth/providers/auth_provider.dart';
 import '../../features/creator/providers/creator_dashboard_provider.dart';
 import '../../features/creator/providers/creator_status_provider.dart';
 import '../../features/video/controllers/call_connection_controller.dart';
 import '../../features/home/providers/home_provider.dart';
-import '../../features/video/services/call_navigation_service.dart';
 
 /// Widget that wraps the app and handles lifecycle events.
 ///
@@ -31,20 +32,117 @@ class AppLifecycleWrapper extends ConsumerStatefulWidget {
 
 class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     with WidgetsBindingObserver {
-  static const String _hasShownPopupKey = 'has_shown_creator_popup';
-  bool _hasShownPopup = false;
+  static const String _lastHandledPaymentDeepLinkKey = 'last_handled_payment_deep_link';
+  AppLinks? _appLinks;
+  StreamSubscription<Uri>? _deepLinkSub;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _checkAndShowPopup();
+    _initDeepLinks();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _ensureCreatorOnline();
+    });
   }
 
   @override
   void dispose() {
+    _deepLinkSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  Future<void> _initDeepLinks() async {
+    try {
+      _appLinks = AppLinks();
+      final initialUri = await _appLinks!.getInitialLink();
+      if (initialUri != null) {
+        await _handleIncomingDeepLink(initialUri);
+      }
+
+      _deepLinkSub = _appLinks!.uriLinkStream.listen(
+        (uri) {
+          _handleIncomingDeepLink(uri);
+        },
+        onError: (Object err) {
+          debugPrint('⚠️  [APP LINKS] Deep link stream error: $err');
+        },
+      );
+    } catch (e) {
+      debugPrint('⚠️  [APP LINKS] Failed to initialize app links: $e');
+    }
+  }
+
+  Future<void> _handleIncomingDeepLink(Uri uri) async {
+    if (!mounted) return;
+
+    if (uri.scheme != 'zztherapy') return;
+    if (uri.host != 'wallet') return;
+
+    final paymentStatus = uri.queryParameters['payment'];
+    if (paymentStatus == null || paymentStatus.isEmpty) return;
+
+    if (!await _shouldHandlePaymentDeepLink(uri, paymentStatus)) {
+      debugPrint('⏭️  [APP LINKS] Ignoring duplicate payment deep link: $uri');
+      return;
+    }
+
+    final coinsAdded = int.tryParse(uri.queryParameters['coinsAdded'] ?? '0') ?? 0;
+    final deepLinkMessage = uri.queryParameters['message'];
+
+    if (paymentStatus == 'success') {
+      ref.read(authProvider.notifier).refreshUser();
+      final params = <String, String>{
+        'payment': 'success',
+        'coinsAdded': coinsAdded.toString(),
+      };
+      if (deepLinkMessage != null && deepLinkMessage.isNotEmpty) {
+        params['message'] = deepLinkMessage;
+      }
+      appRouter.go(Uri(
+        path: '/wallet/payment-status',
+        queryParameters: params,
+      ).toString());
+      return;
+    }
+
+    if (paymentStatus == 'failed') {
+      final params = <String, String>{
+        'payment': 'failed',
+      };
+      if (deepLinkMessage != null && deepLinkMessage.isNotEmpty) {
+        params['message'] = deepLinkMessage;
+      } else {
+        params['message'] = 'Payment failed or cancelled. Please try again.';
+      }
+      appRouter.go(Uri(
+        path: '/wallet/payment-status',
+        queryParameters: params,
+      ).toString());
+    }
+  }
+
+  Future<bool> _shouldHandlePaymentDeepLink(Uri uri, String paymentStatus) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final orderId = uri.queryParameters['orderId'];
+      final dedupeId = (orderId != null && orderId.isNotEmpty)
+          ? '$paymentStatus:$orderId'
+          : uri.toString();
+
+      final lastHandled = prefs.getString(_lastHandledPaymentDeepLinkKey);
+      if (lastHandled == dedupeId) {
+        return false;
+      }
+
+      await prefs.setString(_lastHandledPaymentDeepLinkKey, dedupeId);
+      return true;
+    } catch (e) {
+      debugPrint('⚠️  [APP LINKS] Failed to persist deep link dedupe state: $e');
+      // Fail open so genuine payments are not blocked.
+      return true;
+    }
   }
 
   @override
@@ -80,9 +178,8 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       // Only handle lifecycle for creators
       if (user != null &&
           (user.role == 'creator' || user.role == 'admin')) {
-        // App opened — reset popup flag and check if we should show popup
-        _hasShownPopup = false;
-        _checkAndShowPopup();
+        // Creators should always be online while the app is running.
+        _ensureCreatorOnline();
         // Refresh creator dashboard so earnings/tasks are up-to-date
         debugPrint(
             '📱 [APP LIFECYCLE] App resumed — refreshing creator dashboard');
@@ -90,28 +187,19 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       }
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
-      // App backgrounded — set creator offline ONLY if no active call.
-      // 🔥 CRITICAL: Creators must stay online during calls.
-      // Android / iOS can trigger paused / inactive during calls
-      // (audio routing, PiP, etc.)
+      // Keep creators online while app is alive, including background.
       if (user != null &&
           (user.role == 'creator' || user.role == 'admin')) {
-        if (!hasActiveCall) {
-          debugPrint(
-              '📱 [APP LIFECYCLE] App backgrounded, setting creator offline');
-          ref
-              .read(creatorStatusProvider.notifier)
-              .setStatus(CreatorStatus.offline);
-        } else {
-          debugPrint(
-              '📱 [APP LIFECYCLE] App backgrounded but active call exists — staying online');
-        }
+        debugPrint(
+            '📱 [APP LIFECYCLE] App backgrounded — keeping creator online');
       }
     } else if (state == AppLifecycleState.detached) {
-      // App closed — clear popup flag for next session
+      // App closed — mark creator offline.
       if (user != null &&
           (user.role == 'creator' || user.role == 'admin')) {
-        _clearPopupFlag();
+        ref
+            .read(creatorStatusProvider.notifier)
+            .setStatus(CreatorStatus.offline);
       }
     }
   }
@@ -120,81 +208,40 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
   // Navigation is now handled by CallConnectionController (single authority).
   // Lifecycle only logs / refreshes data — prevents race conditions.
 
-  Future<void> _clearPopupFlag() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_hasShownPopupKey);
-    } catch (e) {
-      debugPrint('⚠️  [APP LIFECYCLE] Failed to clear popup flag: $e');
-    }
-  }
-
-  Future<void> _checkAndShowPopup() async {
-    if (_hasShownPopup) return;
-
+  Future<void> _ensureCreatorOnline() async {
     final authState = ref.read(authProvider);
     final user = authState.user;
 
-    // Only show popup for creators
+    // Only creators/admins have availability state.
     if (user == null ||
         (user.role != 'creator' && user.role != 'admin')) {
       return;
     }
 
-    // Wait a bit for the app to fully load
-    await Future.delayed(const Duration(milliseconds: 1000));
+    await Future.delayed(const Duration(milliseconds: 500));
 
     if (!mounted) return;
 
-    // Check current status
     final currentStatus = ref.read(creatorStatusProvider);
-    if (currentStatus == CreatorStatus.online) {
-      // Already online, don't show popup
-      _hasShownPopup = true;
-      return;
+    if (currentStatus != CreatorStatus.online) {
+      ref
+          .read(creatorStatusProvider.notifier)
+          .setStatus(CreatorStatus.online);
+      debugPrint('✅ [APP LIFECYCLE] Auto-set creator online');
     }
-
-    // Show popup
-    _hasShownPopup = true;
-
-    if (!mounted) return;
-
-    _showGoOnlineDialog();
-  }
-
-  void _showGoOnlineDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Go Online?'),
-        content: const Text(
-          'You are currently offline. Would you like to go online so users can see you on the homepage?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-            },
-            child: const Text('Not Now'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              // Set creator online
-              ref
-                  .read(creatorStatusProvider.notifier)
-                  .setStatus(CreatorStatus.online);
-            },
-            child: const Text('Go Online'),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<AuthState>(authProvider, (prev, next) {
+      final user = next.user;
+      final isCreator =
+          user != null && (user.role == 'creator' || user.role == 'admin');
+      if (next.isAuthenticated && isCreator) {
+        _ensureCreatorOnline();
+      }
+    });
+
     return widget.child;
   }
 }

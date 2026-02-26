@@ -44,6 +44,13 @@ final dashboardTasksProvider = FutureProvider<CreatorTasksResponse>((ref) async 
   return dashboard.tasks;
 });
 
+/// Today's earnings data extracted from the dashboard.
+/// Shows coins earned, calls, and minutes for the current daily period.
+final dashboardTodayEarningsProvider = FutureProvider<TodayEarnings>((ref) async {
+  final dashboard = await ref.watch(creatorDashboardProvider.future);
+  return dashboard.todayEarnings;
+});
+
 /// Creator's current coin balance from the dashboard.
 final dashboardCoinsProvider = FutureProvider<int>((ref) async {
   final dashboard = await ref.watch(creatorDashboardProvider.future);

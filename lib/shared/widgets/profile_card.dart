@@ -6,13 +6,11 @@ import 'avatar_widget.dart';
 class ProfileCard extends StatelessWidget {
   final CreatorModel? creator;
   final UserProfileModel? user;
-  final String? language; // Default language to display
 
   const ProfileCard({
     super.key,
     this.creator,
     this.user,
-    this.language = 'Hindi',
   }) : assert(creator != null || user != null, 'Either creator or user must be provided');
 
   @override
@@ -70,28 +68,15 @@ class ProfileCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 12),
-                // Name and Language
+                // Name
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        creator.name,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        language ?? 'Hindi',
-                        style: TextStyle(
-                          color: Colors.grey[300],
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
+                  child: Text(
+                    creator.name,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],
@@ -231,28 +216,15 @@ class ProfileCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 12),
-                // Username and Language
+                // Username
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        user.username ?? 'User',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        language ?? 'Hindi',
-                        style: TextStyle(
-                          color: Colors.grey[300],
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
+                  child: Text(
+                    user.username ?? 'User',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],

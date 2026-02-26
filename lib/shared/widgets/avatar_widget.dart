@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
+import '../../core/services/avatar_upload_service.dart';
 import '../models/user_model.dart';
 import '../models/creator_model.dart';
 import '../models/profile_model.dart';
 
 /// A reusable avatar widget that handles:
-/// - Creator photos (URLs from CreatorModel.photo)
-/// - User avatars (premade assets from UserModel.avatar)
-/// - Creator avatars in UserModel (URLs when role='creator')
+/// - Creator photos (network URLs from Firebase)
+/// - User avatars (URL or premade assets for non-creator users)
 /// - Fallback to initials
 class AvatarWidget extends StatelessWidget {
   /// Size of the avatar (diameter)
   final double size;
   
-  /// User model (for user avatars or creator avatars in UserModel)
+  /// User model (for user avatars)
   final UserModel? user;
   
   /// Creator model (for creator photos)
@@ -35,7 +35,7 @@ class AvatarWidget extends StatelessWidget {
   /// Gender for premade avatar selection
   final String? gender;
   
-  /// Role to determine if avatar is a creator photo URL
+  /// Role hint to determine creator/admin context.
   final String? role;
   
   /// Background color for fallback avatar
@@ -61,28 +61,35 @@ class AvatarWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final creatorContext = _isCreatorContext();
+
     // Priority 1: Creator photo from CreatorModel
     if (creator != null && creator!.photo.isNotEmpty) {
-      return _buildNetworkAvatar(
-        url: creator!.photo,
-        fallbackText: creator!.name.isNotEmpty ? creator!.name[0].toUpperCase() : 'C',
-      );
+      if (_isNetworkLike(creator!.photo)) {
+        return _buildNetworkAvatar(
+          url: creator!.photo,
+          fallbackText:
+              creator!.name.isNotEmpty ? creator!.name[0].toUpperCase() : 'C',
+        );
+      }
+      // Creators must use Firebase/network images only.
+      return _buildFallbackAvatar();
     }
 
     // Priority 2: User avatar from UserModel
     if (user != null && user!.avatar != null && user!.avatar!.isNotEmpty) {
       final avatarStr = user!.avatar!;
-      // If avatar is a URL (Firebase Storage, etc.), use it as network image
-      // This works for all roles – regular users, creators, and admins
-      if (avatarStr.startsWith('http://') ||
-          avatarStr.startsWith('https://') ||
-          avatarStr.startsWith('data:')) {
+      // Creators/admins should only ever use network images.
+      if (_isNetworkLike(avatarStr)) {
         return _buildNetworkAvatar(
           url: avatarStr,
           fallbackText: user!.username?.isNotEmpty == true
               ? user!.username![0].toUpperCase()
               : 'U',
         );
+      }
+      if (creatorContext) {
+        return _buildFallbackAvatar();
       }
       // Otherwise, treat as premade avatar filename (legacy)
       return _buildAssetAvatar(
@@ -118,13 +125,14 @@ class AvatarWidget extends StatelessWidget {
     if (avatar != null && avatar!.isNotEmpty) {
       final avatarStr = avatar!;
       // Check if it's a URL
-      if (avatarStr.startsWith('http://') ||
-          avatarStr.startsWith('https://') ||
-          avatarStr.startsWith('data:')) {
+      if (_isNetworkLike(avatarStr)) {
         return _buildNetworkAvatar(
           url: avatarStr,
           fallbackText: _getFallbackText(),
         );
+      }
+      if (creatorContext) {
+        return _buildFallbackAvatar();
       }
       // Otherwise, treat as premade avatar
       return _buildAssetAvatar(
@@ -166,23 +174,60 @@ class AvatarWidget extends StatelessWidget {
     required String avatar,
     required String gender,
   }) {
-    final avatarPath = gender == 'female'
-        ? 'lib/assets/female/$avatar'
-        : 'lib/assets/male/$avatar';
+    final safeGender = gender == 'female' ? 'female' : 'male';
     final radius = borderRadius ?? size / 2;
+    final fallbackText = _getFallbackText();
+    final bgColor = backgroundColor ?? Colors.purple[400]!;
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(radius),
-      child: Image.asset(
-        avatarPath,
-        width: size,
-        height: size,
-        fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) {
-          return _buildFallbackAvatar();
-        },
-      ),
+    return FutureBuilder<String>(
+      future: _resolvePresetAvatarUrl(avatar: avatar, gender: safeGender),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          return _buildFallbackContainer(fallbackText, bgColor, radius);
+        }
+        final resolvedUrl = snapshot.data;
+        if (resolvedUrl == null || resolvedUrl.isEmpty) {
+          return _buildFallbackContainer(fallbackText, bgColor, radius);
+        }
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(radius),
+          child: Image.network(
+            resolvedUrl,
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              return _buildFallbackContainer(fallbackText, bgColor, radius);
+            },
+          ),
+        );
+      },
     );
+  }
+
+  Future<String> _resolvePresetAvatarUrl({
+    required String avatar,
+    required String gender,
+  }) async {
+    try {
+      return await AvatarUploadService.getPresetAvatarUrl(
+        avatarName: avatar,
+        gender: gender,
+      );
+    } catch (_) {
+      // If a legacy avatar key is missing, force known seeded default.
+      final defaultAvatar = AvatarUploadService.getDefaultAvatarName(gender);
+      try {
+        return await AvatarUploadService.getPresetAvatarUrl(
+          avatarName: defaultAvatar,
+          gender: gender,
+        );
+      } catch (_) {
+        // Preserve previous behavior by rendering fallback initials.
+        return '';
+      }
+    }
   }
 
   Widget _buildFallbackAvatar() {
@@ -233,5 +278,16 @@ class AvatarWidget extends StatelessWidget {
     }
     // Default fallback
     return '?';
+  }
+
+  bool _isNetworkLike(String value) {
+    return value.startsWith('http://') ||
+        value.startsWith('https://') ||
+        value.startsWith('data:');
+  }
+
+  bool _isCreatorContext() {
+    final roleHint = (role ?? user?.role ?? '').toLowerCase();
+    return creator != null || roleHint == 'creator' || roleHint == 'admin';
   }
 }
