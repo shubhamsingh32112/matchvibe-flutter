@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:stream_chat_flutter/stream_chat_flutter.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter/foundation.dart';
 import 'app/router/app_router.dart';
 import 'app/widgets/app_lifecycle_wrapper.dart';
 import 'app/widgets/stream_chat_wrapper.dart';
@@ -17,6 +19,50 @@ import 'features/video/widgets/incoming_call_listener.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Load environment file based on build mode
+  // Detect build mode: kReleaseMode is true in release builds, false in debug/profile
+  final bool isProduction = kReleaseMode;
+  final envFile = isProduction ? ".env.production" : ".env.development";
+  
+  if (kDebugMode) {
+    debugPrint('═══════════════════════════════════════════════════════');
+    debugPrint('🔧 [ENV] Loading environment configuration');
+    debugPrint('═══════════════════════════════════════════════════════');
+    debugPrint('   📦 Build Mode: ${isProduction ? "PRODUCTION" : "DEVELOPMENT"}');
+    debugPrint('   📄 Env File: $envFile');
+    debugPrint('═══════════════════════════════════════════════════════');
+  }
+  
+  await dotenv.load(fileName: envFile);
+  
+  if (kDebugMode) {
+    debugPrint('✅ [ENV] Environment loaded successfully');
+    debugPrint('   🌐 API_BASE_URL: ${dotenv.env['API_BASE_URL'] ?? "NOT SET"}');
+    debugPrint('   🔌 SOCKET_URL: ${dotenv.env['SOCKET_URL'] ?? "NOT SET"}');
+  }
+  if (isProduction) {
+    // Fail-safe warnings: if these are missing, the app will silently fall back to localhost and break in production.
+    final requiredKeys = <String>[
+      'API_BASE_URL',
+      'SOCKET_URL',
+      'WEBSITE_BASE_URL',
+    ];
+    final missing = requiredKeys.where((k) => (dotenv.env[k] ?? '').trim().isEmpty).toList();
+    final baseUrl = (dotenv.env['API_BASE_URL'] ?? '').trim();
+    if (missing.isNotEmpty || baseUrl.contains('localhost')) {
+      // Always print this warning, even in release builds
+      debugPrint('❌ [ENV] Production env sanity check failed.');
+      debugPrint('   Missing keys: $missing');
+      debugPrint('   API_BASE_URL: "${dotenv.env['API_BASE_URL']}"');
+      debugPrint('   ⚠️  App may be using wrong backend URL!');
+    } else {
+      if (kDebugMode) {
+        debugPrint('✅ [ENV] Production environment validated');
+        debugPrint('   🌐 Using production backend: $baseUrl');
+      }
+    }
+  }
 
   // Enforce app-wide screenshot/screen recording/screen-share protection.
   await SecurityService.initializeAppSecurity();

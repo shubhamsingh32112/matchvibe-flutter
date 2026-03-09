@@ -22,8 +22,13 @@ import '../../creator/providers/creator_dashboard_provider.dart';
 import '../../creator/providers/creator_task_provider.dart';
 import '../../creator/models/creator_task_model.dart';
 import '../../video/services/permission_service.dart';
+import '../../admin/providers/admin_view_provider.dart';
 import '../../support/services/support_service.dart';
 import '../../video/providers/call_feedback_prompt_provider.dart';
+import '../../video/providers/creator_busy_toast_provider.dart';
+import '../../withdrawal/screens/withdrawal_screen.dart';
+import '../../../shared/widgets/coin_purchase_popup.dart';
+import '../../../shared/providers/coin_purchase_popup_provider.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -41,10 +46,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     super.initState();
     // Check and show welcome dialog if needed
     _checkAndShowWelcomeDialog();
-    // Check and request video permissions for users
-    _checkAndRequestVideoPermissions();
+    // Note: Video permissions are now requested after welcome bonus dialog
     // Connect Socket.IO and hydrate creator availability from Redis
     _initSocketAndHydrateAvailability();
+    // Note: Coin purchase popup is now handled in AppLifecycleWrapper
+    // to show once per app session, not every time user navigates to homepage
   }
 
   /// Connect to Socket.IO, then hydrate availability once creators are loaded.
@@ -105,6 +111,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       return; // Don't show welcome dialog if not authenticated
     }
     
+    // ✅ TASK 1: Wait for creators to load before showing welcome dialog
+    // Only show welcome dialog when user can actually see creators on homepage
+    final user = authState.user;
+    if (user?.role == 'user' || (user?.role == 'admin' && ref.read(adminViewModeProvider) != AdminViewMode.creator)) {
+      // For regular users (or admin viewing as user), wait for creators to load
+      final creatorsLoaded = await _waitForCreatorsToLoad();
+      if (!mounted) return;
+      
+      if (!creatorsLoaded) {
+        debugPrint('⏭️  [HOME] Creators not loaded yet, skipping welcome dialog');
+        // If creators don't load, still check for bonus (user might have seen welcome before)
+        _checkAndShowBonusDialog();
+        return;
+      }
+    }
+    
     // Check if user has seen the welcome dialog
     final hasSeen = await WelcomeService.hasSeenWelcome();
     
@@ -119,21 +141,102 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
-  void _showWelcomeDialog() {
-    if (!mounted) return; // ✅ Guard: Never show dialog if widget is disposed
+  /// ✅ TASK 2: Mark welcome as seen with retry mechanism for reliability
+  /// Scalable: Uses efficient SharedPreferences (cached) with timeout
+  Future<void> _markWelcomeAsSeenWithRetry({int maxRetries = 2}) async {
+    for (int attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        await WelcomeService.markWelcomeAsSeen();
+        // Verify it was saved
+        final hasSeen = await WelcomeService.hasSeenWelcome();
+        if (hasSeen) {
+          debugPrint('✅ [HOME] Welcome dialog marked as seen (attempt ${attempt + 1})');
+          return;
+        }
+      } catch (e) {
+        debugPrint('⚠️  [HOME] Failed to mark welcome as seen (attempt ${attempt + 1}): $e');
+        if (attempt < maxRetries - 1) {
+          await Future.delayed(Duration(milliseconds: 200 * (attempt + 1)));
+        }
+      }
+    }
+    // If all retries failed, log but don't throw - dialog should still close
+    debugPrint('⚠️  [HOME] Failed to mark welcome as seen after $maxRetries attempts');
+  }
+
+  /// Wait for creators to load and be visible on homepage
+  /// Returns true when creators are loaded, false if timeout or error
+  /// Scalable: Uses efficient provider watching with timeout
+  Future<bool> _waitForCreatorsToLoad({int maxAttempts = 10}) async {
+    for (int attempt = 0; attempt < maxAttempts; attempt++) {
+      if (!mounted) return false;
+      
+      // Check if creators are loaded via homeFeedProvider
+      final homeFeedItems = ref.read(homeFeedProvider);
+      
+      // If we have items (creators), they're loaded
+      if (homeFeedItems.isNotEmpty) {
+        debugPrint('✅ [HOME] Creators loaded: ${homeFeedItems.length} items');
+        return true;
+      }
+      
+      // Also check creatorsProvider directly for more accurate state
+      final creatorsAsync = ref.read(creatorsProvider);
+      if (creatorsAsync.hasValue) {
+        final creators = creatorsAsync.value ?? [];
+        if (creators.isNotEmpty) {
+          debugPrint('✅ [HOME] Creators loaded via provider: ${creators.length} creators');
+          return true;
+        }
+      }
+      
+      // Wait before next attempt (exponential backoff for scalability)
+      await Future.delayed(Duration(milliseconds: 200 * (attempt + 1)));
+    }
     
-    showDialog(
+    debugPrint('⏭️  [HOME] Creators not loaded after ${maxAttempts} attempts');
+    return false;
+  }
+
+  void _showWelcomeDialog() {
+    if (!mounted) return; // ✅ Guard: Never show bottom sheet if widget is disposed
+    
+    showModalBottomSheet(
       context: context,
-      barrierDismissible: false, // User must click "I agree"
-      builder: (context) => WelcomeDialog(
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      isDismissible: false, // User must click "I agree"
+      enableDrag: false, // Prevent dismissing by dragging
+      builder: (context) => WelcomeBottomSheet(
         onAgree: () async {
-          // Mark as seen
-          await WelcomeService.markWelcomeAsSeen();
-          if (mounted && context.mounted) { // ✅ Guard: Check both mounted and context.mounted
-            Navigator.of(context).pop();
+          // ✅ TASK 2: Improved error handling with retry mechanism
+          try {
+            // Mark as seen with retry logic
+            await _markWelcomeAsSeenWithRetry();
+            
+            if (mounted && context.mounted) { // ✅ Guard: Check both mounted and context.mounted
+              Navigator.of(context).pop();
+            }
+            
+            // ✅ TASK 3: After welcome bottom sheet dismissed, wait 2 seconds then check for bonus
+            Future.delayed(const Duration(seconds: 2), () {
+              if (mounted) {
+                _checkAndShowBonusDialog();
+              }
+            });
+          } catch (e) {
+            debugPrint('❌ [HOME] Error in welcome dialog onAgree: $e');
+            // Even on error, try to close dialog to prevent stuck state
+            if (mounted && context.mounted) {
+              Navigator.of(context).pop();
+            }
+            // Still schedule bonus dialog - user should see it even if save failed
+            Future.delayed(const Duration(seconds: 2), () {
+              if (mounted) {
+                _checkAndShowBonusDialog();
+              }
+            });
           }
-          // After welcome dialog dismissed, check for bonus
-          _checkAndShowBonusDialog();
         },
       ),
     );
@@ -163,24 +266,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // Mark as shown BEFORE displaying (prevents race conditions on fast rebuilds)
     await WelcomeService.markBonusDialogShown(firebaseUid);
 
-    // Small delay to let the UI settle after the welcome dialog
-    Future.delayed(const Duration(milliseconds: 400), () {
-      if (!mounted) return;
+    // Show bonus dialog (delay already handled in welcome dialog callback)
+    if (mounted) {
       _showBonusDialog();
-    });
+    }
   }
 
   bool _isBonusClaiming = false;
 
   void _showBonusDialog() {
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      barrierDismissible: false,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      isDismissible: false,
+      enableDrag: false, // Prevent dismissing by dragging
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => WelcomeBonusDialog(
+        builder: (ctx, setBottomSheetState) => WelcomeBonusBottomSheet(
           isLoading: _isBonusClaiming,
           onAccept: () async {
-            setDialogState(() => _isBonusClaiming = true);
+            setBottomSheetState(() => _isBonusClaiming = true);
             try {
               final walletService = WalletService();
               final newCoins = await walletService.claimWelcomeBonus();
@@ -210,13 +315,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             } finally {
               _isBonusClaiming = false;
             }
+            // Schedule video permissions request after bonus bottom sheet is handled
+            _scheduleVideoPermissionRequest();
           },
           onDecline: () {
             Navigator.of(ctx).pop();
+            // Schedule video permissions request after bonus bottom sheet is handled
+            _scheduleVideoPermissionRequest();
           },
         ),
       ),
     );
+  }
+
+  /// Schedule video permissions request with a delay after welcome bonus dialog
+  /// ✅ TASK 4: Changed to 2 seconds as per requirements
+  void _scheduleVideoPermissionRequest() {
+    // Wait 2 seconds after bonus dialog is dismissed before requesting permissions
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) {
+        _checkAndRequestVideoPermissions();
+      }
+    });
   }
 
   /// Check and request video permissions for users
@@ -362,6 +482,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Show toast when creator didn't pick up (navigated from call screen)
+    final creatorBusyToast = ref.watch(creatorBusyToastProvider);
+    if (creatorBusyToast != null && creatorBusyToast.isNotEmpty) {
+      final message = creatorBusyToast;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final current = ref.read(creatorBusyToastProvider);
+        if (current == null) return;
+        ref.read(creatorBusyToastProvider.notifier).state = null;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      });
+    }
+
     final pendingFeedbackPrompt = ref.watch(callFeedbackPromptProvider);
     if (pendingFeedbackPrompt != null &&
         _lastHandledFeedbackCallId != pendingFeedbackPrompt.callId) {
@@ -377,6 +515,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final user = authState.user;
     final isCreator = user?.role == 'creator' || user?.role == 'admin';
     final scheme = Theme.of(context).colorScheme;
+
+    // Listen for coin purchase pop-up trigger
+    final showCoinPopup = ref.watch(coinPurchasePopupProvider);
+    if (showCoinPopup) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          hideCoinPurchasePopup(ref);
+          showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (context) => const CoinPurchaseBottomSheet(),
+          );
+        }
+      });
+    }
 
     return MainLayout(
         selectedIndex: 0,
@@ -715,12 +869,10 @@ class _CreatorTasksViewState extends ConsumerState<_CreatorTasksView> {
   @override
   void initState() {
     super.initState();
-    // Refresh dashboard every time the creator lands on the home screen
-    // (e.g. after a call ends and they navigate back).  This guarantees
-    // the earnings/calls/minutes are up to date regardless of socket timing.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.invalidate(creatorDashboardProvider);
-    });
+    // 🔥 FIX: Removed automatic dashboard invalidation on init
+    // Dashboard updates automatically via socket events (creator:data_updated)
+    // This prevents constant reloads when navigating to homepage
+    // Manual refresh button is available if needed
   }
 
   @override
@@ -728,171 +880,167 @@ class _CreatorTasksViewState extends ConsumerState<_CreatorTasksView> {
     // Use dashboard-derived providers (auto-synced via creator:data_updated socket event)
     final tasksAsync = ref.watch(dashboardTasksProvider);
     final earningsAsync = ref.watch(dashboardEarningsProvider);
-    final todayEarningsAsync = ref.watch(dashboardTodayEarningsProvider);
+    // 🔥 FIX: dashboardCoinsProvider is now a Provider (not FutureProvider) for instant updates
+    final balance = ref.watch(dashboardCoinsProvider);
     final scheme = Theme.of(context).colorScheme;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: AppSpacing.md),
-        // Total Earnings Card
+        // Balance Card (shows current balance, not total earned)
+        // Note: We use earningsAsync for stats (calls, minutes) but balance from auth state for instant updates
         earningsAsync.when(
-          data: (earnings) => AppCard(
-            margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Total Earnings',
-                  style: TextStyle(
-                    color: scheme.onSurfaceVariant,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      earnings.totalEarnings.toStringAsFixed(0),
-                      style: TextStyle(
-                        color: scheme.onSurface,
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Text(
-                        'coins',
-                        style: TextStyle(
-                          color: scheme.onSurfaceVariant,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    _EarningsStatItem(
-                      label: 'Calls',
-                      value: earnings.totalCalls.toString(),
-                      icon: Icons.phone,
-                    ),
-                    const SizedBox(width: 24),
-                    _EarningsStatItem(
-                      label: 'Minutes',
-                      value: earnings.totalMinutes.toStringAsFixed(1),
-                      icon: Icons.timer,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          loading: () => AppCard(
-            margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-            child: const SizedBox(
-              height: 100,
-              child: Center(child: LoadingIndicator()),
-            ),
-          ),
-          error: (error, stack) => const SizedBox.shrink(), // Hide on error, don't block UI
-        ),
-        // Today's Earnings Card
-        todayEarningsAsync.when(
-          data: (today) => AppCard(
-            margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.today, size: 16, color: scheme.primary),
-                    const SizedBox(width: 6),
-                    Text(
-                      "Today's Earnings",
-                      style: TextStyle(
-                        color: scheme.onSurfaceVariant,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      today.totalEarnings.toStringAsFixed(0),
-                      style: TextStyle(
-                        color: scheme.onSurface,
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Text(
-                        'coins',
+            data: (earnings) => AppCard(
+              margin: const EdgeInsets.only(bottom: AppSpacing.lg),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header with Balance label and Manual Refresh button
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Balance',
                         style: TextStyle(
                           color: scheme.onSurfaceVariant,
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
-                    ),
-                  ],
+                      // Manual refresh button for creators
+                      IconButton(
+                        icon: const Icon(Icons.refresh, size: 20),
+                        tooltip: 'Refresh balance',
+                        onPressed: () async {
+                          debugPrint('🔄 [CREATOR HOME] Manual refresh triggered');
+                          // Refresh both dashboard and auth user
+                          ref.invalidate(creatorDashboardProvider);
+                          await ref.read(authProvider.notifier).refreshUser();
+                        },
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        iconSize: 20,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        balance.toString(),
+                        style: TextStyle(
+                          color: scheme.onSurface,
+                          fontSize: 32,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Text(
+                          'coins',
+                          style: TextStyle(
+                            color: scheme.onSurfaceVariant,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      _EarningsStatItem(
+                        label: 'Calls',
+                        value: earnings.totalCalls.toString(),
+                        icon: Icons.phone,
+                      ),
+                      const SizedBox(width: 24),
+                      _EarningsStatItem(
+                        label: 'Minutes',
+                        value: earnings.totalMinutes.toStringAsFixed(1),
+                        icon: Icons.timer,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            loading: () => AppCard(
+              margin: const EdgeInsets.only(bottom: AppSpacing.lg),
+              child: const SizedBox(
+                height: 100,
+                child: Center(child: LoadingIndicator()),
+              ),
+            ),
+            error: (error, stack) => AppCard(
+              margin: const EdgeInsets.only(bottom: AppSpacing.lg),
+              child: const SizedBox(
+                height: 100,
+                child: Center(child: LoadingIndicator()),
+              ),
+            ),
+        ),
+        // Withdrawal Button
+        AppCard(
+          margin: const EdgeInsets.only(bottom: AppSpacing.lg),
+          child: SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const WithdrawalScreen(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.account_balance_wallet_outlined),
+              label: const Text('Request Withdrawal'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: scheme.primary,
+                foregroundColor: scheme.onPrimary,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    _EarningsStatItem(
-                      label: 'Calls',
-                      value: today.totalCalls.toString(),
-                      icon: Icons.phone,
-                    ),
-                    const SizedBox(width: 24),
-                    _EarningsStatItem(
-                      label: 'Minutes',
-                      value: today.totalMinutes.toStringAsFixed(1),
-                      icon: Icons.timer,
-                    ),
-                  ],
-                ),
-              ],
+              ),
             ),
           ),
-          loading: () => const SizedBox.shrink(),
-          error: (error, stack) => const SizedBox.shrink(),
         ),
-        Text(
-          'Tasks & Rewards',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: scheme.onSurfaceVariant,
-              ),
-        ),
-        const SizedBox(height: AppSpacing.md),
-        Expanded(
-          child: tasksAsync.when(
-            data: (tasksResponse) => _TasksContent(
-              tasksResponse: tasksResponse,
-              onClaim: (taskKey) => _claimTask(taskKey),
+        // Task Progress Button - Opens bottom sheet on click
+        tasksAsync.when(
+          data: (tasksResponse) => _TaskProgressButton(
+            tasksResponse: tasksResponse,
+            onTap: () => _showTaskProgressBottomSheet(context, tasksResponse),
+          ),
+          loading: () => AppCard(
+            margin: const EdgeInsets.only(bottom: AppSpacing.lg),
+            child: const SizedBox(
+              height: 80,
+              child: Center(child: LoadingIndicator()),
             ),
-            loading: () => const Center(child: LoadingIndicator()),
-            error: (error, stack) => ErrorState(
-              title: 'Failed to load tasks',
-              message: error.toString(),
-              actionLabel: 'Retry',
-              onAction: () => ref.invalidate(creatorDashboardProvider),
+          ),
+          error: (error, stack) => AppCard(
+            margin: const EdgeInsets.only(bottom: AppSpacing.lg),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  Text(
+                    'Failed to load tasks',
+                    style: TextStyle(color: scheme.error),
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: () => ref.invalidate(creatorDashboardProvider),
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -927,6 +1075,21 @@ class _CreatorTasksViewState extends ConsumerState<_CreatorTasksView> {
         );
       }
     }
+  }
+
+  void _showTaskProgressBottomSheet(
+    BuildContext context,
+    CreatorTasksResponse tasksResponse,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => TaskProgressBottomSheet(
+        tasksResponse: tasksResponse,
+        onClaim: (taskKey) => _claimTask(taskKey),
+      ),
+    );
   }
 }
 
@@ -1474,6 +1637,208 @@ class _EarningsStatItem extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Bottom sheet wrapper for task progress screen
+class TaskProgressBottomSheet extends StatelessWidget {
+  final CreatorTasksResponse tasksResponse;
+  final Function(String) onClaim;
+
+  const TaskProgressBottomSheet({
+    super.key,
+    required this.tasksResponse,
+    required this.onClaim,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      builder: (context, scrollController) => Container(
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            // Drag handle
+            Container(
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: scheme.onSurfaceVariant.withOpacity(0.4),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            // Header
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  Text(
+                    'Tasks & Rewards',
+                    style: TextStyle(
+                      color: scheme.onSurface,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: Icon(Icons.close, color: scheme.onSurfaceVariant),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            // Scrollable content
+            Expanded(
+              child: SingleChildScrollView(
+                controller: scrollController,
+                padding: const EdgeInsets.all(16),
+                child: _TasksContent(
+                  tasksResponse: tasksResponse,
+                  onClaim: onClaim,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact button widget that shows task progress summary
+class _TaskProgressButton extends StatelessWidget {
+  final CreatorTasksResponse tasksResponse;
+  final VoidCallback onTap;
+
+  const _TaskProgressButton({
+    required this.tasksResponse,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final totalMinutes = tasksResponse.totalMinutes;
+    final completedTasks = tasksResponse.tasks.where((t) => t.isCompleted).length;
+    final totalTasks = tasksResponse.tasks.length;
+    final progressPercentage = (totalMinutes / 600).clamp(0.0, 1.0);
+
+    // Find next uncompleted task
+    String? nextTaskText;
+    try {
+      final nextTask = tasksResponse.tasks.firstWhere((task) => !task.isCompleted);
+      final minutesNeeded = nextTask.thresholdMinutes - totalMinutes;
+      if (minutesNeeded > 0) {
+        nextTaskText = '${minutesNeeded.toStringAsFixed(0)} min to next reward';
+      }
+    } catch (e) {
+      // All tasks completed
+      nextTaskText = 'All tasks completed! 🎉';
+    }
+
+    return AppCard(
+      margin: const EdgeInsets.only(bottom: AppSpacing.lg),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: scheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      Icons.task_alt,
+                      color: scheme.onPrimaryContainer,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Tasks & Rewards',
+                          style: TextStyle(
+                            color: scheme.onSurface,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${totalMinutes.toStringAsFixed(1)} minutes completed',
+                          style: TextStyle(
+                            color: scheme.onSurfaceVariant,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              // Progress bar
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: progressPercentage,
+                  minHeight: 6,
+                  backgroundColor: scheme.surfaceContainerHighest,
+                  valueColor: AlwaysStoppedAnimation<Color>(scheme.primary),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    '$completedTasks / $totalTasks tasks completed',
+                    style: TextStyle(
+                      color: scheme.onSurfaceVariant,
+                      fontSize: 12,
+                    ),
+                  ),
+                  if (nextTaskText != null)
+                    Text(
+                      nextTaskText,
+                      style: TextStyle(
+                        color: scheme.primary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

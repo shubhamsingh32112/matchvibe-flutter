@@ -6,7 +6,9 @@ import '../../../app/widgets/main_layout.dart';
 import '../../../shared/models/profile_model.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../home/providers/home_provider.dart';
+import '../../user/providers/user_availability_provider.dart';
 import '../services/chat_service.dart';
+import '../utils/chat_utils.dart';
 
 class ChatListScreen extends ConsumerStatefulWidget {
   const ChatListScreen({super.key});
@@ -131,10 +133,12 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
                   controller: _tabController,
                   children: [
                     // Tab 1: Recent chats
-                    _RecentChatsTab(
-                      controller: _controller!,
-                      onChannelTap: _onChannelTap,
-                    ),
+                    _controller != null
+                        ? _RecentChatsTab(
+                            controller: _controller!,
+                            onChannelTap: _onChannelTap,
+                          )
+                        : const Center(child: CircularProgressIndicator()),
                     // Tab 2: Online users
                     const _OnlineUsersTab(),
                   ],
@@ -163,20 +167,30 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
   }
 
   Widget _buildEmptyState() {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.chat_bubble_outline, size: 64, color: Colors.grey),
-          SizedBox(height: 16),
+          Icon(
+            Icons.chat_bubble_outline,
+            size: 64,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(height: 16),
           Text(
             'No conversations yet',
-            style: TextStyle(fontSize: 18, color: Colors.grey),
+            style: TextStyle(
+              fontSize: 18,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           Text(
             'Start a conversation after a video call',
-            style: TextStyle(fontSize: 14, color: Colors.grey),
+            style: TextStyle(
+              fontSize: 14,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
         ],
       ),
@@ -199,25 +213,72 @@ class _RecentChatsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final streamChat = StreamChat.maybeOf(context);
+    final currentUserId = streamChat?.client.state.currentUser?.id;
+    
     return RefreshIndicator(
       onRefresh: () => controller.refresh(),
       child: StreamChannelListView(
         controller: controller,
         onChannelTap: onChannelTap,
-        emptyBuilder: (context) => const Center(
+        // Custom item builder to show other user's name (not channel name)
+        itemBuilder: currentUserId != null
+            ? (context, channels, index, defaultTile) {
+                final channel = channels[index];
+                // Get the other user's display name
+                final otherUserName = getOtherUserDisplayName(channel, currentUserId);
+                final otherUser = getOtherUserFromChannel(channel, currentUserId);
+                final otherUserImage = otherUser?.image;
+                
+                // Use StreamChannelListTile but customize the title to show other user's name
+                return StreamChannelListTile(
+                  channel: channel,
+                  onTap: () => onChannelTap(channel),
+                  title: Text(
+                    otherUserName,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  leading: otherUserImage != null
+                      ? CircleAvatar(
+                          backgroundImage: NetworkImage(otherUserImage),
+                          radius: 20,
+                        )
+                      : CircleAvatar(
+                          backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                          child: Icon(
+                            Icons.person,
+                            color: Theme.of(context).colorScheme.onPrimaryContainer,
+                            size: 20,
+                          ),
+                          radius: 20,
+                        ),
+                );
+              }
+            : null,
+        emptyBuilder: (context) => Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.chat_bubble_outline, size: 64, color: Colors.grey),
-              SizedBox(height: 16),
+              Icon(
+                Icons.chat_bubble_outline,
+                size: 64,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(height: 16),
               Text(
                 'No conversations yet',
-                style: TextStyle(fontSize: 18, color: Colors.grey),
+                style: TextStyle(
+                  fontSize: 18,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
-              SizedBox(height: 8),
+              const SizedBox(height: 8),
               Text(
                 'Users will appear here after they message you',
-                style: TextStyle(fontSize: 14, color: Colors.grey),
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             ],
           ),
@@ -269,14 +330,32 @@ class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
     }
   }
 
+
   @override
   Widget build(BuildContext context) {
     final usersAsync = ref.watch(usersProvider);
+    final userAvailabilityMap = ref.watch(userAvailabilityProvider);
     final scheme = Theme.of(context).colorScheme;
 
     return usersAsync.when(
       data: (users) {
-        if (users.isEmpty) {
+        // 🔥 NEW: Filter to show only online users
+        // Use real-time availability from Socket.IO (userAvailabilityProvider)
+        // Fallback to API availability if socket data not available
+        final onlineUsers = users.where((user) {
+          if (user.firebaseUid == null) return false;
+          
+          // Check real-time availability first (from Socket.IO)
+          final realTimeStatus = userAvailabilityMap[user.firebaseUid];
+          if (realTimeStatus != null) {
+            return realTimeStatus == UserAvailability.online;
+          }
+          
+          // Fallback to API availability
+          return user.availability == 'online';
+        }).toList();
+
+        if (onlineUsers.isEmpty) {
           return const Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -284,12 +363,12 @@ class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
                 Icon(Icons.people_outline, size: 64, color: Colors.grey),
                 SizedBox(height: 16),
                 Text(
-                  'No users available',
+                  'No online users',
                   style: TextStyle(fontSize: 18, color: Colors.grey),
                 ),
                 SizedBox(height: 8),
                 Text(
-                  'Users will appear here when they join',
+                  'Users will appear here when they come online',
                   style: TextStyle(fontSize: 14, color: Colors.grey),
                 ),
               ],
@@ -301,12 +380,19 @@ class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
           onRefresh: () async => ref.invalidate(usersProvider),
           child: ListView.separated(
             padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: users.length,
+            itemCount: onlineUsers.length,
             separatorBuilder: (_, __) =>
                 Divider(height: 1, color: scheme.outlineVariant.withValues(alpha: 0.3)),
             itemBuilder: (context, index) {
-              final user = users[index];
+              final user = onlineUsers[index];
               final isLoading = _loadingUserIds.contains(user.id);
+              
+              // Get real-time availability status
+              final isOnline = user.firebaseUid != null &&
+                  (userAvailabilityMap[user.firebaseUid] ?? 
+                   (user.availability == 'online' 
+                       ? UserAvailability.online 
+                       : UserAvailability.offline)) == UserAvailability.online;
 
               return ListTile(
                 leading: CircleAvatar(
@@ -338,12 +424,14 @@ class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
                       height: 8,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: scheme.tertiary,
+                        color: isOnline 
+                            ? Colors.green 
+                            : Colors.grey,
                       ),
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      'Online',
+                      isOnline ? 'Online' : 'Offline',
                       style: TextStyle(
                         fontSize: 12,
                         color: scheme.onSurfaceVariant,

@@ -1,9 +1,26 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../shared/widgets/ui_primitives.dart';
+import '../../../shared/styles/app_brand_styles.dart';
+import 'blocked_buddies_screen.dart';
+import 'delete_account_screen.dart';
+
+/// Bottom sheet wrapper for account settings screen
+class AccountSettingsBottomSheet extends StatelessWidget {
+  const AccountSettingsBottomSheet({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      builder: (context, scrollController) => const AccountSettingsScreen(),
+    );
+  }
+}
 
 class AccountSettingsScreen extends StatefulWidget {
   const AccountSettingsScreen({super.key});
@@ -56,41 +73,97 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
-    return AppScaffold(
-      appBar: AppBar(
-        title: const Text('Account Settings'),
+    return Container(
+      decoration: BoxDecoration(
+        gradient: AppBrandGradients.appBackground,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      child: Column(
-        children: [
-          AppCard(
-            padding: EdgeInsets.zero,
-            child: Column(
-              children: [
-                _settingsTile(
-                  context: context,
-                  icon: Icons.privacy_tip_outlined,
-                  title: 'Privacy Policy',
-                  onTap: _openPrivacyPolicy,
-                ),
-                _divider(scheme),
-                _settingsTile(
-                  context: context,
-                  icon: Icons.block_outlined,
-                  title: 'Blocked Buddies',
-                  trailingText: _isLoadingBlockedCount ? '...' : _blockedCreatorCount.toString(),
-                  onTap: () => context.push('/account/settings/blocked-buddies'),
-                ),
-                _divider(scheme),
-                _settingsTile(
-                  context: context,
-                  icon: Icons.delete_outline,
-                  title: 'Delete Account',
-                  onTap: () => context.push('/account/settings/delete-account'),
-                ),
-              ],
+      child: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            // Drag handle
+            Container(
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: scheme.onSurfaceVariant.withOpacity(0.4),
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
-          ),
-        ],
+            // Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Account Settings',
+                      style: TextStyle(
+                        color: scheme.onSurface,
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Content
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: AppCard(
+                  padding: EdgeInsets.zero,
+                  child: Column(
+                    children: [
+                      _settingsTile(
+                        context: context,
+                        icon: Icons.privacy_tip_outlined,
+                        title: 'Privacy Policy',
+                        onTap: _openPrivacyPolicy,
+                      ),
+                      _divider(scheme),
+                      _settingsTile(
+                        context: context,
+                        icon: Icons.block_outlined,
+                        title: 'Blocked Buddies',
+                        trailingText: _isLoadingBlockedCount ? '...' : _blockedCreatorCount.toString(),
+                        onTap: () {
+                          Navigator.of(context).pop(); // Close account settings bottom sheet
+                          // Show blocked buddies bottom sheet
+                          showModalBottomSheet(
+                            context: context,
+                            isScrollControlled: true,
+                            backgroundColor: Colors.transparent,
+                            builder: (context) => const BlockedBuddiesBottomSheet(),
+                          );
+                        },
+                      ),
+                      _divider(scheme),
+                      _settingsTile(
+                        context: context,
+                        icon: Icons.delete_outline,
+                        title: 'Delete Account',
+                        onTap: () {
+                          Navigator.of(context).pop(); // Close account settings bottom sheet
+                          // Show delete account bottom sheet
+                          showModalBottomSheet(
+                            context: context,
+                            isScrollControlled: true,
+                            backgroundColor: Colors.transparent,
+                            builder: (context) => const DeleteAccountBottomSheet(),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

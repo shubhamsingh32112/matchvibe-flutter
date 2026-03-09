@@ -1,13 +1,19 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stream_chat_flutter/stream_chat_flutter.dart';
 import 'package:go_router/go_router.dart';
+import 'package:dio/dio.dart';
 import '../../../core/services/push_notification_service.dart';
+import '../../../core/api/api_client.dart';
 import '../services/chat_service.dart';
+import '../utils/chat_utils.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../home/providers/availability_provider.dart';
 import '../../video/controllers/call_connection_controller.dart';
 import '../../support/services/support_service.dart';
+import '../../../shared/widgets/coin_purchase_popup.dart';
+import '../../../shared/widgets/gem_icon.dart';
 
 class _CreatorImageAttachmentBuilder extends StreamAttachmentWidgetBuilder {
   const _CreatorImageAttachmentBuilder();
@@ -120,7 +126,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   String? _otherUserAppRole;
   final ChatService _chatService = ChatService();
   final SupportService _supportService = SupportService();
+  final ApiClient _apiClient = ApiClient();
   bool _isInitiatingCall = false;
+  bool _isBlocking = false;
+  bool? _isCreatorBlocked; // null = unknown, true = blocked, false = not blocked
 
   // Quota state
   int _freeRemaining = 3;
@@ -152,22 +161,38 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final channel = client.channel('messaging', id: widget.channelId);
       await channel.watch();
 
-      // Extract other user's name
+      // Extract other user's name using helper function (prioritizes username)
       final currentUserId = client.state.currentUser!.id;
-      final members = channel.state!.members;
-      final otherMember = members.firstWhere(
-        (m) => m.userId != currentUserId,
-      );
-      final otherUserName =
-          otherMember.user?.extraData['username'] as String? ??
-              otherMember.user?.name ??
-              'User';
-      final otherUserImage = otherMember.user?.image;
-      final otherUserFirebaseUid = otherMember.userId;
-      final otherUserMongoId =
-          otherMember.user?.extraData['mongoId'] as String?;
-      final otherUserAppRole =
-          otherMember.user?.extraData['appRole'] as String?;
+      final otherUser = getOtherUserFromChannel(channel, currentUserId);
+      final otherUserName = extractDisplayName(otherUser);
+      final otherUserImage = otherUser?.image;
+      
+      // Get other member's userId (Firebase UID) - need to access members properly
+      final channelState = channel.state;
+      String? otherUserFirebaseUid;
+      if (channelState != null) {
+        // channelState.members is a List<Member>, not a Map
+        final members = channelState.members;
+        List<Member> memberList;
+        
+        try {
+          memberList = members.cast<Member>();
+        } catch (e) {
+          debugPrint('⚠️ [CHAT] Failed to parse members: $e');
+          memberList = [];
+        }
+        
+        if (memberList.isNotEmpty) {
+          final otherMember = memberList.firstWhere(
+            (m) => m.userId != currentUserId,
+            orElse: () => memberList.first,
+          );
+          otherUserFirebaseUid = otherMember.userId;
+        }
+      }
+      
+      final otherUserMongoId = otherUser?.extraData['mongoId'] as String?;
+      final otherUserAppRole = otherUser?.extraData['appRole'] as String?;
 
       // Determine if the current user is a creator
       final authState = ref.read(authProvider);
@@ -188,6 +213,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         // Fetch quota info (only matters for regular users)
         if (!isCreator) {
           _refreshQuota();
+          // Check if creator is blocked (only for regular users chatting with creators)
+          if (otherUserAppRole == 'creator' || otherUserAppRole == 'admin') {
+            _checkIfCreatorBlocked();
+          }
         }
       }
     } catch (e) {
@@ -417,10 +446,33 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (_isCreator) return message;
 
     try {
+      // Optimize: For free messages, we can be more lenient with timeout
+      // For paid messages, we need to ensure the check completes
+      final hasFreeRemaining = _freeRemaining > 0;
+      
       // Send message.id as idempotency key to prevent double-charge on retries
+      // Reduced timeout to 5 seconds (Redis cache makes most requests < 100ms)
+      // Only cache misses take longer (~200-500ms), so 5s is safe
       final result = await _chatService.preSendMessage(
         widget.channelId,
         messageId: message.id,
+      ).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          // If timeout and we have free remaining, allow send optimistically
+          // Backend will handle quota when message arrives
+          if (hasFreeRemaining) {
+            debugPrint('⚠️ [CHAT] Pre-send timeout, allowing send (free remaining)');
+            return {
+              'canSend': true,
+              'freeRemaining': _freeRemaining - 1,
+              'coinsCharged': 0,
+              'userCoins': _userCoins,
+            };
+          }
+          // For paid messages, fail on timeout to prevent double charge
+          throw TimeoutException('Pre-send check timed out', const Duration(seconds: 5));
+        },
       );
 
       final canSend = result['canSend'] as bool? ?? false;
@@ -459,27 +511,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   void _showInsufficientCoinsDialog(String message) {
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (ctx) => AlertDialog(
-        icon: Icon(Icons.monetization_on, color: Colors.amber[700], size: 48),
-        title: const Text('Not Enough Coins'),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton.icon(
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              context.push('/wallet');
-            },
-            icon: const Icon(Icons.shopping_cart),
-            label: const Text('Buy Coins'),
-          ),
-        ],
-      ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const CoinPurchaseBottomSheet(),
     );
   }
 
@@ -487,7 +523,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Widget _buildCallAction(ColorScheme colorScheme, bool isOnline) {
     return IconButton(
-      onPressed: isOnline ? _initiateVideoCall : null,
+      onPressed: _initiateVideoCall, // Always enabled - will check online status inside
       icon: _isInitiatingCall
           ? SizedBox(
               width: 20,
@@ -502,25 +538,152 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               Icons.videocam,
               color: isOnline
                   ? colorScheme.primary
-                  : colorScheme.onSurface.withValues(alpha: 0.3),
+                  : colorScheme.onSurface.withValues(alpha: 0.5),
             ),
-      tooltip: isOnline ? 'Video Call' : 'Offline',
+      tooltip: isOnline ? 'Video Call' : 'Video Call',
     );
   }
 
   /// Whether the call button should be shown (regular user chatting with a creator)
   bool get _showCallButton {
-    if (_isCreator) return false; // Creators don't call
+    if (_isCreator) return false; // Creators use _showCreatorCallButton instead
     if (_otherUserFirebaseUid == null || _otherUserMongoId == null) return false;
     // Only show if the other user is a creator
     final otherRole = _otherUserAppRole;
     return otherRole == 'creator' || otherRole == 'admin';
   }
 
+
   bool get _canReportCreatorFromChat {
     if (_isCreator) return false;
     final otherRole = _otherUserAppRole;
     return otherRole == 'creator' || otherRole == 'admin';
+  }
+
+  Future<void> _checkIfCreatorBlocked() async {
+    if (_otherUserMongoId == null || _isCreator) return;
+    
+    try {
+      // For now, we'll check when blocking - this is simpler
+      // We can optimize later by storing blocked list in user model
+      setState(() {
+        _isCreatorBlocked = false; // Default to not blocked, will update on block action
+      });
+    } catch (e) {
+      debugPrint('⚠️ [CHAT] Failed to check blocked status: $e');
+    }
+  }
+
+  Future<void> _toggleBlockCreator() async {
+    if ((_otherUserMongoId == null && _otherUserFirebaseUid == null) || _isCreator || _isBlocking) return;
+
+    setState(() => _isBlocking = true);
+
+    try {
+      // Use firebaseUid (preferred) or userId to block (backend will find the creator)
+      final response = await _apiClient.post(
+        '/user/block-creator',
+        data: {
+          if (_otherUserFirebaseUid != null) 'firebaseUid': _otherUserFirebaseUid,
+          if (_otherUserMongoId != null) 'userId': _otherUserMongoId,
+        },
+      );
+
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        final isBlocked = response.data['data']['isBlocked'] as bool? ?? false;
+        
+        if (mounted) {
+          setState(() {
+            _isCreatorBlocked = isBlocked;
+          });
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(isBlocked 
+                ? 'Creator blocked. You will no longer see them in your feed.'
+                : 'Creator unblocked.'),
+              backgroundColor: isBlocked ? Colors.orange : Colors.green,
+            ),
+          );
+
+          // If blocked, go back to previous screen
+          if (isBlocked) {
+            // Refresh user data to update blocked count
+            await ref.read(authProvider.notifier).refreshUser();
+            // Close chat after a short delay
+            Future.delayed(const Duration(milliseconds: 500), () {
+              if (mounted) {
+                context.pop();
+              }
+            });
+          } else {
+            // Refresh user data
+            await ref.read(authProvider.notifier).refreshUser();
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ [CHAT] Failed to block/unblock creator: $e');
+      if (mounted) {
+        String errorMessage = 'Failed to ${_isCreatorBlocked == true ? "unblock" : "block"} creator';
+        
+        // Try to extract error message from DioException
+        if (e is DioException) {
+          try {
+            if (e.response?.data != null) {
+              final errorData = e.response!.data;
+              if (errorData is Map && errorData['error'] != null) {
+                errorMessage = errorData['error'] as String;
+              }
+            }
+          } catch (_) {
+            // If extraction fails, use default message
+          }
+        }
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isBlocking = false);
+      }
+    }
+  }
+
+  void _showBlockCreatorDialog() {
+    final isBlocked = _isCreatorBlocked == true;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(isBlocked ? 'Unblock Creator' : 'Block Creator'),
+        content: Text(
+          isBlocked
+              ? 'Are you sure you want to unblock ${_otherUserName ?? "this creator"}? You will be able to see them in your feed again.'
+              : 'Are you sure you want to block ${_otherUserName ?? "this creator"}? You will no longer see them in your feed, and this chat will be closed.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              _toggleBlockCreator();
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: isBlocked ? Colors.green : Colors.red,
+            ),
+            child: Text(isBlocked ? 'Unblock' : 'Block'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showReportCreatorDialog() {
@@ -621,7 +784,55 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (_isInitiatingCall) return;
     if (_otherUserFirebaseUid == null || _otherUserMongoId == null) return;
 
-    // Check coin balance
+    // Only regular users can initiate calls (creators cannot call users)
+    if (_isCreator) {
+      return;
+    }
+
+    // Check if creator is online
+    final availabilityMap = ref.read(creatorAvailabilityProvider);
+    final isCreatorOnline = (availabilityMap[_otherUserFirebaseUid!] ??
+            CreatorAvailability.busy) ==
+        CreatorAvailability.online;
+
+    if (!isCreatorOnline) {
+      // Show toast that creator is busy
+      if (mounted) {
+        final theme = Theme.of(context);
+        final colorScheme = theme.colorScheme;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(
+                  Icons.do_not_disturb_alt,
+                  color: colorScheme.onErrorContainer,
+                  size: 20,
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text('Creator is busy'),
+                ),
+              ],
+            ),
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: colorScheme.errorContainer,
+            margin: EdgeInsets.only(
+              top: MediaQuery.of(context).padding.top + 8,
+              left: 16,
+              right: 16,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    // Check coin balance (for regular users)
     final authState = ref.read(authProvider);
     final user = authState.user;
     if (user != null && user.coins < 10) {
@@ -634,6 +845,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     setState(() => _isInitiatingCall = true);
 
     try {
+      // User calling creator
       await ref
           .read(callConnectionControllerProvider.notifier)
           .startUserCall(
@@ -704,7 +916,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       color: Colors.amber.withValues(alpha: 0.15),
       child: Row(
         children: [
-          Icon(Icons.monetization_on, size: 14, color: Colors.amber[700]),
+          GemIcon(size: 14, color: Colors.amber[700]),
           const SizedBox(width: 6),
           Text(
             '$_costPerMessage coins per message',
@@ -734,6 +946,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         appBar: AppBar(title: const Text('Chat')),
         body: const Center(child: CircularProgressIndicator()),
       );
+    }
+
+    // Watch call connection state to ensure button visibility updates after calls
+    final callState = ref.watch(callConnectionControllerProvider);
+    // Reset _isInitiatingCall when call state returns to idle
+    if (callState.phase == CallConnectionPhase.idle && _isInitiatingCall) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            _isInitiatingCall = false;
+          });
+        }
+      });
     }
 
     final colorScheme = Theme.of(context).colorScheme;
@@ -791,13 +1016,31 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ],
             ),
             actions: [
+              // Block creator button (only for regular users chatting with creators)
+              if (!_isCreator && (_otherUserAppRole == 'creator' || _otherUserAppRole == 'admin'))
+                IconButton(
+                  onPressed: _isBlocking ? null : _showBlockCreatorDialog,
+                  icon: _isBlocking
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          _isCreatorBlocked == true ? Icons.block : Icons.block_outlined,
+                          color: _isCreatorBlocked == true ? Colors.red : null,
+                        ),
+                  tooltip: _isCreatorBlocked == true ? 'Unblock Creator' : 'Block Creator',
+                ),
               if (canReportFromChat)
                 IconButton(
                   onPressed: _showReportCreatorDialog,
                   icon: const Icon(Icons.flag_outlined),
                   tooltip: 'Report Creator',
                 ),
-              if (canCallFromChat) _buildCallAction(colorScheme, isCreatorOnline),
+              // Always show video call button if chatting with a creator (for regular users)
+              if (!_isCreator && (_otherUserAppRole == 'creator' || _otherUserAppRole == 'admin'))
+                _buildCallAction(colorScheme, isCreatorOnline),
             ],
           ),
           body: Column(

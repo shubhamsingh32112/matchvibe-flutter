@@ -13,6 +13,7 @@ import '../providers/home_provider.dart';
 import '../providers/availability_provider.dart';
 import '../../video/controllers/call_connection_controller.dart';
 import '../../../core/services/avatar_upload_service.dart';
+import '../../../shared/widgets/coin_purchase_popup.dart';
 
 class HomeUserGridCard extends ConsumerStatefulWidget {
   final CreatorModel? creator;
@@ -126,69 +127,11 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
 
   /// PHASE 2: Show modal for insufficient coins
   void _showInsufficientCoinsModal() {
-    final scheme = Theme.of(context).colorScheme;
-    final authState = ref.read(authProvider);
-    final user = authState.user;
-    final coins = user?.coins ?? 0;
-
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      barrierDismissible: true,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.account_balance_wallet, color: scheme.error),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Text('Insufficient Coins'),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Minimum 10 coins required to start a call.',
-              style: Theme.of(context).textTheme.bodyLarge,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'You currently have $coins coins.',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: scheme.onSurface.withValues(alpha: 0.7),
-                  ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-            },
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              // TODO: Navigate to wallet/buy coins screen
-              // For now, show a snackbar
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Text('Navigate to wallet to buy coins'),
-                  backgroundColor: scheme.primaryContainer,
-                  action: SnackBarAction(
-                    label: 'OK',
-                    textColor: scheme.onPrimaryContainer,
-                    onPressed: () {},
-                  ),
-                ),
-              );
-            },
-            child: const Text('Buy Coins'),
-          ),
-        ],
-      ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const CoinPurchaseBottomSheet(),
     );
   }
 
@@ -311,7 +254,12 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
     final creator = widget.creator;
     if (creator == null) return 24;
 
-    // Age is not explicit in the model yet, so infer from available text.
+    // Use the actual age field from the creator model
+    if (creator.age != null) {
+      return creator.age!;
+    }
+    
+    // Fallback: if age is not available, try to infer from text (legacy support)
     final source = '${creator.name} ${creator.about}';
     final match = RegExp(r'\b(1[89]|[2-9]\d)\b').firstMatch(source);
     if (match == null) return 24;
@@ -516,9 +464,9 @@ class _CreatorInfoText extends StatelessWidget {
       children: [
         Text(
           name,
-          maxLines: 2,
-          softWrap: true,
-          overflow: TextOverflow.fade,
+          maxLines: 1,
+          softWrap: false,
+          overflow: TextOverflow.visible,
           style: titleStyle,
         ),
         const SizedBox(height: AppSpacing.xs),

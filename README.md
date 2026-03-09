@@ -15,14 +15,28 @@ flutter pub get
    - Run: `flutterfire configure`
    - This will create `lib/firebase_options.dart`
 
-3. **Update API base URL:**
-   - Edit `lib/core/constants/app_constants.dart`
-   - Update `baseUrl` to match your backend URL
+3. **Configure environment (.env):**
+   - Copy `.env.example` to `.env.development` and `.env.production`:
+     ```bash
+     # Linux/macOS
+     cp .env.example .env.development && cp .env.example .env.production
+     # Windows (PowerShell)
+     Copy-Item .env.example .env.development; Copy-Item .env.example .env.production
+     ```
+   - Edit both files and set your values. Required keys:
+     - `API_BASE_URL` (ex: `https://api.yourdomain.com/api/v1`)
+     - `SOCKET_URL` (ex: `https://api.yourdomain.com`)
+     - `WEBSITE_BASE_URL` (ex: `https://yourdomain.com`)
+     - `STREAM_API_KEY` (public key; optional if you keep the default)
 
 4. **Run the app:**
 ```bash
 flutter run
 ```
+
+## Android Release Signing (Play Store)
+
+Release signing is loaded from `android/key.properties` (ignored by git). See Flutter docs: `https://docs.flutter.dev/deployment/android`.
 
 ## Project Structure
 

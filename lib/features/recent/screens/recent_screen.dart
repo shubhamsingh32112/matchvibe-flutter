@@ -4,12 +4,14 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../../shared/widgets/skeleton_list.dart';
+import '../../../shared/widgets/gem_icon.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../chat/services/chat_service.dart';
 import '../../home/providers/availability_provider.dart';
 import '../../video/controllers/call_connection_controller.dart';
 import '../models/call_history_model.dart';
 import '../providers/recent_provider.dart';
+import '../../../shared/widgets/coin_purchase_popup.dart';
 
 class RecentScreen extends ConsumerStatefulWidget {
   const RecentScreen({super.key});
@@ -156,7 +158,7 @@ class _CallHistoryTile extends ConsumerWidget {
           ),
           const SizedBox(width: 8),
           // Coin info
-          Icon(Icons.monetization_on, size: 12, color: Colors.amber[700]),
+          GemIcon(size: 12, color: Colors.amber[700]),
           const SizedBox(width: 2),
           Text(
             isOutgoing ? '-${call.coinsDeducted}' : '+${call.coinsEarned}',
@@ -296,16 +298,11 @@ class _CallButtonState extends ConsumerState<_CallButton> {
     final user = authState.user;
     if (user != null && user.coins < 10) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Minimum 10 coins required to start a call'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-            action: SnackBarAction(
-              label: 'Buy Coins',
-              textColor: Theme.of(context).colorScheme.onError,
-              onPressed: () => context.push('/wallet'),
-            ),
-          ),
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (context) => const CoinPurchaseBottomSheet(),
         );
       }
       return;

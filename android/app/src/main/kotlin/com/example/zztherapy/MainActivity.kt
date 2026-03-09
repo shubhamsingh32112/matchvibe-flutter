@@ -1,6 +1,5 @@
-package com.example.zztherapy.dev
+package com.example.zztherapy
 
-import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
@@ -21,7 +20,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "setSecureFlag" -> {
@@ -46,3 +45,4 @@ class MainActivity : FlutterActivity() {
         }
     }
 }
+

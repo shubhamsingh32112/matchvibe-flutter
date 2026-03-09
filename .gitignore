@@ -3,6 +3,7 @@
 *.log
 *.pyc
 *.swp
+*.swo
 .DS_Store
 .atom/
 .build/
@@ -18,20 +19,24 @@ migrate_working_dir/
 *.iws
 .idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
+# VS Code
+.vscode/
+!.vscode/launch.json
+!.vscode/tasks.json
 
 # Flutter/Dart/Pub related
 **/doc/api/
 **/ios/Flutter/.last_build_id
 .dart_tool/
+.flutter-plugins
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
-/build/
-/coverage/
+build/
+coverage/
+*.dart.js
+*.dart.js.map
+*.info.json
 
 # Symbolication related
 app.*.symbols
@@ -39,7 +44,81 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
+# Android Studio build artifacts
+/android/app/debug/
+/android/app/profile/
+/android/app/release/
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/local.properties
+/android/.cxx/
+/android/captures/
+
+# iOS build artifacts
+/ios/Pods/
+/ios/.symlinks/
+/ios/Flutter/Flutter.framework
+/ios/Flutter/Flutter.podspec
+/ios/Flutter/Generated.xcconfig
+/ios/Flutter/ephemeral/
+/ios/Flutter/app.flx
+/ios/Flutter/app.zip
+/ios/Flutter/flutter_assets/
+/ios/ServiceDefinitions.json
+/ios/Runner/GeneratedPluginRegistrant.*
+/ios/DerivedData/
+/ios/.generated/
+/ios/Flutter/App.framework
+/ios/Flutter/Flutter.framework
+/ios/Flutter/flutter_export_environment.sh
+/ios/Flutter/.last_build_id
+
+# macOS build artifacts
+/macos/Flutter/ephemeral/
+/macos/Pods/
+
+# Linux build artifacts
+/linux/flutter/ephemeral/
+
+# Large media files - ignore most PNGs but keep essential app icons
+# Ignore all PNGs by default
+*.png
+# But keep essential app icons, favicons, and web icons
+!android/app/src/main/res/**/ic_launcher.png
+!ios/Runner/Assets.xcassets/**/*.png
+!macos/Runner/Assets.xcassets/**/*.png
+!web/icons/*.png
+!web/favicon.png
+
+# Ignore large image and media files in assets
+/lib/assets/**/*.jpg
+/lib/assets/**/*.jpeg
+/lib/assets/**/*.mp3
+/lib/assets/**/*.mp4
+/lib/assets/**/*.mov
+/lib/assets/**/*.avi
+/lib/assets/**/*.wav
+
+# Keystore files (security sensitive)
+**/*.keystore
+**/*.jks
+**/key.properties
+**/google-services.json
+
+# Environment files (never commit secrets)
+.env
+.env.*
+!.env.example
+
+# Gradle wrapper JAR (should be downloaded, not committed)
+/android/gradle/wrapper/gradle-wrapper.jar
+
+# Lock files (optional - some teams commit these)
+# pubspec.lock
+
+# Generated files
+*.g.dart
+*.freezed.dart
+*.config.dart
+firebase_options.dart

@@ -9,6 +9,7 @@ import '../providers/stream_video_provider.dart';
 import '../services/call_ringtone_service.dart';
 import '../utils/call_remote_image_resolver.dart';
 import '../utils/remote_avatar_lookup.dart';
+import '../../../core/api/api_client.dart' as api;
 import 'incoming_call_widget.dart';
 
 /// Widget that listens for incoming calls and shows UI when call arrives.
@@ -42,6 +43,11 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
   Call? _incomingCall;
   StreamSubscription? _ringingSubscription;
   StreamSubscription? _incomingCallSubscription;
+
+  /// Ring timeout: if creator doesn't accept/reject within 15s, auto-dismiss.
+  /// Matches user-side ring timeout — call ends for both parties.
+  static const _ringTimeoutSeconds = 15;
+  Timer? _ringTimeoutTimer;
 
   /// Call IDs that have already been handled (accepted, rejected, or ended).
   /// Prevents the overlay from re-appearing due to stale SDK state.
@@ -100,6 +106,7 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
         debugPrint('✅ [INCOMING CALL] Call object retrieved: ${call.id}');
         unawaited(_prefetchIncomingCallerAvatar(call));
         CallRingtoneService.startIncomingRingtone();
+        _startRingTimeout(callId);
         if (mounted) {
           setState(() {
             _incomingCall = call;
@@ -122,6 +129,7 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
             '📞 [INCOMING CALL] Incoming call detected via state: ${call.id}');
         unawaited(_prefetchIncomingCallerAvatar(call));
         CallRingtoneService.startIncomingRingtone();
+        _startRingTimeout(call.id);
         if (mounted) {
           setState(() {
             _incomingCall = call;
@@ -129,6 +137,7 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
         }
       } else {
         debugPrint('📞 [INCOMING CALL] Incoming call cleared by SDK');
+        _cancelRingTimeout();
         CallRingtoneService.stop();
         if (mounted) {
           setState(() {
@@ -146,8 +155,28 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
     }
   }
 
+  void _startRingTimeout(String callId) {
+    _cancelRingTimeout();
+    _ringTimeoutTimer = Timer(
+      const Duration(seconds: _ringTimeoutSeconds),
+      () {
+        if (!mounted) return;
+        if (_incomingCall?.id != callId) return;
+        debugPrint(
+            '⏱️ [INCOMING CALL] Ring timeout (${_ringTimeoutSeconds}s) — caller likely gave up');
+        _dismissIncomingCall(callId);
+      },
+    );
+  }
+
+  void _cancelRingTimeout() {
+    _ringTimeoutTimer?.cancel();
+    _ringTimeoutTimer = null;
+  }
+
   /// Explicitly dismiss the incoming call overlay and mark the call as handled.
   void _dismissIncomingCall(String callId) {
+    _cancelRingTimeout();
     debugPrint('🚫 [INCOMING CALL] Dismissing call: $callId');
     _handledCallIds.add(callId);
     _incomingFallbackImageByCallId.remove(callId);
@@ -171,6 +200,7 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
 
   @override
   void dispose() {
+    _cancelRingTimeout();
     CallRingtoneService.stop();
     _incomingFallbackImageByCallId.clear();
     _ringingSubscription?.cancel();
@@ -180,6 +210,8 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
 
   Future<void> _prefetchIncomingCallerAvatar(Call call) async {
     final currentUserId = ref.read(authProvider).firebaseUser?.uid;
+    
+    // First, try to resolve from call metadata
     final fromCall = resolveRemoteImageUrl(
       call: call,
       currentUserId: currentUserId,
@@ -195,6 +227,41 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
       return;
     }
 
+    // If not found in call metadata, try to extract from call members
+    try {
+      final dynamic callState = (call as dynamic).state?.value;
+      final members = callState?.members;
+      if (members is Iterable) {
+        for (final dynamic member in members) {
+          final memberId = (member as dynamic).userId?.toString() ??
+              (member as dynamic).user?.id?.toString() ??
+              (member as dynamic).user?.userId?.toString();
+          
+          if (memberId == null || 
+              (currentUserId != null && memberId == currentUserId)) {
+            continue; // Skip current user
+          }
+
+          // Try to get image from member
+          final memberImage = (member as dynamic).user?.image?.toString() ??
+              (member as dynamic).user?.imageUrl?.toString() ??
+              (member as dynamic).image?.toString();
+          
+          if (memberImage != null && memberImage.trim().isNotEmpty) {
+            if (mounted) {
+              setState(() {
+                _incomingFallbackImageByCallId[call.id] = memberImage.trim();
+              });
+            }
+            return;
+          }
+        }
+      }
+    } catch (_) {
+      // Continue to fallback lookup
+    }
+
+    // Fallback: lookup from user list first, then creators list
     try {
       final dynamic callState = (call as dynamic).state?.value;
       final createdBy = callState?.createdBy;
@@ -204,17 +271,37 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
       final remoteUsername = createdBy?.name?.toString() ??
           createdBy?.extraData?['username']?.toString();
 
-      final lookedUp = await lookupAvatarFromUserList(
+      debugPrint('🔍 [INCOMING CALL] Looking up avatar for: firebaseUid=$remoteFirebaseUid, username=$remoteUsername');
+
+      // First try user list
+      var lookedUp = await lookupAvatarFromUserList(
         remoteFirebaseUid: remoteFirebaseUid,
         remoteUsername: remoteUsername,
         debugSourceTag: 'incoming_prefetch',
       );
-      if (lookedUp != null && mounted) {
-        setState(() {
-          _incomingFallbackImageByCallId[call.id] = lookedUp;
-        });
+      
+      debugPrint('🔍 [INCOMING CALL] User list lookup result: ${lookedUp ?? "null"}');
+      
+      // If not found in user list, try creators list (for creator-initiated calls)
+      if (lookedUp == null && remoteFirebaseUid != null && remoteFirebaseUid.isNotEmpty) {
+        debugPrint('🔍 [INCOMING CALL] Trying creators list lookup...');
+        lookedUp = await _lookupAvatarFromCreatorsList(
+          remoteFirebaseUid: remoteFirebaseUid,
+          remoteUsername: remoteUsername,
+        );
+        debugPrint('🔍 [INCOMING CALL] Creators list lookup result: ${lookedUp ?? "null"}');
       }
-    } catch (_) {
+      
+      if (lookedUp != null && lookedUp.isNotEmpty && mounted) {
+        debugPrint('✅ [INCOMING CALL] Setting fallback image for call ${call.id}: $lookedUp');
+        setState(() {
+          _incomingFallbackImageByCallId[call.id] = lookedUp!;
+        });
+      } else {
+        debugPrint('⚠️ [INCOMING CALL] No avatar found for call ${call.id}');
+      }
+    } catch (e) {
+      debugPrint('❌ [INCOMING CALL] Avatar lookup error: $e');
       // Best-effort prefetch only.
     }
   }
@@ -246,6 +333,7 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
       if (next.phase != CallConnectionPhase.idle &&
           next.phase != CallConnectionPhase.failed &&
           _incomingCall != null) {
+        _cancelRingTimeout();
         _handledCallIds.add(_incomingCall!.id);
         CallRingtoneService.stop();
         setState(() {
@@ -282,5 +370,65 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
 
     // No incoming call, show normal UI
     return widget.child;
+  }
+
+  /// Lookup avatar from creators list (for creator-initiated calls)
+  Future<String?> _lookupAvatarFromCreatorsList({
+    String? remoteFirebaseUid,
+    String? remoteUsername,
+  }) async {
+    if (remoteFirebaseUid == null || remoteFirebaseUid.isEmpty) {
+      return null;
+    }
+
+    try {
+      final response = await api.ApiClient().get('/creator');
+      final creatorsData = response.data?['data']?['creators'];
+      if (creatorsData is! List) {
+        return null;
+      }
+
+      for (final item in creatorsData) {
+        if (item is! Map) continue;
+        final creator = Map<String, dynamic>.from(item);
+
+        final creatorFirebaseUidRaw = creator['firebaseUid'];
+        final creatorNameRaw = creator['name'];
+        final creatorFirebaseUid = creatorFirebaseUidRaw != null
+            ? creatorFirebaseUidRaw.toString().trim()
+            : null;
+        final creatorName = creatorNameRaw != null
+            ? creatorNameRaw.toString().trim()
+            : null;
+
+        // Match by Firebase UID (preferred) or name
+        final idMatched = creatorFirebaseUid != null &&
+            creatorFirebaseUid.isNotEmpty &&
+            creatorFirebaseUid.toLowerCase() == remoteFirebaseUid.toLowerCase();
+        final nameMatched = remoteUsername != null &&
+            remoteUsername.isNotEmpty &&
+            creatorName != null &&
+            creatorName.isNotEmpty &&
+            creatorName.toLowerCase() == remoteUsername.toLowerCase();
+
+        if (!idMatched && !nameMatched) continue;
+
+        // Get creator photo
+        final photoRaw = creator['photo'];
+        final photo = photoRaw != null ? photoRaw.toString().trim() : null;
+        if (photo != null && photo.isNotEmpty) {
+          debugPrint(
+            '✅ [INCOMING CALL] Creator avatar found from /creator list: $photo',
+          );
+          return photo;
+        }
+      }
+    } catch (e) {
+      debugPrint(
+        '❌ [INCOMING CALL] /creator lookup failed: $e',
+      );
+    }
+
+    return null;
   }
 }

@@ -5,6 +5,7 @@ import '../../auth/providers/auth_provider.dart';
 import '../providers/withdrawal_provider.dart';
 import '../models/withdrawal_model.dart';
 import '../../../shared/widgets/ui_primitives.dart';
+import '../../../shared/widgets/gem_icon.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 
 class WithdrawalScreen extends ConsumerStatefulWidget {
@@ -16,11 +17,22 @@ class WithdrawalScreen extends ConsumerStatefulWidget {
 
 class _WithdrawalScreenState extends ConsumerState<WithdrawalScreen> {
   final _amountController = TextEditingController();
+  final _nameController = TextEditingController();
+  final _numberController = TextEditingController();
+  final _upiController = TextEditingController();
+  final _accountNumberController = TextEditingController();
+  final _ifscController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+  bool _useUpi = true; // Toggle between UPI and Bank Account
 
   @override
   void dispose() {
     _amountController.dispose();
+    _nameController.dispose();
+    _numberController.dispose();
+    _upiController.dispose();
+    _accountNumberController.dispose();
+    _ifscController.dispose();
     super.dispose();
   }
 
@@ -49,7 +61,13 @@ class _WithdrawalScreenState extends ConsumerState<WithdrawalScreen> {
             backgroundColor: Theme.of(context).colorScheme.primaryContainer,
           ),
         );
+        // Clear all form fields
         _amountController.clear();
+        _nameController.clear();
+        _numberController.clear();
+        _upiController.clear();
+        _accountNumberController.clear();
+        _ifscController.clear();
         // Refresh user data to update balance
         ref.read(authProvider.notifier).refreshUser();
       }
@@ -110,6 +128,13 @@ class _WithdrawalScreenState extends ConsumerState<WithdrawalScreen> {
                   _WithdrawalForm(
                     formKey: _formKey,
                     amountController: _amountController,
+                    nameController: _nameController,
+                    numberController: _numberController,
+                    upiController: _upiController,
+                    accountNumberController: _accountNumberController,
+                    ifscController: _ifscController,
+                    useUpi: _useUpi,
+                    onUseUpiChanged: (value) => setState(() => _useUpi = value),
                     availableBalance: coins,
                     isSubmitting: withdrawalState.isSubmitting,
                     onSubmit: _submitWithdrawal,
@@ -150,7 +175,14 @@ class _WithdrawalScreenState extends ConsumerState<WithdrawalScreen> {
     final amount = int.tryParse(_amountController.text.trim());
     if (amount == null || amount <= 0) return;
 
-    await ref.read(withdrawalProvider.notifier).requestWithdrawal(amount);
+    await ref.read(withdrawalProvider.notifier).requestWithdrawal(
+      amount: amount,
+      name: _nameController.text.trim(),
+      number: _numberController.text.trim(),
+      upi: _useUpi ? _upiController.text.trim() : null,
+      accountNumber: _useUpi ? null : _accountNumberController.text.trim(),
+      ifsc: _useUpi ? null : _ifscController.text.trim(),
+    );
   }
 }
 
@@ -216,6 +248,13 @@ class _BalanceCard extends StatelessWidget {
 class _WithdrawalForm extends StatelessWidget {
   final GlobalKey<FormState> formKey;
   final TextEditingController amountController;
+  final TextEditingController nameController;
+  final TextEditingController numberController;
+  final TextEditingController upiController;
+  final TextEditingController accountNumberController;
+  final TextEditingController ifscController;
+  final bool useUpi;
+  final ValueChanged<bool> onUseUpiChanged;
   final int availableBalance;
   final bool isSubmitting;
   final VoidCallback onSubmit;
@@ -223,6 +262,13 @@ class _WithdrawalForm extends StatelessWidget {
   const _WithdrawalForm({
     required this.formKey,
     required this.amountController,
+    required this.nameController,
+    required this.numberController,
+    required this.upiController,
+    required this.accountNumberController,
+    required this.ifscController,
+    required this.useUpi,
+    required this.onUseUpiChanged,
     required this.availableBalance,
     required this.isSubmitting,
     required this.onSubmit,
@@ -256,7 +302,7 @@ class _WithdrawalForm extends StatelessWidget {
                 labelStyle: TextStyle(color: scheme.onSurfaceVariant),
                 hintText: 'Min 100 coins',
                 hintStyle: TextStyle(color: scheme.onSurfaceVariant.withOpacity(0.5)),
-                prefixIcon: Icon(Icons.monetization_on_outlined, color: scheme.primary),
+                prefixIcon: GemIcon(size: 24, color: scheme.primary),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(color: scheme.outlineVariant),
@@ -293,7 +339,168 @@ class _WithdrawalForm extends StatelessWidget {
                 return null;
               },
             ),
+            const SizedBox(height: 20),
+            // Name field
+            TextFormField(
+              controller: nameController,
+              style: TextStyle(color: scheme.onSurface),
+              decoration: InputDecoration(
+                labelText: 'Name',
+                labelStyle: TextStyle(color: scheme.onSurfaceVariant),
+                prefixIcon: Icon(Icons.person_outline, color: scheme.primary),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: scheme.outlineVariant),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: scheme.primary, width: 2),
+                ),
+                filled: true,
+                fillColor: scheme.surfaceContainerHighest.withOpacity(0.3),
+              ),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Name is required';
+                }
+                return null;
+              },
+            ),
             const SizedBox(height: 16),
+            // Phone number field
+            TextFormField(
+              controller: numberController,
+              keyboardType: TextInputType.phone,
+              style: TextStyle(color: scheme.onSurface),
+              decoration: InputDecoration(
+                labelText: 'Phone Number',
+                labelStyle: TextStyle(color: scheme.onSurfaceVariant),
+                prefixIcon: Icon(Icons.phone_outlined, color: scheme.primary),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: scheme.outlineVariant),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: scheme.primary, width: 2),
+                ),
+                filled: true,
+                fillColor: scheme.surfaceContainerHighest.withOpacity(0.3),
+              ),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Phone number is required';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 20),
+            // Payment method toggle
+            Row(
+              children: [
+                Expanded(
+                  child: ChoiceChip(
+                    label: const Text('UPI'),
+                    selected: useUpi,
+                    onSelected: onUseUpiChanged,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ChoiceChip(
+                    label: const Text('Bank Account'),
+                    selected: !useUpi,
+                    onSelected: (selected) => onUseUpiChanged(!selected),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            // UPI or Bank Account fields
+            if (useUpi) ...[
+              TextFormField(
+                controller: upiController,
+                style: TextStyle(color: scheme.onSurface),
+                decoration: InputDecoration(
+                  labelText: 'UPI ID',
+                  labelStyle: TextStyle(color: scheme.onSurfaceVariant),
+                  hintText: 'yourname@paytm',
+                  prefixIcon: Icon(Icons.account_circle_outlined, color: scheme.primary),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: scheme.outlineVariant),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: scheme.primary, width: 2),
+                  ),
+                  filled: true,
+                  fillColor: scheme.surfaceContainerHighest.withOpacity(0.3),
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'UPI ID is required';
+                  }
+                  return null;
+                },
+              ),
+            ] else ...[
+              TextFormField(
+                controller: accountNumberController,
+                keyboardType: TextInputType.number,
+                style: TextStyle(color: scheme.onSurface),
+                decoration: InputDecoration(
+                  labelText: 'Account Number',
+                  labelStyle: TextStyle(color: scheme.onSurfaceVariant),
+                  prefixIcon: Icon(Icons.account_balance_outlined, color: scheme.primary),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: scheme.outlineVariant),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: scheme.primary, width: 2),
+                  ),
+                  filled: true,
+                  fillColor: scheme.surfaceContainerHighest.withOpacity(0.3),
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Account number is required';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: ifscController,
+                textCapitalization: TextCapitalization.characters,
+                style: TextStyle(color: scheme.onSurface),
+                decoration: InputDecoration(
+                  labelText: 'IFSC Code',
+                  labelStyle: TextStyle(color: scheme.onSurfaceVariant),
+                  hintText: 'ABCD0123456',
+                  prefixIcon: Icon(Icons.code_outlined, color: scheme.primary),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: scheme.outlineVariant),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: scheme.primary, width: 2),
+                  ),
+                  filled: true,
+                  fillColor: scheme.surfaceContainerHighest.withOpacity(0.3),
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'IFSC code is required';
+                  }
+                  return null;
+                },
+              ),
+            ],
+            const SizedBox(height: 20),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
@@ -510,8 +717,7 @@ class _CoinsPill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(
-            Icons.monetization_on,
+          const GemIcon(
             size: 16,
             color: AppBrandGradients.walletOnGold,
           ),

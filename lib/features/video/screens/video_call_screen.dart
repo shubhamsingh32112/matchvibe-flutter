@@ -11,6 +11,8 @@ import '../services/permission_service.dart';
 import '../services/security_service.dart';
 import '../utils/call_remote_image_resolver.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../../shared/widgets/coin_purchase_popup.dart';
+import '../../../shared/widgets/gem_icon.dart';
 
 /// Screen for active video call — **pure renderer**.
 ///
@@ -50,32 +52,54 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
   Widget build(BuildContext context) {
     final callState = ref.watch(callConnectionControllerProvider);
 
-    switch (callState.phase) {
-      case CallConnectionPhase.preparing:
-      case CallConnectionPhase.joining:
-        return _OutgoingCallView(
-          isOutgoing: callState.isOutgoing,
-          call: callState.call,
-        );
+    // 🔥 BACK BUTTON HANDLER: Intercept back button to end call
+    // When user/creator taps back button during active call, end call for both parties
+    Widget buildContent() {
+      switch (callState.phase) {
+        case CallConnectionPhase.preparing:
+        case CallConnectionPhase.joining:
+          return _OutgoingCallView(
+            isOutgoing: callState.isOutgoing,
+            call: callState.call,
+          );
 
-      case CallConnectionPhase.connected:
-        return _VideoCallScreenContent(call: callState.call!);
+        case CallConnectionPhase.connected:
+          return _VideoCallScreenContent(call: callState.call!);
 
-      case CallConnectionPhase.failed:
-        return _CallFailedView(
-            error: callState.error, isOutgoing: callState.isOutgoing);
+        case CallConnectionPhase.failed:
+          return _CallFailedView(
+              error: callState.error, isOutgoing: callState.isOutgoing);
 
-      case CallConnectionPhase.idle:
-      case CallConnectionPhase.disconnecting:
-        // Call ended — navigate to home (handled by controller via GoRouter)
-        // This is a fallback in case the widget is still mounted
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (context.mounted) {
-            context.go('/home');
-          }
-        });
-        return const SizedBox.shrink();
+        case CallConnectionPhase.idle:
+        case CallConnectionPhase.disconnecting:
+          // Call ended — navigate to home (handled by controller via GoRouter)
+          // This is a fallback in case the widget is still mounted
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (context.mounted) {
+              context.go('/home');
+            }
+          });
+          return const SizedBox.shrink();
+      }
     }
+
+    // Wrap with PopScope to intercept back button
+    return PopScope(
+      canPop: callState.phase == CallConnectionPhase.idle || 
+              callState.phase == CallConnectionPhase.disconnecting,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (!didPop) {
+          // Back button pressed - end call if active
+          final phase = callState.phase;
+          if (phase != CallConnectionPhase.idle && 
+              phase != CallConnectionPhase.disconnecting) {
+            debugPrint('🔙 [CALL] Back button pressed - ending call');
+            await ref.read(callConnectionControllerProvider.notifier).endCall();
+          }
+        }
+      },
+      child: buildContent(),
+    );
   }
 }
 
@@ -137,7 +161,21 @@ class _OutgoingCallViewState extends ConsumerState<_OutgoingCallView>
       debugSourceTag: 'outgoing',
     );
 
-    return Scaffold(
+    // 🔥 BACK BUTTON HANDLER: End call when back button pressed during preparing/joining
+    return PopScope(
+      canPop: false, // Prevent default navigation
+      onPopInvokedWithResult: (didPop, result) async {
+        if (!didPop) {
+          // Back button pressed - cancel/end call
+          final phase = callConnectionState.phase;
+          if (phase == CallConnectionPhase.preparing || 
+              phase == CallConnectionPhase.joining) {
+            debugPrint('🔙 [CALL] Back button pressed during $phase - ending call');
+            await ref.read(callConnectionControllerProvider.notifier).endCall();
+          }
+        }
+      },
+      child: Scaffold(
       backgroundColor: scheme.surface,
       body: Stack(
         fit: StackFit.expand,
@@ -275,6 +313,7 @@ class _OutgoingCallViewState extends ConsumerState<_OutgoingCallView>
             ),
           ),
         ],
+      ),
       ),
     );
   }
@@ -430,6 +469,8 @@ class _CallFailedView extends ConsumerWidget {
         return 'Permissions Required';
       case CallFailureReason.joinTimeout:
         return 'Connection Timed Out';
+      case CallFailureReason.creatorNotPickedUp:
+        return 'Creator Didn\'t Pick Up'; // Unused — we show toast on home instead
       case CallFailureReason.rejected:
         return 'Call Declined';
       case CallFailureReason.sfuFailure:
@@ -597,7 +638,20 @@ class _VideoCallScreenContentState
       }
     });
 
-    return Scaffold(
+    // 🔥 BACK BUTTON HANDLER: End call when back button pressed during connected phase
+    return PopScope(
+      canPop: false, // Prevent default navigation
+      onPopInvokedWithResult: (didPop, result) async {
+        if (!didPop) {
+          // Back button pressed - end call for both parties
+          final phase = callConnectionState.phase;
+          if (phase == CallConnectionPhase.connected) {
+            debugPrint('🔙 [CALL] Back button pressed during connected call - ending call for both parties');
+            await ref.read(callConnectionControllerProvider.notifier).endCall();
+          }
+        }
+      },
+      child: Scaffold(
       body: Stack(
         children: [
           if (remoteImageUrl != null)
@@ -687,48 +741,19 @@ class _VideoCallScreenContentState
             ),
         ],
       ),
+      ),
     );
   }
 
   void _showOutOfCoinsDialog(BuildContext context) {
-    showDialog(
+    ref.read(callBillingProvider.notifier).reset();
+    ref.read(authProvider.notifier).refreshUser();
+    // Show coin purchase pop-up as bottom sheet
+    showModalBottomSheet(
       context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.monetization_on, color: Colors.amber, size: 28),
-            SizedBox(width: 8),
-            Text('Out of Coins'),
-          ],
-        ),
-        content: const Text(
-          'Your coin balance ran out and the call was ended.\n\n'
-          'Would you like to buy more coins to continue calling?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              ref.read(callBillingProvider.notifier).reset();
-              // Refresh user data to get final balance
-              ref.read(authProvider.notifier).refreshUser();
-            },
-            child: const Text('Not Now'),
-          ),
-          FilledButton.icon(
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              ref.read(callBillingProvider.notifier).reset();
-              ref.read(authProvider.notifier).refreshUser();
-              // Navigate to wallet screen
-              context.push('/wallet');
-            },
-            icon: const Icon(Icons.shopping_cart),
-            label: const Text('Buy Coins'),
-          ),
-        ],
-      ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const CoinPurchaseBottomSheet(),
     );
   }
 }
@@ -769,7 +794,7 @@ class _BillingOverlay extends StatelessWidget {
               const Icon(Icons.timer, color: Colors.white, size: 18),
               const SizedBox(width: 6),
               Text(
-                _formatDuration(billingState.elapsedSeconds),
+                _formatDuration(billingState.accurateElapsedSeconds),
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 16,
@@ -798,8 +823,7 @@ class _BillingOverlay extends StatelessWidget {
           else
             Row(
               children: [
-                Icon(
-                  Icons.monetization_on,
+                GemIcon(
                   color: billingState.remainingSeconds < 30
                       ? Colors.redAccent
                       : Colors.amber,

@@ -59,7 +59,6 @@ class AuthState {
 class AuthNotifier extends StateNotifier<AuthState> {
   FirebaseAuth? _auth;
   final ApiClient _apiClient = ApiClient();
-  final GoogleSignIn _googleSignIn = GoogleSignIn();
   bool _isInitializing = false;
   
   // 🔥 FIX: Guards to prevent duplicate operations
@@ -67,6 +66,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
   bool _isSyncingToBackend = false;  // Prevents duplicate backend syncs
   String? _lastSyncedUid;  // Tracks which UID was last synced
   bool _phoneVerificationInProgress = false;  // Prevents duplicate verifyPhoneNumber calls
+  DateTime? _lastVerificationAttempt;  // Track last verification request time
+  static const Duration _verificationCooldown = Duration(seconds: 30);  // Minimum time between requests
   
   // 🔥 FIX: Test phone numbers (for Firebase test authentication)
   // These numbers use manual OTP flow, no SMS auto-retrieval
@@ -192,14 +193,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
     try {
       // Determine auth method for logging context
       final authMethod = firebaseUser.providerData
-          .where((p) => p.providerId == 'google.com')
-          .isNotEmpty
-          ? 'GOOGLE'
-          : firebaseUser.providerData
-                  .where((p) => p.providerId == 'phone')
-                  .isNotEmpty
-              ? 'PHONE'
-              : 'OTHER';
+              .where((p) => p.providerId == 'phone')
+              .isNotEmpty
+          ? 'PHONE'
+          : 'OTHER';
       
       debugPrint('───────────────────────────────────────────────────────');
       debugPrint('🔄 [AUTH] Starting backend sync');
@@ -302,7 +299,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
             email: creatorData['email'] as String?,
             phone: creatorData['phone'] as String?,
             gender: creatorData['gender'] as String?,
-            username: creatorData['name'] as String?, // Use creator name as username
+            username: creatorData['username'] as String?,
             avatar: creatorData['photo'] as String?, // Use creator photo as avatar
             categories: creatorData['categories'] != null
                 ? List<String>.from(creatorData['categories'] as List)
@@ -311,6 +308,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
             coins: creatorData['coins'] as int? ?? 0,
             welcomeBonusClaimed: creatorData['welcomeBonusClaimed'] as bool? ?? false,
             role: creatorData['role'] as String? ?? 'creator',
+            name: creatorData['name'] as String?, // Creator name
+            about: creatorData['about'] as String?, // Creator about
+            age: creatorData['age'] != null ? creatorData['age'] as int? : null, // Creator age
             createdAt: creatorData['createdAt'] != null
                 ? DateTime.parse(creatorData['createdAt'] as String)
                 : null,
@@ -462,7 +462,91 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
+  /// Sign in with Google (primary auth method)
+  Future<void> signInWithGoogle() async {
+    try {
+      debugPrint('═══════════════════════════════════════════════════════');
+      debugPrint('🔐 [GOOGLE AUTH] Starting Google Sign-In');
+      debugPrint('═══════════════════════════════════════════════════════');
+
+      if (_auth == null) {
+        debugPrint('❌ [GOOGLE AUTH] Firebase not initialized');
+        state = state.copyWith(error: 'Firebase not initialized');
+        return;
+      }
+
+      if (_auth!.currentUser != null && !state.isAuthenticated) {
+        debugPrint('🔄 [GOOGLE AUTH] User signed in with Firebase, retrying backend sync');
+        state = state.copyWith(
+          isLoading: true,
+          error: null,
+          firebaseUser: _auth!.currentUser,
+        );
+        _lastSyncedUid = null;
+        _isSyncingToBackend = false;
+        await _syncUserToBackend(_auth!.currentUser!);
+        return;
+      }
+
+      if (_auth!.currentUser != null && state.isAuthenticated) {
+        debugPrint('✅ [GOOGLE AUTH] Already fully authenticated');
+        return;
+      }
+
+      state = state.copyWith(isLoading: true, error: null);
+
+      final googleSignIn = GoogleSignIn();
+      final googleUser = await googleSignIn.signIn();
+
+      if (googleUser == null) {
+        debugPrint('⏭️ [GOOGLE AUTH] User canceled sign-in');
+        state = state.copyWith(isLoading: false);
+        return;
+      }
+
+      final googleAuth = await googleUser.authentication;
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      await _auth!.signInWithCredential(credential);
+      debugPrint('✅ [GOOGLE AUTH] Sign-in successful');
+      state = state.copyWith(isLoading: false);
+      // Auth state listener will trigger _syncUserToBackend
+    } catch (e) {
+      debugPrint('❌ [GOOGLE AUTH] Error: $e');
+      state = state.copyWith(
+        isLoading: false,
+        error: e.toString(),
+      );
+    }
+  }
+
+  /// Stub: Phone login disabled (use signInWithGoogle)
+  /// Kept for backward compatibility with otp_screen.dart
   Future<void> signInWithPhone(String phoneNumber) async {
+    state = state.copyWith(
+      error: 'Phone login is disabled. Please use Google Sign-In.',
+      isLoading: false,
+    );
+  }
+
+  /// Stub: OTP verification disabled (use signInWithGoogle)
+  /// Kept for backward compatibility with otp_screen.dart
+  Future<void> verifyOtp(String verificationId, String otp) async {
+    state = state.copyWith(
+      error: 'Phone login is disabled. Please use Google Sign-In.',
+      isLoading: false,
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // PHONE LOGIN FULL IMPLEMENTATION (COMMENTED OUT)
+  // Uncomment signInWithPhone + verifyOtp above and restore these to re-enable
+  // ─────────────────────────────────────────────────────────────────
+  /*
+  Future<void> _signInWithPhoneImpl(String phoneNumber) async {
     try {
       debugPrint('═══════════════════════════════════════════════════════');
       debugPrint('📱 [PHONE AUTH] Starting phone number authentication');
@@ -505,7 +589,24 @@ class AuthNotifier extends StateNotifier<AuthState> {
         debugPrint('⏭️ [PHONE AUTH] BLOCKED - Verification already in progress');
         return;
       }
+      
+      // 🔥 GUARD: Rate limiting - prevent too many requests
+      if (_lastVerificationAttempt != null) {
+        final timeSinceLastAttempt = DateTime.now().difference(_lastVerificationAttempt!);
+        if (timeSinceLastAttempt < _verificationCooldown) {
+          final remainingSeconds = (_verificationCooldown - timeSinceLastAttempt).inSeconds;
+          debugPrint('⏭️ [PHONE AUTH] BLOCKED - Rate limit cooldown active');
+          debugPrint('   ⏱️  Please wait ${remainingSeconds}s before trying again');
+          state = state.copyWith(
+            isLoading: false,
+            error: 'Please wait ${remainingSeconds}s before requesting a new code.',
+          );
+          return;
+        }
+      }
+      
       _phoneVerificationInProgress = true;
+      _lastVerificationAttempt = DateTime.now();
       
       final isTest = _isTestNumber(phoneNumber);
       debugPrint('   🧪 Is test number: $isTest');
@@ -550,10 +651,42 @@ class AuthNotifier extends StateNotifier<AuthState> {
           debugPrint('   Message: ${e.message ?? "No message"}');
           
           _phoneVerificationInProgress = false;  // 🔥 Reset so user can retry
+
+          // Map common Firebase Phone Auth errors to user-friendly messages.
+          // In release, avoid leaking implementation details (SHA, Play Integrity, etc.)
+          // but keep enough hints for developers in debug builds.
+          String friendly;
+          switch (e.code) {
+            case 'invalid-phone-number':
+              friendly = 'Please enter a valid phone number.';
+              break;
+            case 'too-many-requests':
+              // Firebase rate limit hit - enforce longer cooldown
+              _lastVerificationAttempt = DateTime.now();
+              // Extend cooldown to 5 minutes for too-many-requests
+              _lastVerificationAttempt = _lastVerificationAttempt!.subtract(
+                const Duration(minutes: 5) - _verificationCooldown,
+              );
+              friendly = 'Too many verification attempts. Please wait 5 minutes before trying again, or try using a different phone number.';
+              break;
+            case 'quota-exceeded':
+              friendly = 'OTP service is temporarily unavailable. Please try again later.';
+              break;
+            case 'app-not-authorized':
+            case 'invalid-app-credential':
+            case 'missing-client-identifier':
+            case 'captcha-check-failed':
+              friendly = kDebugMode
+                  ? 'Phone verification blocked for this build. Add release SHA-256/SHA-1 to Firebase (Android app: com.example.zztherapy), then retry.'
+                  : 'Verification is temporarily unavailable. Please try again later.';
+              break;
+            default:
+              friendly = e.message ?? 'Verification failed. Please try again.';
+          }
           
           state = state.copyWith(
             isLoading: false,
-            error: e.message ?? 'Verification failed',
+            error: friendly,
           );
         },
         codeSent: (String verificationId, int? resendToken) {
@@ -591,269 +724,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
       debugPrint('❌ [PHONE AUTH] Unexpected error');
       debugPrint('───────────────────────────────────────────────────────');
       debugPrint('   Error: $e');
-      debugPrint('   Type: ${e.runtimeType}');
-      debugPrint('   Stack trace:');
-      debugPrint('   ${StackTrace.current}');
-      
-      if (e is FirebaseAuthException) {
-        debugPrint('   Firebase Error Code: ${e.code}');
-        debugPrint('   Firebase Error Message: ${e.message}');
-      }
-      
-      state = state.copyWith(
-        isLoading: false,
-        error: e.toString(),
-      );
+      state = state.copyWith(isLoading: false, error: e.toString());
     }
   }
-
-  Future<void> signInWithGoogle() async {
-    try {
-      debugPrint('═══════════════════════════════════════════════════════');
-      debugPrint('🔵 [GOOGLE AUTH] Starting Google sign in');
-      debugPrint('═══════════════════════════════════════════════════════');
-      debugPrint('   ⏰ Timestamp: ${DateTime.now().toIso8601String()}');
-      
-      if (_auth == null) {
-        debugPrint('❌ [GOOGLE AUTH] Firebase not initialized');
-        debugPrint('   💡 Please ensure Firebase is properly configured');
-        state = state.copyWith(error: 'Firebase not initialized');
-        return;
-      }
-      
-      debugPrint('✅ [GOOGLE AUTH] Firebase Auth instance available');
-      debugPrint('✅ [GOOGLE AUTH] GoogleSignIn instance available');
-      state = state.copyWith(isLoading: true, error: null);
-      
-      // Check if user is already signed in to Google
-      debugPrint('🔄 [GOOGLE AUTH] Checking for existing Google sign in...');
-      final currentGoogleUser = await _googleSignIn.signInSilently();
-      if (currentGoogleUser != null) {
-        debugPrint('   ℹ️  Found existing Google sign in');
-        debugPrint('   📧 Email: ${currentGoogleUser.email}');
-      } else {
-        debugPrint('   ℹ️  No existing Google sign in found');
-      }
-      
-      // Trigger the Google Sign In flow
-      debugPrint('───────────────────────────────────────────────────────');
-      debugPrint('🔄 [GOOGLE AUTH] Requesting Google sign in...');
-      debugPrint('───────────────────────────────────────────────────────');
-      debugPrint('   📱 Opening Google sign-in dialog...');
-      final startTime = DateTime.now();
-      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-      final dialogDuration = DateTime.now().difference(startTime);
-      debugPrint('   ⏱️  Dialog duration: ${dialogDuration.inMilliseconds}ms');
-      
-      if (googleUser == null) {
-        // User canceled the sign-in
-        debugPrint('───────────────────────────────────────────────────────');
-        debugPrint('⚠️  [GOOGLE AUTH] User canceled Google sign in');
-        debugPrint('───────────────────────────────────────────────────────');
-        debugPrint('   💡 User closed the sign-in dialog');
-        debugPrint('   💡 No authentication performed');
-        state = state.copyWith(isLoading: false);
-        return;
-      }
-      
-      debugPrint('───────────────────────────────────────────────────────');
-      debugPrint('✅ [GOOGLE AUTH] Google sign in successful');
-      debugPrint('───────────────────────────────────────────────────────');
-      debugPrint('   📧 Email: ${googleUser.email}');
-      debugPrint('   👤 Display Name: ${googleUser.displayName ?? "N/A"}');
-      debugPrint('   🆔 Google ID: ${googleUser.id}');
-      debugPrint('   🖼️  Photo URL: ${googleUser.photoUrl ?? "N/A"}');
-      debugPrint('   🌐 Server Auth Code: ${googleUser.serverAuthCode != null ? "Present" : "Not provided"}');
-      
-      // Obtain the auth details from the request
-      debugPrint('───────────────────────────────────────────────────────');
-      debugPrint('🔄 [GOOGLE AUTH] Getting authentication tokens...');
-      debugPrint('───────────────────────────────────────────────────────');
-      final authStartTime = DateTime.now();
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
-      final authDuration = DateTime.now().difference(authStartTime);
-      debugPrint('   ⏱️  Token retrieval duration: ${authDuration.inMilliseconds}ms');
-      debugPrint('   🔑 Access Token: ${googleAuth.accessToken != null ? "Present (${googleAuth.accessToken!.length} chars)" : "Not provided"}');
-      debugPrint('   🆔 ID Token: ${googleAuth.idToken != null ? "Present (${googleAuth.idToken!.length} chars)" : "Not provided"}');
-      
-      // Create a new credential
-      debugPrint('───────────────────────────────────────────────────────');
-      debugPrint('🔑 [GOOGLE AUTH] Creating Firebase credential...');
-      debugPrint('───────────────────────────────────────────────────────');
-      final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
-      debugPrint('   ✅ Credential created successfully');
-      debugPrint('   🔐 Provider: ${credential.providerId}');
-      
-      // Sign in to Firebase with the Google credential
-      debugPrint('───────────────────────────────────────────────────────');
-      debugPrint('🔄 [GOOGLE AUTH] Signing in to Firebase...');
-      debugPrint('───────────────────────────────────────────────────────');
-      final firebaseStartTime = DateTime.now();
-      final userCredential = await _auth!.signInWithCredential(credential);
-      final firebaseDuration = DateTime.now().difference(firebaseStartTime);
-      
-      debugPrint('───────────────────────────────────────────────────────');
-      debugPrint('✅ [GOOGLE AUTH] Firebase sign in successful');
-      debugPrint('───────────────────────────────────────────────────────');
-      debugPrint('   ⏱️  Firebase sign in duration: ${firebaseDuration.inMilliseconds}ms');
-      debugPrint('   🆔 UID: ${userCredential.user?.uid}');
-      debugPrint('   📧 Email: ${userCredential.user?.email ?? "N/A"}');
-      debugPrint('   ✉️  Email verified: ${userCredential.user?.emailVerified ?? false}');
-      debugPrint('   👤 Display Name: ${userCredential.user?.displayName ?? "N/A"}');
-      debugPrint('   🖼️  Photo URL: ${userCredential.user?.photoURL ?? "N/A"}');
-      debugPrint('   📱 Phone: ${userCredential.user?.phoneNumber ?? "N/A"}');
-      debugPrint('   📅 Created: ${userCredential.user?.metadata.creationTime}');
-      debugPrint('   🔄 Last sign in: ${userCredential.user?.metadata.lastSignInTime}');
-      
-      // Safely access providerData to avoid type cast errors
-      try {
-        final providers = userCredential.user?.providerData
-            .map((p) => p.providerId)
-            .join(", ") ?? "N/A";
-        debugPrint('   🔗 Providers: $providers');
-      } catch (e) {
-        debugPrint('   🔗 Providers: Error accessing provider data (non-critical): $e');
-      }
-      
-      if (userCredential.user != null) {
-        debugPrint('───────────────────────────────────────────────────────');
-        debugPrint('✅ [GOOGLE AUTH] Firebase authentication complete');
-        debugPrint('───────────────────────────────────────────────────────');
-        debugPrint('   📧 User Email: ${userCredential.user?.email}');
-        debugPrint('   🆔 Firebase UID: ${userCredential.user?.uid}');
-        debugPrint('   ✅ Authentication: Complete');
-        debugPrint('   🔄 Backend sync will be handled by auth state listener');
-        debugPrint('   💡 Auth state listener will automatically sync user to backend');
-        
-        // Don't manually call _syncUserToBackend here - the auth state listener
-        // will handle it automatically when it detects the user is signed in.
-        // This prevents duplicate sync calls and race conditions.
-        
-        // Clear loading state - backend sync will happen via auth state listener
-        state = state.copyWith(
-          isLoading: false,
-          error: null, // Clear any previous errors
-        );
-        
-        debugPrint('═══════════════════════════════════════════════════════');
-        debugPrint('✅ [GOOGLE AUTH] Sign-in flow complete');
-        debugPrint('═══════════════════════════════════════════════════════');
-        debugPrint('   🎉 User signed in successfully');
-        debugPrint('   🔄 Backend sync in progress via auth state listener');
-      } else {
-        debugPrint('⚠️  [GOOGLE AUTH] User credential is null');
-        debugPrint('   ❌ Cannot proceed');
-        state = state.copyWith(
-          isLoading: false,
-          error: 'User credential is null',
-        );
-      }
-    } catch (e) {
-      debugPrint('───────────────────────────────────────────────────────');
-      debugPrint('❌ [GOOGLE AUTH] Sign in error');
-      debugPrint('───────────────────────────────────────────────────────');
-      debugPrint('   Error: $e');
-      debugPrint('   Type: ${e.runtimeType}');
-      debugPrint('   Full error string: ${e.toString()}');
-      
-      // Check if user is actually authenticated despite the error
-      // This handles cases where Firebase has internal errors but authentication succeeds
-      final currentUser = _auth?.currentUser;
-      if (currentUser != null) {
-        debugPrint('───────────────────────────────────────────────────────');
-        debugPrint('⚠️  [GOOGLE AUTH] Error occurred but user is authenticated');
-        debugPrint('───────────────────────────────────────────────────────');
-        debugPrint('   🆔 Firebase UID: ${currentUser.uid}');
-        debugPrint('   📧 Email: ${currentUser.email ?? "N/A"}');
-        debugPrint('   💡 This is likely a non-critical Firebase internal error');
-        debugPrint('   💡 User authentication succeeded, backend sync will continue');
-        debugPrint('   💡 Clearing error state to allow normal flow');
-        
-        // User is authenticated, so clear the error and let auth state listener handle sync
-        state = state.copyWith(
-          isLoading: false,
-          error: null, // Clear error since user is actually authenticated
-        );
-        return;
-      }
-      
-      String errorMessage = e.toString();
-      
-      if (e is FirebaseAuthException) {
-        debugPrint('   Firebase Error Code: ${e.code}');
-        debugPrint('   Firebase Error Message: ${e.message}');
-        debugPrint('   Firebase Error Details: ${e.toString()}');
-        errorMessage = '${e.code}: ${e.message ?? e.toString()}';
-        
-        // Common error codes with helpful messages
-        switch (e.code) {
-          case 'account-exists-with-different-credential':
-            debugPrint('   💡 An account already exists with a different credential');
-            debugPrint('   💡 User may need to sign in with the original method');
-            break;
-          case 'invalid-credential':
-            debugPrint('   💡 The credential is invalid or expired');
-            break;
-          case 'operation-not-allowed':
-            debugPrint('   💡 Google sign-in is not enabled in Firebase Console');
-            debugPrint('   💡 Enable it in Authentication > Sign-in method');
-            break;
-          case 'user-disabled':
-            debugPrint('   💡 This user account has been disabled');
-            break;
-          case 'user-not-found':
-            debugPrint('   💡 No user record found');
-            break;
-          default:
-            debugPrint('   💡 Check Firebase Console for more details');
-        }
-      } else if (e is DioException) {
-        debugPrint('   DioException Type: ${e.type}');
-        debugPrint('   DioException Message: ${e.message}');
-        if (e.response != null) {
-          debugPrint('   Response Status: ${e.response?.statusCode}');
-          debugPrint('   Response Data: ${e.response?.data}');
-        }
-        errorMessage = e.message ?? e.toString();
-      } else if (e.toString().contains('sign_in_canceled') || 
-                 e.toString().contains('SignInCanceledException')) {
-        debugPrint('   💡 User canceled the Google sign-in process');
-        // Don't set error for user cancellation
-        state = state.copyWith(isLoading: false);
-        return;
-      } else if (e.toString().contains('PigeonUserDetails') || 
-                 e.toString().contains('type \'List<Object?>\' is not a subtype')) {
-        // This is a known Firebase internal type cast error that sometimes occurs
-        // even when authentication succeeds. Check if user is actually authenticated.
-        debugPrint('   💡 Firebase internal type cast error detected');
-        debugPrint('   💡 This is a known issue with Firebase SDK');
-        debugPrint('   💡 Checking if user is actually authenticated...');
-        
-        if (currentUser != null) {
-          debugPrint('   ✅ User is authenticated despite the error');
-          debugPrint('   💡 Ignoring this non-critical error');
-          state = state.copyWith(
-            isLoading: false,
-            error: null,
-          );
-          return;
-        }
-      } else {
-        debugPrint('   Stack trace:');
-        debugPrint('   ${StackTrace.current}');
-      }
-      
-      state = state.copyWith(
-        isLoading: false,
-        error: errorMessage,
-      );
-      debugPrint('   💾 Error state updated');
-      debugPrint('   📤 Error will be displayed to user');
-    }
-  }
+  */
 
   Future<void> signOut() async {
     try {
@@ -879,15 +753,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
         debugPrint('✅ [AUTH] Firebase sign out successful');
       }
       
-      // Sign out from Google as well
-      try {
-        await _googleSignIn.signOut();
-        debugPrint('✅ [AUTH] Google sign out successful');
-      } catch (e) {
-        debugPrint('⚠️  [AUTH] Google sign out error (non-critical): $e');
-      }
-      
-      
       debugPrint('🗑️  [AUTH] Clearing local storage...');
       final prefs = await SharedPreferences.getInstance();
       await prefs.clear();
@@ -905,6 +770,24 @@ class AuthNotifier extends StateNotifier<AuthState> {
       debugPrint('❌ [AUTH] Sign out error: $e');
       state = state.copyWith(error: e.toString());
     }
+  }
+
+  /// Update coins optimistically from socket events (instant update without API call)
+  /// This is called when coins_updated socket event arrives
+  void updateCoinsOptimistically(int newCoins) {
+    final currentUser = state.user;
+    if (currentUser == null) {
+      debugPrint('⚠️  [AUTH] Cannot update coins - no current user');
+      return;
+    }
+    
+    debugPrint('💰 [AUTH] Optimistically updating coins: ${currentUser.coins} → $newCoins');
+    
+    // Update coins in user model without full refresh
+    final updatedUser = currentUser.copyWith(coins: newCoins);
+    state = state.copyWith(user: updatedUser);
+    
+    debugPrint('✅ [AUTH] Coins updated optimistically');
   }
 
   /// Refresh user data from backend (gets latest coins balance, etc.)
@@ -946,8 +829,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
             email: responseData['email'] as String?,
             phone: responseData['phone'] as String?,
             gender: responseData['gender'] as String?,
-            username: responseData['name'] as String?,
-            avatar: responseData['photo'] as String?,
+            username: responseData['username'] as String?,
+            avatar: responseData['photo'] as String?, // Use creator photo as avatar
             categories: responseData['categories'] != null
                 ? List<String>.from(responseData['categories'] as List)
                 : null,
@@ -955,6 +838,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
             coins: responseData['coins'] as int? ?? 0,
             welcomeBonusClaimed: responseData['welcomeBonusClaimed'] as bool? ?? false,
             role: responseData['role'] as String? ?? 'creator',
+            name: responseData['name'] as String?, // Creator name
+            about: responseData['about'] as String?, // Creator about
+            age: responseData['age'] != null ? responseData['age'] as int? : null, // Creator age
             createdAt: responseData['createdAt'] != null
                 ? DateTime.parse(responseData['createdAt'] as String)
                 : null,
@@ -980,6 +866,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
 
+  // OTP verification - commented out (phone login disabled)
+  /*
   Future<void> verifyOtp(String verificationId, String otp) async {
     try {
       debugPrint('🔐 [OTP] Starting OTP verification...');
@@ -1134,6 +1022,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       }
     }
   }
+  */
 
   void clearVerificationState() {
     debugPrint('🗑️  [AUTH] Clearing verification state');

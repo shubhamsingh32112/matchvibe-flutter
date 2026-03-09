@@ -1,11 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../services/transaction_service.dart';
 import '../models/transaction_model.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/widgets/ui_primitives.dart';
+import '../../../shared/widgets/gem_icon.dart';
+import '../../../shared/styles/app_brand_styles.dart';
+import '../../support/screens/payment_complaint_screen.dart';
+
+/// Bottom sheet wrapper for transactions screen
+class TransactionsBottomSheet extends StatelessWidget {
+  const TransactionsBottomSheet({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      builder: (context, scrollController) => const TransactionsScreen(),
+    );
+  }
+}
 
 class TransactionsScreen extends ConsumerStatefulWidget {
   const TransactionsScreen({super.key});
@@ -79,78 +96,88 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
     final coins = user?.coins ?? 0;
     final scheme = Theme.of(context).colorScheme;
 
-    return AppScaffold(
-      padded: false,
-      child: Column(
-        children: [
-              // Header
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                child: Row(
-                  children: [
-                    IconButton(
-                      onPressed: () => Navigator.of(context).maybePop(),
-                      icon: Icon(Icons.arrow_back_ios_new, color: scheme.onSurface),
-                    ),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        'Transactions',
-                        style: TextStyle(
-                          color: scheme.onSurface,
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                        ),
+    return Container(
+      decoration: BoxDecoration(
+        gradient: AppBrandGradients.appBackground,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            // Drag handle
+            Container(
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: scheme.onSurfaceVariant.withOpacity(0.4),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            // Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Transactions',
+                      style: TextStyle(
+                        color: scheme.onSurface,
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
-                    if (!isCreator)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: scheme.primaryContainer.withOpacity(0.35),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: scheme.outlineVariant),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.monetization_on, color: scheme.primary, size: 18),
-                            const SizedBox(width: 6),
-                            Text(
-                              '$coins',
-                              style: TextStyle(
-                                color: scheme.primary,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
+                  ),
+                  if (!isCreator)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: scheme.primaryContainer.withOpacity(0.35),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: scheme.outlineVariant),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          GemIcon(color: scheme.primary, size: 18),
+                          const SizedBox(width: 6),
+                          Text(
+                            '$coins',
+                            style: TextStyle(
+                              color: scheme.primary,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                  ],
-                ),
+                    ),
+                ],
               ),
+            ),
 
-              // Summary Card (for users)
-              if (!isCreator && _transactionData?.summary != null)
-                _buildSummaryCard(_transactionData!.summary!),
-
-              // Transactions List
-              Expanded(
-                child: _isLoading && _transactionData == null
-                    ? const Center(child: LoadingIndicator())
-                    : _error != null
-                        ? ErrorState(
-                            title: 'Failed to load transactions',
-                            message: _error ?? 'Unknown error',
-                            actionLabel: 'Retry',
-                            onAction: () => _loadTransactions(refresh: true),
-                          )
-                        : _transactionData == null || _transactionData!.transactions.isEmpty
-                            ? _buildEmptyView(isCreator)
-                            : _buildTransactionsList(isCreator),
-              ),
-        ],
+            // Summary Card (for users)
+            if (!isCreator && _transactionData?.summary != null)
+              _buildSummaryCard(_transactionData!.summary!),
+            // Transactions List
+            Expanded(
+              child: _isLoading && _transactionData == null
+                  ? const Center(child: LoadingIndicator())
+                  : _error != null
+                      ? ErrorState(
+                          title: 'Failed to load transactions',
+                          message: _error ?? 'Unknown error',
+                          actionLabel: 'Retry',
+                          onAction: () => _loadTransactions(refresh: true),
+                        )
+                      : _transactionData == null || _transactionData!.transactions.isEmpty
+                          ? _buildEmptyView(isCreator)
+                          : _buildTransactionsList(isCreator),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -234,18 +261,14 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
     final icon = isCredit ? Icons.add_circle : Icons.remove_circle;
     final prefix = isCredit ? '+' : '-';
 
-    final isPaymentTransaction = !isCreator &&
-        (transaction.source == 'payment_gateway' ||
-            (transaction.description ?? '').toLowerCase().contains('purchase'));
+    // Allow complaints for all transactions (not just payment transactions)
+    final canComplain = !isCreator;
 
     return AppCard(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
-      onTap: isPaymentTransaction
-          ? () => context.push(
-                '/support/payment-complaint',
-                extra: transaction,
-              )
+      onTap: canComplain
+          ? () => _showPaymentComplaintBottomSheet(transaction)
           : null,
       child: Row(
         children: [
@@ -294,7 +317,7 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                       _formatDate(transaction.createdAt),
                       style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
                     ),
-                    if (isPaymentTransaction) ...[
+                    if (canComplain) ...[
                       const SizedBox(width: 8),
                       Text(
                         '• Tap to complain',
@@ -356,5 +379,14 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
     } else {
       return '${date.day}/${date.month}/${date.year}';
     }
+  }
+
+  void _showPaymentComplaintBottomSheet(TransactionModel transaction) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => PaymentComplaintBottomSheet(transaction: transaction),
+    );
   }
 }

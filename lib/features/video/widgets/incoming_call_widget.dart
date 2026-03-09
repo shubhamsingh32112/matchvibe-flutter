@@ -5,6 +5,7 @@ import 'package:stream_video_flutter/stream_video_flutter.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../controllers/call_connection_controller.dart';
 import '../utils/call_remote_image_resolver.dart';
+import '../../../shared/widgets/coin_purchase_popup.dart';
 
 /// Widget to display incoming call notification.
 ///
@@ -35,26 +36,61 @@ class IncomingCallWidget extends ConsumerWidget {
     final currentUserId = ref.watch(authProvider).firebaseUser?.uid;
     final isProcessing = callPhase == CallConnectionPhase.preparing ||
         callPhase == CallConnectionPhase.joining;
-    final remoteImageUrl = resolveRemoteImageUrl(
-      call: incomingCall,
-      currentUserId: currentUserId,
-      fallbackImageUrl: fallbackImageUrl,
-      enableDebugLogs: true,
-      debugSourceTag: 'incoming',
-    );
+    
+    // Prioritize fallbackImageUrl (from async API lookup) over resolver
+    // The fallback is more reliable for creator-initiated calls
+    String? remoteImageUrl = (fallbackImageUrl != null && fallbackImageUrl!.isNotEmpty)
+        ? fallbackImageUrl
+        : resolveRemoteImageUrl(
+            call: incomingCall,
+            currentUserId: currentUserId,
+            fallbackImageUrl: fallbackImageUrl,
+            enableDebugLogs: true,
+            debugSourceTag: 'incoming',
+          );
+    
+    debugPrint('🖼️ [INCOMING CALL WIDGET] Image URL: ${remoteImageUrl ?? "null"} (fallback: ${fallbackImageUrl ?? "null"})');
 
     return Stack(
       fit: StackFit.expand,
       children: [
-        if (remoteImageUrl != null)
+        // Background image - show creator's profile picture as full background
+        if (remoteImageUrl != null && remoteImageUrl.isNotEmpty)
           Image.network(
             remoteImageUrl,
             fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) =>
-                Container(color: scheme.surface),
+            width: double.infinity,
+            height: double.infinity,
+            errorBuilder: (context, error, stackTrace) {
+              debugPrint('❌ [INCOMING CALL WIDGET] Image load error: $error');
+              return Container(color: scheme.surface);
+            },
+            loadingBuilder: (context, child, loadingProgress) {
+              if (loadingProgress == null) return child;
+              return Container(
+                color: scheme.surface,
+                child: Center(
+                  child: CircularProgressIndicator(
+                    value: loadingProgress.expectedTotalBytes != null
+                        ? loadingProgress.cumulativeBytesLoaded /
+                            loadingProgress.expectedTotalBytes!
+                        : null,
+                  ),
+                ),
+              );
+            },
           )
         else
-          Container(color: scheme.surface),
+          Container(
+            color: scheme.surface,
+            child: Center(
+              child: Icon(
+                Icons.person,
+                size: 120,
+                color: Colors.white.withValues(alpha: 0.3),
+              ),
+            ),
+          ),
         Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -143,6 +179,20 @@ class IncomingCallWidget extends ConsumerWidget {
                         label: 'Accept',
                         color: Colors.green,
                         onPressed: () {
+                          // Check if user has enough coins before accepting
+                          final authState = ref.read(authProvider);
+                          final user = authState.user;
+                          // Only check for regular users (not creators)
+                          if (user != null && user.role == 'user' && user.coins < 10) {
+                            // Show coin purchase pop-up
+                            showModalBottomSheet(
+                              context: context,
+                              isScrollControlled: true,
+                              backgroundColor: Colors.transparent,
+                              builder: (context) => const CoinPurchaseBottomSheet(),
+                            );
+                            return;
+                          }
                           ref
                               .read(callConnectionControllerProvider.notifier)
                               .acceptIncomingCall(incomingCall);

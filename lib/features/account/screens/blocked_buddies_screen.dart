@@ -2,6 +2,22 @@ import 'package:flutter/material.dart';
 import '../../../core/api/api_client.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/widgets/ui_primitives.dart';
+import '../../../shared/styles/app_brand_styles.dart';
+
+/// Bottom sheet wrapper for blocked buddies screen
+class BlockedBuddiesBottomSheet extends StatelessWidget {
+  const BlockedBuddiesBottomSheet({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      builder: (context, scrollController) => const BlockedBuddiesScreen(),
+    );
+  }
+}
 
 class BlockedBuddiesScreen extends StatefulWidget {
   const BlockedBuddiesScreen({super.key});
@@ -48,51 +64,94 @@ class _BlockedBuddiesScreenState extends State<BlockedBuddiesScreen> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
-    return AppScaffold(
-      appBar: AppBar(title: const Text('Blocked Buddies')),
-      child: _isLoading
-          ? const Center(child: LoadingIndicator())
-          : _error != null
-              ? ErrorState(
-                  message: _error!,
-                  actionLabel: 'Retry',
-                  onAction: _loadBlockedCount,
-                )
-              : AppCard(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Blocked creators',
-                        style: TextStyle(
-                          color: scheme.onSurfaceVariant,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _blockedCreatorCount.toString(),
-                        style: TextStyle(
-                          color: scheme.onSurface,
-                          fontSize: 38,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        _blockedCreatorCount == 1
-                            ? 'You have blocked 1 creator.'
-                            : 'You have blocked $_blockedCreatorCount creators.',
-                        style: TextStyle(
-                          color: scheme.onSurfaceVariant,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: AppBrandGradients.appBackground,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            // Drag handle
+            Container(
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: scheme.onSurfaceVariant.withOpacity(0.4),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            // Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Blocked Buddies',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: scheme.onSurface,
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
                   ),
-                ),
+                ],
+              ),
+            ),
+            // Content
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: _isLoading
+                    ? const Center(child: LoadingIndicator())
+                    : _error != null
+                        ? ErrorState(
+                            message: _error!,
+                            actionLabel: 'Retry',
+                            onAction: _loadBlockedCount,
+                          )
+                        : AppCard(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Blocked creators',
+                                  style: TextStyle(
+                                    color: scheme.onSurfaceVariant,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  _blockedCreatorCount.toString(),
+                                  style: TextStyle(
+                                    color: scheme.onSurface,
+                                    fontSize: 38,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  _blockedCreatorCount == 1
+                                      ? 'You have blocked 1 creator.'
+                                      : 'You have blocked $_blockedCreatorCount creators.',
+                                  style: TextStyle(
+                                    color: scheme.onSurfaceVariant,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

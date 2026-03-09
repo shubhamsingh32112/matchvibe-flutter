@@ -7,6 +7,7 @@ import '../providers/creator_dashboard_provider.dart';
 import '../providers/creator_task_provider.dart';
 import '../models/creator_task_model.dart';
 import '../../../shared/widgets/ui_primitives.dart';
+import '../../../shared/widgets/gem_icon.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 
@@ -830,8 +831,7 @@ class _CoinsPill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(
-            Icons.monetization_on,
+          const GemIcon(
             size: 16,
             color: AppBrandGradients.walletOnGold,
           ),

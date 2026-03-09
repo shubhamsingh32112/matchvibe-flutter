@@ -8,6 +8,11 @@ class WithdrawalRequest {
   final DateTime? processedAt;
   final String? adminUserId;
   final String? notes;
+  final String? name;
+  final String? number;
+  final String? upi;
+  final String? accountNumber;
+  final String? ifsc;
 
   WithdrawalRequest({
     required this.id,
@@ -18,6 +23,11 @@ class WithdrawalRequest {
     this.processedAt,
     this.adminUserId,
     this.notes,
+    this.name,
+    this.number,
+    this.upi,
+    this.accountNumber,
+    this.ifsc,
   });
 
   factory WithdrawalRequest.fromJson(Map<String, dynamic> json) {
@@ -34,6 +44,11 @@ class WithdrawalRequest {
           : null,
       adminUserId: json['adminUserId'] as String?,
       notes: json['notes'] as String?,
+      name: json['name'] as String?,
+      number: json['number'] as String?,
+      upi: json['upi'] as String?,
+      accountNumber: json['accountNumber'] as String?,
+      ifsc: json['ifsc'] as String?,
     );
   }
 

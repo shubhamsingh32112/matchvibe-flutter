@@ -51,12 +51,14 @@ class StreamChatNotifier extends StateNotifier<StreamChatClient?> {
       // Connect user (client already exists)
       // Note: Presence (online/offline) is automatic via WebSocket connection
       // We set 'available' in extraData for creators (business intent)
+      // IMPORTANT: Store username in extraData as single source of truth for display names
       await state!.connectUser(
         User(
           id: firebaseUid,
-          name: username,
+          name: username, // Fallback display name (may be phone/email)
           image: avatarUrl,
           extraData: {
+            'username': username, // Store username explicitly for reliable display name extraction
             if (mongoId != null) 'mongoId': mongoId,
             if (appRole != null) 'appRole': appRole,
             if (available != null) 'available': available,

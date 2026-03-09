@@ -9,6 +9,7 @@ class CreatorModel extends Equatable {
   final String photo;
   final List<String>? categories;
   final double price;
+  final int? age;
   final bool isOnline;
   final bool isFavorite; // User-only: whether current user favorited this creator
   /// Real-time availability from Redis (authoritative).
@@ -27,6 +28,7 @@ class CreatorModel extends Equatable {
     required this.photo,
     this.categories,
     required this.price,
+    this.age,
     this.isOnline = false,
     this.isFavorite = false,
     this.availability = 'busy',
@@ -46,6 +48,7 @@ class CreatorModel extends Equatable {
           ? List<String>.from(json['categories'] as List)
           : null,
       price: (json['price'] as num).toDouble(),
+      age: json['age'] != null ? json['age'] as int? : null,
       isOnline: json['isOnline'] as bool? ?? false,
       isFavorite: json['isFavorite'] as bool? ?? false,
       availability: json['availability'] as String? ?? 'busy',
@@ -68,6 +71,7 @@ class CreatorModel extends Equatable {
       'photo': photo,
       'categories': categories,
       'price': price,
+      'age': age,
       'isOnline': isOnline,
       'isFavorite': isFavorite,
       'availability': availability,
@@ -86,6 +90,7 @@ class CreatorModel extends Equatable {
         photo,
         categories,
         price,
+        age,
         isOnline,
         isFavorite,
         availability,

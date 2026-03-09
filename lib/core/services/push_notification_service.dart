@@ -291,23 +291,135 @@ class PushNotificationService {
     // In-app sound only (no system notification tray entry).
     SystemSound.play(SystemSoundType.alert);
 
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    if (messenger == null) return;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final overlay = navigator.overlay;
+    if (overlay == null) return;
+    
+    final mediaQuery = MediaQuery.of(context);
+    final topPadding = mediaQuery.padding.top;
 
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 4),
-        content: Text('$title: $body'),
-        action: channelId == null
-            ? null
-            : SnackBarAction(
-                label: 'Open',
-                onPressed: () => appRouter.push('/chat/$channelId'),
+    // Create overlay entry for top-positioned notification
+    OverlayEntry? overlayEntry;
+    
+    overlayEntry = OverlayEntry(
+      builder: (context) => Positioned(
+        top: topPadding + 8,
+        left: 16,
+        right: 16,
+        child: Material(
+          color: Colors.transparent,
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0.0, end: 1.0),
+            duration: const Duration(milliseconds: 300),
+            builder: (context, value, child) {
+              return Transform.translate(
+                offset: Offset(0, -50 * (1 - value)),
+                child: Opacity(
+                  opacity: value,
+                  child: child,
+                ),
+              );
+            },
+            child: Container(
+              decoration: BoxDecoration(
+                color: colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: colorScheme.outline.withValues(alpha: 0.2),
+                  width: 1,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.2),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: channelId != null
+                      ? () {
+                          overlayEntry?.remove();
+                          appRouter.push('/chat/$channelId');
+                        }
+                      : null,
+                  borderRadius: BorderRadius.circular(16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.chat_bubble_outline,
+                            color: colorScheme.onPrimaryContainer,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                title,
+                                style: TextStyle(
+                                  color: colorScheme.onSurface,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                body,
+                                style: TextStyle(
+                                  color: colorScheme.onSurface.withValues(alpha: 0.8),
+                                  fontSize: 13,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (channelId != null)
+                          TextButton(
+                            onPressed: () {
+                              overlayEntry?.remove();
+                              appRouter.push('/chat/$channelId');
+                            },
+                            child: Text(
+                              'Open',
+                              style: TextStyle(color: colorScheme.primary),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
+
+    overlay.insert(overlayEntry);
+
+    // Auto-dismiss after 2 seconds
+    Future.delayed(const Duration(seconds: 2), () {
+      overlayEntry?.remove();
+    });
+
     debugPrint('🔔 [PUSH] In-app preview shown: "$title" — "$body"');
   }
 

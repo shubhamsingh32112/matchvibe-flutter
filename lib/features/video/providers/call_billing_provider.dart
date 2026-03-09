@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../home/providers/availability_provider.dart';
@@ -27,6 +28,10 @@ class CallBillingState {
   final int? totalDeducted;
   final int? totalEarned;
   final int? durationSeconds;
+  
+  // 🔥 FIX: Server time sync for accurate timer
+  final int? callStartTime; // Server timestamp when call started
+  final int? lastServerTimestamp; // Last server timestamp received
 
   const CallBillingState({
     this.isActive = false,
@@ -43,6 +48,8 @@ class CallBillingState {
     this.totalDeducted,
     this.totalEarned,
     this.durationSeconds,
+    this.callStartTime,
+    this.lastServerTimestamp,
   });
 
   CallBillingState copyWith({
@@ -60,6 +67,8 @@ class CallBillingState {
     int? totalDeducted,
     int? totalEarned,
     int? durationSeconds,
+    int? callStartTime,
+    int? lastServerTimestamp,
   }) {
     return CallBillingState(
       isActive: isActive ?? this.isActive,
@@ -76,7 +85,33 @@ class CallBillingState {
       totalDeducted: totalDeducted ?? this.totalDeducted,
       totalEarned: totalEarned ?? this.totalEarned,
       durationSeconds: durationSeconds ?? this.durationSeconds,
+      callStartTime: callStartTime ?? this.callStartTime,
+      lastServerTimestamp: lastServerTimestamp ?? this.lastServerTimestamp,
     );
+  }
+  
+  // 🔥 FIX: Calculate accurate elapsed seconds based on server time
+  int get accurateElapsedSeconds {
+    if (callStartTime == null || !isActive) {
+      return elapsedSeconds; // Fallback to server-provided value
+    }
+    
+    // Calculate elapsed time based on server start time
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final elapsed = ((now - callStartTime!) / 1000).floor();
+    
+    // Use server-provided elapsedSeconds as authoritative, but interpolate between updates
+    // This ensures accuracy even if socket events are delayed
+    if (lastServerTimestamp != null) {
+      final timeSinceLastUpdate = ((now - lastServerTimestamp!) / 1000).floor();
+      // If last update was recent (< 2 seconds), trust server value + interpolation
+      if (timeSinceLastUpdate < 2) {
+        return elapsedSeconds + timeSinceLastUpdate;
+      }
+    }
+    
+    // If no recent update, use calculated elapsed time
+    return elapsed;
   }
 }
 
@@ -84,6 +119,7 @@ class CallBillingState {
 
 class CallBillingNotifier extends StateNotifier<CallBillingState> {
   final Ref _ref;
+  Timer? _clientTimer; // 🔥 FIX: Client-side timer for accurate updates
 
   CallBillingNotifier(this._ref) : super(const CallBillingState()) {
     _wireSocketCallbacks();
@@ -94,6 +130,13 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
 
     socketService.onBillingStarted = (data) {
       debugPrint('💰 [BILLING] Started: $data');
+      
+      // 🔥 FIX: Start client-side timer for accurate updates
+      _startClientTimer();
+      
+      final serverTimestamp = (data['serverTimestamp'] as num?)?.toInt();
+      final callStartTime = (data['callStartTime'] as num?)?.toInt();
+      
       state = CallBillingState(
         isActive: true,
         callId: data['callId'] as String?,
@@ -101,11 +144,18 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
         pricePerSecond: (data['pricePerSecond'] as num?)?.toDouble() ?? 0,
         remainingSeconds: (data['maxSeconds'] as num?)?.toInt() ?? 0,
         creatorEarnings: (data['earnings'] as num?)?.toDouble() ?? 0,
+        callStartTime: callStartTime ?? serverTimestamp,
+        lastServerTimestamp: serverTimestamp,
       );
     };
 
     socketService.onBillingUpdate = (data) {
       if (!state.isActive) return;
+      
+      // 🔥 FIX: Sync with server timestamps for accurate timer
+      final serverTimestamp = (data['serverTimestamp'] as num?)?.toInt();
+      final callStartTime = (data['callStartTime'] as num?)?.toInt();
+      
       state = state.copyWith(
         userCoins: (data['coins'] as num?)?.toInt() ?? state.userCoins,
         elapsedSeconds:
@@ -114,6 +164,8 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
             (data['remainingSeconds'] as num?)?.toInt() ?? state.remainingSeconds,
         creatorEarnings:
             (data['earnings'] as num?)?.toDouble() ?? state.creatorEarnings,
+        callStartTime: callStartTime ?? state.callStartTime,
+        lastServerTimestamp: serverTimestamp,
       );
     };
 
@@ -138,13 +190,31 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
     };
   }
 
+  /// 🔥 FIX: Start client-side timer for accurate updates between server events
+  void _startClientTimer() {
+    _clientTimer?.cancel();
+    _clientTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+      if (!state.isActive) {
+        timer.cancel();
+        return;
+      }
+      
+      // Update state to trigger UI refresh with accurate elapsed time
+      // The accurateElapsedSeconds getter will calculate the correct time
+      state = state.copyWith();
+    });
+  }
+
   /// Reset billing state (call ended, user dismissed dialogs).
   void reset() {
+    _clientTimer?.cancel();
+    _clientTimer = null;
     state = const CallBillingState();
   }
 
   @override
   void dispose() {
+    _clientTimer?.cancel();
     // Clear callbacks to avoid memory leaks
     try {
       final socketService = _ref.read(socketServiceProvider);

@@ -7,12 +7,26 @@ class WithdrawalService {
 
   /// Request a withdrawal (creator only).
   /// Returns the created WithdrawalRequest on success.
-  Future<WithdrawalRequest> requestWithdrawal(int amount) async {
+  Future<WithdrawalRequest> requestWithdrawal({
+    required int amount,
+    required String name,
+    required String number,
+    String? upi,
+    String? accountNumber,
+    String? ifsc,
+  }) async {
     try {
       debugPrint('💸 [WITHDRAWAL] Requesting withdrawal of $amount coins...');
       final response = await _apiClient.post(
         '/creator/withdraw',
-        data: {'amount': amount},
+        data: {
+          'amount': amount,
+          'name': name,
+          'number': number,
+          if (upi != null && upi.isNotEmpty) 'upi': upi,
+          if (accountNumber != null && accountNumber.isNotEmpty) 'accountNumber': accountNumber,
+          if (ifsc != null && ifsc.isNotEmpty) 'ifsc': ifsc,
+        },
       );
 
       if (response.statusCode == 201 && response.data['success'] == true) {

@@ -8,8 +8,10 @@ import '../../features/creator/providers/creator_dashboard_provider.dart';
 import '../../features/creator/providers/creator_status_provider.dart';
 import '../../features/recent/providers/recent_provider.dart';
 import '../../features/video/providers/call_billing_provider.dart';
+import '../../features/wallet/screens/wallet_screen.dart';
 import '../../shared/styles/app_brand_styles.dart';
 import '../../shared/widgets/loading_indicator.dart';
+import '../../shared/widgets/gem_icon.dart';
 
 class MainLayout extends ConsumerStatefulWidget {
   final Widget child;
@@ -43,6 +45,15 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
     }
   }
 
+  void _showWalletBottomSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const WalletBottomSheet(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
@@ -59,11 +70,17 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
         : (authState.user?.coins ?? 0);
 
     // Refresh user data + call history when billing settles
+    // 🔥 OPTIMIZED: Socket events (coins_updated, creator:data_updated) handle most updates instantly
+    // This listener is a fallback safety net for edge cases
     ref.listen<CallBillingState>(callBillingProvider, (prev, next) {
       if (prev?.settled != true && next.settled) {
+        // 🔥 FIX: Only refresh if socket events haven't already updated (fallback)
+        // Socket events fire immediately after settlement, so this is rarely needed
+        // But keep it as a safety net for edge cases (socket disconnected, etc.)
         ref.read(authProvider.notifier).refreshUser();
         ref.invalidate(recentCallsProvider); // Refresh recent calls list
-        // Also refresh creator dashboard if user is a creator
+        // Also refresh creator dashboard if user is a creator (for earnings/stats)
+        // Note: Coins are updated instantly via socket events, so this mainly updates earnings/stats
         if (isCreator) {
           ref.invalidate(creatorDashboardProvider);
         }
@@ -91,13 +108,12 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                 builder: (context, ref, child) {
                   final status = ref.watch(creatorStatusProvider);
                   final isOnline = status == CreatorStatus.online;
-                  final notifier = ref.read(creatorStatusProvider.notifier);
                   
                   return Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: Row(
                       children: [
-                        // Status indicator
+                        // Status indicator (read-only, no toggle)
                         Container(
                           width: 10,
                           height: 10,
@@ -111,28 +127,13 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                           ),
                         ),
                         const SizedBox(width: 6),
-                        // Toggle button
-                        TextButton.icon(
-                          onPressed: () {
-                            notifier.toggleStatus();
-                          },
-                          icon: Icon(
-                            isOnline ? Icons.toggle_on : Icons.toggle_off,
+                        // Status text (read-only)
+                        Text(
+                          isOnline ? 'Online' : 'Offline',
+                          style: TextStyle(
                             color: isOnline ? Colors.green : Colors.grey,
-                            size: 24,
-                          ),
-                          label: Text(
-                            isOnline ? 'Online' : 'Offline',
-                            style: TextStyle(
-                              color: isOnline ? Colors.green : Colors.grey,
-                              fontWeight: FontWeight.w500,
-                              fontSize: 14,
-                            ),
-                          ),
-                          style: TextButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            minimumSize: Size.zero,
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            fontWeight: FontWeight.w500,
+                            fontSize: 14,
                           ),
                         ),
                       ],
@@ -148,28 +149,32 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                 icon: const Icon(Icons.favorite_border),
                 onPressed: () => context.push('/home/favorites'),
               ),
-            // Coins display
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  const Icon(Icons.monetization_on, size: 20),
-                  const SizedBox(width: 4),
-                  if (authState.isLoading)
-                    const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: LoadingIndicator(size: 16),
-                    )
-                  else
-                    Text(
-                      coins.toString(),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
+            // Coins display - Clickable to open wallet bottom sheet
+            InkWell(
+              onTap: () => _showWalletBottomSheet(context),
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  children: [
+                    const GemIcon(size: 20),
+                    const SizedBox(width: 4),
+                    if (authState.isLoading)
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: LoadingIndicator(size: 16),
+                      )
+                    else
+                      Text(
+                        coins.toString(),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
           ],

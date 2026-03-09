@@ -6,9 +6,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../router/app_router.dart';
 import '../../features/auth/providers/auth_provider.dart';
 import '../../features/creator/providers/creator_dashboard_provider.dart';
-import '../../features/creator/providers/creator_status_provider.dart';
 import '../../features/video/controllers/call_connection_controller.dart';
 import '../../features/home/providers/home_provider.dart';
+import '../../shared/widgets/coin_purchase_popup.dart';
 
 /// Widget that wraps the app and handles lifecycle events.
 ///
@@ -35,6 +35,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
   static const String _lastHandledPaymentDeepLinkKey = 'last_handled_payment_deep_link';
   AppLinks? _appLinks;
   StreamSubscription<Uri>? _deepLinkSub;
+  bool _coinPopupShownThisSession = false;
 
   @override
   void initState() {
@@ -178,28 +179,29 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       // Only handle lifecycle for creators
       if (user != null &&
           (user.role == 'creator' || user.role == 'admin')) {
-        // Creators should always be online while the app is running.
-        _ensureCreatorOnline();
+        // 🔥 AUTOMATIC: Socket connection automatically sets creator online
+        // No manual status setting needed - socket handles it
         // Refresh creator dashboard so earnings/tasks are up-to-date
         debugPrint(
-            '📱 [APP LIFECYCLE] App resumed — refreshing creator dashboard');
+            '📱 [APP LIFECYCLE] App resumed — socket will auto-set creator online');
         ref.invalidate(creatorDashboardProvider);
       }
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       // Keep creators online while app is alive, including background.
+      // Socket connection remains active, so creator stays online
       if (user != null &&
           (user.role == 'creator' || user.role == 'admin')) {
         debugPrint(
-            '📱 [APP LIFECYCLE] App backgrounded — keeping creator online');
+            '📱 [APP LIFECYCLE] App backgrounded — socket keeps creator online');
       }
     } else if (state == AppLifecycleState.detached) {
-      // App closed — mark creator offline.
+      // App closed — socket disconnect will automatically mark creator offline
+      // Backend socket handler handles this automatically
       if (user != null &&
           (user.role == 'creator' || user.role == 'admin')) {
-        ref
-            .read(creatorStatusProvider.notifier)
-            .setStatus(CreatorStatus.offline);
+        debugPrint(
+            '📱 [APP LIFECYCLE] App closed — socket disconnect will auto-set creator offline');
       }
     }
   }
@@ -218,27 +220,74 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       return;
     }
 
-    await Future.delayed(const Duration(milliseconds: 500));
+    // 🔥 AUTOMATIC: Socket connection automatically handles online/offline
+    // When socket connects, backend sets creator online automatically
+    // When socket disconnects, backend sets creator offline automatically
+    // No manual status setting needed
+    debugPrint('✅ [APP LIFECYCLE] Socket connection handles creator status automatically');
+  }
 
+  /// Show coin purchase popup once per app session when app opens.
+  /// Only for regular users, not creators or admins.
+  void _showCoinPurchasePopupOnAppOpen() {
+    if (_coinPopupShownThisSession) return;
     if (!mounted) return;
 
-    final currentStatus = ref.read(creatorStatusProvider);
-    if (currentStatus != CreatorStatus.online) {
-      ref
-          .read(creatorStatusProvider.notifier)
-          .setStatus(CreatorStatus.online);
-      debugPrint('✅ [APP LIFECYCLE] Auto-set creator online');
-    }
+    final authState = ref.read(authProvider);
+    if (!authState.isAuthenticated) return;
+
+    final user = authState.user;
+    // Only show for regular users, not creators or admins
+    if (user == null || user.role != 'user') return;
+
+    // Mark as shown immediately to prevent duplicate displays
+    _coinPopupShownThisSession = true;
+
+    // Show popup immediately (no delay)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final context = this.context;
+      if (!context.mounted) return;
+      
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) => const CoinPurchaseBottomSheet(),
+      );
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    // Check initial auth state (in case user is already authenticated when app opens)
+    final authState = ref.watch(authProvider);
+    if (authState.isAuthenticated && 
+        !_coinPopupShownThisSession && 
+        authState.user != null && 
+        authState.user!.role == 'user') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showCoinPurchasePopupOnAppOpen();
+      });
+    }
+    
     ref.listen<AuthState>(authProvider, (prev, next) {
       final user = next.user;
       final isCreator =
           user != null && (user.role == 'creator' || user.role == 'admin');
       if (next.isAuthenticated && isCreator) {
         _ensureCreatorOnline();
+      }
+      
+      // Show coin purchase popup once per app session when user becomes authenticated
+      // (only if not already shown in this session and user is a regular user)
+      // Only trigger on state change (prev != next), not on initial build
+      if (prev != null && 
+          next.isAuthenticated && 
+          !_coinPopupShownThisSession && 
+          user != null && 
+          user.role == 'user') {
+        _showCoinPurchasePopupOnAppOpen();
       }
     });
 

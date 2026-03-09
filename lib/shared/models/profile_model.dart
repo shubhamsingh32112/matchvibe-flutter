@@ -8,7 +8,9 @@ class UserProfileModel extends Equatable {
   final String? avatar;
   final String? gender;
   final List<String> categories;
+  final String? firebaseUid; // Firebase UID for video calls
   final DateTime? createdAt;
+  final String? availability; // 'online' or 'offline' - from Redis
 
   const UserProfileModel({
     required this.id,
@@ -16,7 +18,9 @@ class UserProfileModel extends Equatable {
     this.avatar,
     this.gender,
     this.categories = const [],
+    this.firebaseUid,
     this.createdAt,
+    this.availability,
   });
 
   factory UserProfileModel.fromJson(Map<String, dynamic> json) {
@@ -28,9 +32,11 @@ class UserProfileModel extends Equatable {
       categories: json['categories'] != null
           ? List<String>.from(json['categories'] as List)
           : [],
+      firebaseUid: json['firebaseUid'] as String?,
       createdAt: json['createdAt'] != null
           ? DateTime.parse(json['createdAt'] as String)
           : null,
+      availability: json['availability'] as String?, // 'online' or 'offline'
     );
   }
 
@@ -41,7 +47,9 @@ class UserProfileModel extends Equatable {
       'avatar': avatar,
       'gender': gender,
       'categories': categories,
+      'firebaseUid': firebaseUid,
       'createdAt': createdAt?.toIso8601String(),
+      'availability': availability,
     };
   }
 
@@ -52,6 +60,8 @@ class UserProfileModel extends Equatable {
         avatar,
         gender,
         categories,
+        firebaseUid,
         createdAt,
+        availability,
       ];
 }

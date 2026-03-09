@@ -9,10 +9,12 @@ import '../services/call_ringtone_service.dart';
 import '../providers/stream_video_provider.dart';
 import '../providers/call_billing_provider.dart';
 import '../providers/call_feedback_prompt_provider.dart';
+import '../providers/creator_busy_toast_provider.dart';
 import '../utils/call_remote_image_resolver.dart';
 import '../utils/remote_avatar_lookup.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../home/providers/availability_provider.dart';
+import '../../../shared/providers/coin_purchase_popup_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Phase / Failure reason / State
@@ -32,11 +34,12 @@ enum CallConnectionPhase {
 
 /// Typed failure reasons so the UI can show the right recovery action.
 enum CallFailureReason {
-  permissionDenied, // → "Open Settings"
-  joinTimeout,      // → "Retry"
-  sfuFailure,       // → "Retry" / "Contact support"
-  rejected,         // → "Go Back"
-  unknown,          // → "Go Back" + "Retry"
+  permissionDenied,   // → "Open Settings"
+  joinTimeout,       // → "Retry" (connection failed after creator accepted)
+  creatorNotPickedUp, // → "Go Back" / "Try Again" (creator didn't answer in 15s)
+  sfuFailure,        // → "Retry" / "Contact support"
+  rejected,          // → "Go Back"
+  unknown,           // → "Go Back" + "Retry"
 }
 
 /// Immutable state exposed by [CallConnectionController].
@@ -96,10 +99,15 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
   StreamSubscription<CallStatus>? _statusSubscription;
   Timer? _watchdog;
 
+  /// True when creator has accepted (status transitioned to Connecting).
+  /// Used for two-phase watchdog: ring (15s) vs join (30s after accept).
+  bool _creatorAccepted = false;
+
   // Billing metadata — set when a user starts a call
   String? _activeCallId;
   String? _activeCreatorFirebaseUid;
   String? _activeCreatorMongoId;
+  String? _activeUserFirebaseUid; // For creator-initiated calls: the user who pays
   bool _wasConnected = false;
 
   CallConnectionController(this._ref)
@@ -147,6 +155,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     // ── Reset billing state from any previous call ─────────────────
     _ref.read(callBillingProvider.notifier).reset();
     _wasConnected = false;
+    _creatorAccepted = false;
 
     // Outgoing call tone while dialing / connecting.
     CallRingtoneService.startOutgoingTone();
@@ -317,13 +326,37 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
         return;
       }
 
-      // 2. Accept (tells Stream the callee accepted)
+      // 2. Ensure billing socket is connected (CRITICAL for creator-initiated calls).
+      // For creator-initiated calls, the user needs to receive billing events.
+      // We must await this to ensure the socket is ready before accepting the call.
+      final socketService = _ref.read(socketServiceProvider);
+      final firebaseUser = _ref.read(authProvider).firebaseUser;
+      if (!socketService.isConnected && firebaseUser != null) {
+        debugPrint(
+            '🔌 [CALL CTRL] Billing socket NOT connected — connecting now...');
+        final token = await firebaseUser.getIdToken();
+        if (token != null) {
+          final connected = await socketService.ensureConnected(token);
+          debugPrint(
+              '🔌 [CALL CTRL] Socket ensureConnected result: $connected');
+          if (!connected) {
+            debugPrint('⚠️ [CALL CTRL] Socket connection failed, but continuing...');
+          }
+        }
+      } else {
+        debugPrint('✅ [CALL CTRL] Billing socket already connected');
+      }
+      
+      // Ensure billing provider is set up to listen for events
+      _ref.read(callBillingProvider.notifier);
+
+      // 3. Accept (tells Stream the callee accepted)
       await call.accept();
       debugPrint('✅ [CALL CTRL] call.accept() completed');
 
-      // Store call ID so creator can also emit call:ended on disconnect.
-      // Note: _activeCreatorFirebaseUid / _activeCreatorMongoId remain null,
-      // so call:started won't be re-emitted — only the user triggers billing.
+      // Store call ID so user can emit call:ended on disconnect.
+      // Note: For creator-initiated calls, billing is triggered by creator's emitCallStarted,
+      // but the user needs to track the call ID for proper cleanup.
       _activeCallId = call.id;
 
       // 3. Transition to joining
@@ -352,6 +385,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       }
     }
   }
+
 
   Future<void> _hydrateIncomingFallbackImage(Call call) async {
     try {
@@ -404,7 +438,6 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     if (state.phase == CallConnectionPhase.idle) return;
     CallRingtoneService.stop();
 
-    final wasOutgoing = state.isOutgoing;
     final call = state.call;
     state = CallConnectionState(
         phase: CallConnectionPhase.disconnecting, call: call);
@@ -424,6 +457,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     _activeCallId = null;
     _activeCreatorFirebaseUid = null;
     _activeCreatorMongoId = null;
+    _activeUserFirebaseUid = null;
     _wasConnected = false;
 
     if (call != null) {
@@ -435,8 +469,21 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       }
     }
 
+    // Queue feedback prompt for the user who paid for the call
+    // - User-initiated calls: wasOutgoing = true, _activeUserFirebaseUid = null (user pays)
+    // - Creator-initiated calls: 
+    //   * Creator's side: wasOutgoing = true, _activeUserFirebaseUid is set (user pays, but creator shouldn't rate)
+    //   * User's side: wasOutgoing = false, _activeUserFirebaseUid = null (user pays, user should rate)
+    // So we queue feedback if: wasConnected && we're NOT on creator's side of creator-initiated call
+    // i.e., _activeUserFirebaseUid == null means we're the user who pays
+    // Also ensure we're a regular user (not creator/admin) - only users should rate creators
+    final authState = _ref.read(authProvider);
+    final currentUser = authState.user;
+    final isRegularUser = currentUser != null && currentUser.role == 'user';
+    
     if (wasConnected &&
-        wasOutgoing &&
+        _activeUserFirebaseUid == null &&
+        isRegularUser &&
         endedCallId != null &&
         endedCallId.isNotEmpty) {
       _queuePostCallFeedbackPrompt(
@@ -449,6 +496,18 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
 
     // Navigate to home — both user and creator land on their home page
     CallNavigationService.navigateToHome();
+    
+    // Show coin pack bottom sheet after call ends (only for regular users)
+    if (wasConnected && isRegularUser && mounted) {
+      // Small delay to ensure navigation is complete
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) {
+          // Trigger coin purchase popup by setting the provider state directly
+          _ref.read(coinPurchasePopupProvider.notifier).state = true;
+        }
+      });
+    }
+    
     if (mounted) {
       state = const CallConnectionState.idle();
     }
@@ -458,6 +517,12 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
   //  Internals
   // ──────────────────────────────────────────────────────────────────────────
 
+  /// Returns true if [status] indicates creator has accepted (we're connecting).
+  bool _isCreatorAcceptedStatus(CallStatus status) {
+    return status.runtimeType.toString().contains('Connecting') ||
+        status.toString().contains('acceptedByCallee: true');
+  }
+
   /// Listens for [CallStatusConnected] / [CallStatusDisconnected] via
   /// `call.partialState` — ignores participant/audio churn.
   void _listenForConnected(Call call) {
@@ -465,6 +530,14 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     _statusSubscription =
         call.partialState((s) => s.status).listen((status) {
       debugPrint('📞 [CALL CTRL] status → $status');
+
+      // Creator accepted — transition from ring phase to join phase.
+      // Restart watchdog with longer timeout (30s) for WebRTC connection.
+      if (state.isOutgoing && !_creatorAccepted && _isCreatorAcceptedStatus(status)) {
+        _creatorAccepted = true;
+        debugPrint('📞 [CALL CTRL] Creator accepted — restarting join-phase watchdog (30s)');
+        _startJoinPhaseWatchdog();
+      }
 
       if (status is CallStatusConnected) {
         CallRingtoneService.stop();
@@ -477,7 +550,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
               isOutgoing: state.isOutgoing,
               remoteImageFallbackUrl: state.remoteImageFallbackUrl);
 
-          // ── Start billing (user-initiated calls only) ────────────
+          // ── Start billing (both user-initiated and creator-initiated calls) ────────────
           _emitBillingStarted();
 
           // Already on /call screen (navigated during preparing phase)
@@ -509,6 +582,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
           _activeCallId = null;
           _activeCreatorFirebaseUid = null;
           _activeCreatorMongoId = null;
+          _activeUserFirebaseUid = null;
           _wasConnected = false;
 
           // Map disconnect reason → failure or clean exit
@@ -528,8 +602,21 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
               );
             }
           } else {
+            // Queue feedback prompt for the user who paid for the call
+            // - User-initiated calls: isOutgoing = true, _activeUserFirebaseUid = null (user pays)
+            // - Creator-initiated calls:
+            //   * Creator's side: isOutgoing = true, _activeUserFirebaseUid is set (user pays, but creator shouldn't rate)
+            //   * User's side: isOutgoing = false, _activeUserFirebaseUid = null (user pays, user should rate)
+            // So we queue feedback if: wasConnected && we're NOT on creator's side of creator-initiated call
+            // i.e., _activeUserFirebaseUid == null means we're the user who pays
+            // Also ensure we're a regular user (not creator/admin) - only users should rate creators
+            final authState = _ref.read(authProvider);
+            final currentUser = authState.user;
+            final isRegularUser = currentUser != null && currentUser.role == 'user';
+            
             if (wasConnected &&
-                state.isOutgoing &&
+                _activeUserFirebaseUid == null &&
+                isRegularUser &&
                 endedCallId != null &&
                 endedCallId.isNotEmpty) {
               _queuePostCallFeedbackPrompt(
@@ -543,6 +630,18 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
             // Normal disconnect (other party left, network, etc.)
             // Navigate both user and creator to home
             CallNavigationService.navigateToHome();
+            
+            // Show coin pack bottom sheet after call ends (only for regular users)
+            if (wasConnected && isRegularUser && mounted) {
+              // Small delay to ensure navigation is complete
+              Future.delayed(const Duration(milliseconds: 500), () {
+                if (mounted) {
+                  // Trigger coin purchase popup by setting the provider state directly
+                  _ref.read(coinPurchasePopupProvider.notifier).state = true;
+                }
+              });
+            }
+            
             if (mounted) {
               state = const CallConnectionState.idle();
             }
@@ -563,33 +662,81 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     if (_activeCallId == null ||
         _activeCreatorFirebaseUid == null ||
         _activeCreatorMongoId == null) {
-      return; // Creator side — billing is triggered by the user
+      return; // No billing metadata — shouldn't happen
     }
 
     final socketService = _ref.read(socketServiceProvider);
 
     // Emit immediately — SocketService handles fallback to REST API
+    // For creator-initiated calls, pass userFirebaseUid so the user (not creator) pays
     debugPrint('💰 [CALL CTRL] Emitting call:started');
     socketService.emitCallStarted(
       callId: _activeCallId!,
       creatorFirebaseUid: _activeCreatorFirebaseUid!,
       creatorMongoId: _activeCreatorMongoId!,
+      userFirebaseUid: _activeUserFirebaseUid, // null for user-initiated, set for creator-initiated
     );
   }
 
-  // ──── Watchdog (Phase 5 — 10 s fail-safe) ────
+  // ──── Two-phase watchdog ────
+  //
+  // Outgoing (user) calls:
+  //   Phase 1 — Ring: 15s for creator to accept. If timeout → creatorNotPickedUp.
+  //   Phase 2 — Join: 30s after creator accepts for WebRTC. If timeout → joinTimeout.
+  //
+  // Incoming (creator) calls:
+  //   Single phase — 30s for WebRTC connection after accept.
+
+  static const _ringTimeoutSeconds = 15;  // Creator must accept within 15s
+  static const _joinTimeoutSeconds = 30;  // WebRTC connection after accept
 
   void _startWatchdog() {
     _cancelWatchdog();
-    _watchdog = Timer(const Duration(seconds: 10), () async {
-      if (state.phase == CallConnectionPhase.joining) {
-        debugPrint('⏱️ [CALL CTRL] Watchdog timeout — leaving call');
+    if (state.isOutgoing) {
+      // Phase 1: Ring timeout — creator must accept within 15s
+      _watchdog = Timer(const Duration(seconds: _ringTimeoutSeconds), () async {
+        if (state.phase != CallConnectionPhase.joining) return;
+        if (_creatorAccepted) return; // Already in join phase — shouldn't happen
+        debugPrint('⏱️ [CALL CTRL] Ring timeout (15s) — creator did not pick up');
         await _cleanupCall();
         if (mounted) {
-          state = const CallConnectionState(
+          // Navigate to home and show toast instead of full-page failed view
+          _ref.read(creatorBusyToastProvider.notifier).state = 'Creator is busy';
+          CallNavigationService.navigateToHome();
+          state = const CallConnectionState.idle();
+        }
+      });
+    } else {
+      // Creator side: single 30s join timeout
+      _watchdog = Timer(const Duration(seconds: _joinTimeoutSeconds), () async {
+        if (state.phase == CallConnectionPhase.joining) {
+          debugPrint('⏱️ [CALL CTRL] Join timeout (30s) — connection failed');
+          await _cleanupCall();
+          if (mounted) {
+            state = const CallConnectionState(
+              phase: CallConnectionPhase.failed,
+              error: 'Connection timed out. Please try again.',
+              failureReason: CallFailureReason.joinTimeout,
+            );
+          }
+        }
+      });
+    }
+  }
+
+  /// Called when creator accepts — gives 30s for WebRTC to establish.
+  void _startJoinPhaseWatchdog() {
+    _cancelWatchdog();
+    _watchdog = Timer(const Duration(seconds: _joinTimeoutSeconds), () async {
+      if (state.phase == CallConnectionPhase.joining) {
+        debugPrint('⏱️ [CALL CTRL] Join-phase timeout (30s) — connection failed');
+        await _cleanupCall();
+        if (mounted) {
+          state = CallConnectionState(
             phase: CallConnectionPhase.failed,
             error: 'Connection timed out. Please try again.',
             failureReason: CallFailureReason.joinTimeout,
+            isOutgoing: state.isOutgoing,
           );
         }
       }

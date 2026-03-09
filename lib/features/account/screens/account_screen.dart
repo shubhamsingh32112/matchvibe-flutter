@@ -10,6 +10,11 @@ import '../../../shared/widgets/avatar_widget.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../admin/providers/admin_view_provider.dart';
 import '../../creator/providers/creator_status_provider.dart';
+import '../../wallet/screens/wallet_screen.dart';
+import '../../wallet/screens/transactions_screen.dart';
+import 'help_support_screen.dart';
+import '../../support/screens/support_screen.dart';
+import 'account_settings_screen.dart';
 
 class AccountScreen extends ConsumerStatefulWidget {
   const AccountScreen({super.key});
@@ -107,6 +112,51 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     if (becameCreator) {
       context.go('/home');
     }
+  }
+
+  void _showWalletBottomSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const WalletBottomSheet(),
+    );
+  }
+
+  void _showTransactionsBottomSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const TransactionsBottomSheet(),
+    );
+  }
+
+  void _showHelpSupportBottomSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const HelpSupportBottomSheet(),
+    );
+  }
+
+  void _showSupportBottomSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const SupportBottomSheet(),
+    );
+  }
+
+  void _showAccountSettingsBottomSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const AccountSettingsBottomSheet(),
+    );
   }
 
   @override
@@ -233,31 +283,31 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                           _buildMenuItem(
                             icon: Icons.account_balance_wallet_outlined,
                             title: 'Wallet',
-                            onTap: () => context.push('/wallet'),
+                            onTap: () => _showWalletBottomSheet(context),
                           ),
                           _divider(scheme),
                           _buildMenuItem(
                             icon: Icons.receipt_long_outlined,
                             title: 'Transactions',
-                            onTap: () => context.push('/transactions'),
+                            onTap: () => _showTransactionsBottomSheet(context),
                           ),
                           _divider(scheme),
                           _buildMenuItem(
                             icon: Icons.headset_mic_outlined,
                             title: 'Help & Support',
-                            onTap: () => context.push('/help-support'),
+                            onTap: () => _showHelpSupportBottomSheet(context),
                           ),
                           _divider(scheme),
                           _buildMenuItem(
                             icon: Icons.support_agent_outlined,
                             title: 'Contact Support',
-                            onTap: () => context.push('/support'),
+                            onTap: () => _showSupportBottomSheet(context),
                           ),
                           _divider(scheme),
                           _buildMenuItem(
                             icon: Icons.manage_accounts_outlined,
                             title: 'Account Settings',
-                            onTap: () => context.push('/account/settings'),
+                            onTap: () => _showAccountSettingsBottomSheet(context),
                           ),
                           _divider(scheme),
                           _buildMenuItem(
@@ -424,7 +474,6 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
           Consumer(
             builder: (context, ref, child) {
               final status = ref.watch(creatorStatusProvider);
-              final notifier = ref.read(creatorStatusProvider.notifier);
               final isOnline = status == CreatorStatus.online;
 
               return Row(
@@ -448,22 +497,39 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(
-                      isOnline ? 'Online' : 'Offline',
-                      style: TextStyle(
-                        color: scheme.onSurface,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          isOnline ? 'Online' : 'Offline',
+                          style: TextStyle(
+                            color: scheme.onSurface,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        Text(
+                          'Status is automatic based on app open/close',
+                          style: TextStyle(
+                            color: scheme.onSurfaceVariant,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  Switch(
-                    value: isOnline,
-                    onChanged: (_) => notifier.toggleStatus(),
-                    activeColor: scheme.primary,
-                    activeTrackColor: scheme.primary.withOpacity(0.5),
-                    inactiveThumbColor: scheme.outlineVariant,
-                    inactiveTrackColor: scheme.outline,
+                  // Status indicator (read-only, no toggle)
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isOnline ? Colors.green : Colors.grey,
+                      border: Border.all(
+                        color: scheme.surface,
+                        width: 2,
+                      ),
+                    ),
                   ),
                 ],
               );

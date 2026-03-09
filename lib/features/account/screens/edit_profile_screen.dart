@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:dio/dio.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/services/avatar_upload_service.dart';
 import '../../../shared/widgets/ui_primitives.dart';
@@ -21,6 +22,9 @@ class EditProfileScreen extends ConsumerStatefulWidget {
 
 class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   final TextEditingController _usernameController = TextEditingController();
+  final TextEditingController _nameController = TextEditingController(); // For creators
+  final TextEditingController _aboutController = TextEditingController(); // For creators
+  final TextEditingController _ageController = TextEditingController(); // For creators
   final ApiClient _apiClient = ApiClient();
   final ImagePicker _picker = ImagePicker();
   bool _isLoading = false;
@@ -62,6 +66,17 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       _usernameController.text = user.username ?? user.id.substring(0, 9);
       if (user.categories != null) {
         _selectedCategories.addAll(user.categories!);
+      }
+      
+      // Initialize creator-specific fields if user is a creator
+      final isCreator = user.role == 'creator' || user.role == 'admin';
+      if (isCreator) {
+        // Get creator data from auth state (it includes creator fields when user is creator)
+        _nameController.text = user.name ?? '';
+        _aboutController.text = user.about ?? '';
+        if (user.age != null) {
+          _ageController.text = user.age.toString();
+        }
       }
 
       // If the stored avatar is a URL, distinguish preset URL vs gallery URL.
@@ -107,6 +122,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   @override
   void dispose() {
     _usernameController.dispose();
+    _nameController.dispose();
+    _aboutController.dispose();
+    _ageController.dispose();
     _pageController.dispose();
     super.dispose();
   }
@@ -253,16 +271,6 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       return;
     }
 
-    if (_selectedCategories.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Please select at least 1 category'),
-          backgroundColor: scheme.error,
-        ),
-      );
-      return;
-    }
-
     if (_selectedCategories.length > 4) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -289,34 +297,47 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       final authState = ref.read(authProvider);
 
       String? avatarValue;
+      String? creatorPhotoValue;
 
-      if (!isCreator && _avatarChanged) {
+      // Handle avatar/photo upload for both users and creators
+      if (_avatarChanged) {
         final firebaseUid = authState.firebaseUser?.uid;
         if (firebaseUid != null) {
           if (_usingGalleryImage && _galleryImageBytes != null) {
             // ── Upload gallery image ─────────────────────────────
             debugPrint(
                 '🖼️  [EDIT PROFILE] Uploading gallery image to Firebase Storage...');
-            avatarValue = await AvatarUploadService.uploadGalleryImage(
+            final uploadedUrl = await AvatarUploadService.uploadGalleryImage(
               firebaseUid: firebaseUid,
               imageBytes: _galleryImageBytes!,
               fileName: _galleryImageName ?? 'gallery.png',
             );
-            debugPrint('✅ [EDIT PROFILE] Gallery avatar uploaded: $avatarValue');
+            debugPrint('✅ [EDIT PROFILE] Gallery avatar uploaded: $uploadedUrl');
+            if (isCreator) {
+              creatorPhotoValue = uploadedUrl;
+            } else {
+              avatarValue = uploadedUrl;
+            }
           } else if (_selectedAvatar != null) {
             // ── Resolve preset avatar URL from Firebase Storage ──
             debugPrint(
                 '🖼️  [EDIT PROFILE] Resolving preset avatar URL...');
-            avatarValue = await AvatarUploadService.getPresetAvatarUrl(
+            final presetUrl = await AvatarUploadService.getPresetAvatarUrl(
               avatarName: _selectedAvatar!,
               gender: user?.gender ?? 'male',
             );
-            debugPrint('✅ [EDIT PROFILE] Preset avatar resolved: $avatarValue');
+            debugPrint('✅ [EDIT PROFILE] Preset avatar resolved: $presetUrl');
+            if (isCreator) {
+              creatorPhotoValue = presetUrl;
+            } else {
+              avatarValue = presetUrl;
+            }
           }
         }
       }
 
-      final response = await _apiClient.put(
+      // Save user profile (username, avatar, categories)
+      final userResponse = await _apiClient.put(
         '/user/profile',
         data: {
           'username': username,
@@ -325,30 +346,106 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         },
       );
 
-      if (response.statusCode == 200) {
-        debugPrint('✅ [EDIT PROFILE] Profile saved successfully');
-
-        await ref.read(authProvider.notifier).refreshUser();
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Profile updated successfully'),
-              backgroundColor: scheme.surfaceVariant,
-            ),
-          );
-          context.pop();
-        }
-      } else {
-        throw Exception('Failed to save profile: ${response.statusCode}');
+      if (userResponse.statusCode != 200) {
+        throw Exception('Failed to save user profile: ${userResponse.statusCode}');
       }
-    } catch (e) {
-      debugPrint('❌ [EDIT PROFILE] Error saving profile: $e');
+
+      // If creator, also update creator profile (name, about, age, categories)
+      if (isCreator) {
+        final name = _nameController.text.trim();
+        final about = _aboutController.text.trim();
+        final ageText = _ageController.text.trim();
+        
+        // Validate creator fields
+        if (name.isEmpty || name.length < 2 || name.length > 100) {
+          throw Exception('Name must be between 2 and 100 characters');
+        }
+        if (about.isEmpty || about.length < 10 || about.length > 1000) {
+          throw Exception('About must be between 10 and 1000 characters');
+        }
+        
+        int? age;
+        if (ageText.isNotEmpty) {
+          age = int.tryParse(ageText);
+          if (age == null || age < 18 || age > 100) {
+            throw Exception('Age must be a number between 18 and 100');
+          }
+        }
+        
+        final requestData = {
+          'name': name,
+          'about': about,
+          if (age != null) 'age': age,
+          if (creatorPhotoValue != null) 'photo': creatorPhotoValue,
+          'categories': _selectedCategories.toList(),
+        };
+        
+        debugPrint('📤 [EDIT PROFILE] Sending creator profile update:');
+        debugPrint('   Name: $name (length: ${name.length})');
+        debugPrint('   About: $about (length: ${about.length})');
+        debugPrint('   Age: $age');
+        debugPrint('   Photo: ${creatorPhotoValue != null ? "present" : "not provided"}');
+        debugPrint('   Categories: ${_selectedCategories.toList()}');
+        debugPrint('   Request data: $requestData');
+        
+        final creatorResponse = await _apiClient.patch(
+          '/creator/profile',
+          data: requestData,
+        );
+
+        if (creatorResponse.statusCode != 200) {
+          throw Exception('Failed to save creator profile: ${creatorResponse.statusCode}');
+        }
+      }
+
+      debugPrint('✅ [EDIT PROFILE] Profile saved successfully');
+
+      await ref.read(authProvider.notifier).refreshUser();
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to save profile: $e'),
+            content: const Text('Profile updated successfully'),
+            backgroundColor: scheme.surfaceVariant,
+          ),
+        );
+        context.pop();
+      }
+    } catch (e) {
+      debugPrint('❌ [EDIT PROFILE] Error saving profile: $e');
+      
+      // Extract actual error message from backend response
+      String errorMessage = 'Failed to save profile';
+      if (e is DioException) {
+        debugPrint('   📦 Response data: ${e.response?.data}');
+        debugPrint('   🔢 Status code: ${e.response?.statusCode}');
+        
+        // Try to extract error message from response
+        if (e.response?.data != null) {
+          final responseData = e.response!.data;
+          if (responseData is Map<String, dynamic>) {
+            final error = responseData['error'] as String?;
+            if (error != null && error.isNotEmpty) {
+              errorMessage = error;
+            } else {
+              errorMessage = 'Failed to save profile: ${e.response?.statusCode}';
+            }
+          } else {
+            errorMessage = 'Failed to save profile: ${e.response?.statusCode}';
+          }
+        } else {
+          errorMessage = 'Network error. Please check your connection and try again.';
+        }
+      } else if (e is Exception) {
+        errorMessage = e.toString().replaceAll('Exception: ', '');
+      }
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
             backgroundColor: scheme.error,
+            duration: const Duration(seconds: 4),
           ),
         );
       }
@@ -364,7 +461,6 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     final authState = ref.watch(authProvider);
     final user = authState.user;
     final availableAvatars = _getAvailableAvatars();
-    final remainingChanges = user != null ? 3 - (user.usernameChangeCount) : 3;
     final scheme = Theme.of(context).colorScheme;
 
     // Update selected avatar if it's not in the current list
@@ -639,27 +735,346 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                       const SizedBox(height: 32),
                     ],
                   ] else ...[
-                    // For creators – photo is managed in admin dashboard
-                    AppCard(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        children: [
-                          Icon(Icons.info_outline,
-                              color: scheme.primary, size: 24),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              'Your profile photo is managed in the admin dashboard.',
-                              style: TextStyle(
-                                color: scheme.onSurfaceVariant,
-                                fontSize: 14,
+                    // For creators – show avatar selection like regular users
+                    Text(
+                      'Your Profile Photo',
+                      style: TextStyle(
+                        color: scheme.onSurface,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+
+                    // ── Gallery preview (if a gallery image is selected) ──
+                    if (_usingGalleryImage) ...[
+                      Center(
+                        child: Stack(
+                          alignment: Alignment.bottomRight,
+                          children: [
+                            Container(
+                              width: 130,
+                              height: 130,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: AppBrandGradients
+                                      .avatarCarouselSelectedBorder,
+                                  width: AppBrandGradients
+                                      .avatarCarouselSelectedBorderWidth,
+                                ),
+                                boxShadow: const [
+                                  AppBrandGradients.avatarCarouselGlow,
+                                ],
+                              ),
+                              child: ClipOval(
+                                child: _galleryImageBytes != null
+                                    ? Image.memory(
+                                        _galleryImageBytes!,
+                                        fit: BoxFit.cover,
+                                        width: 130,
+                                        height: 130,
+                                      )
+                                    : _buildCurrentAvatarUrl(user?.avatar),
                               ),
                             ),
-                          ),
-                        ],
+                            // Small "change" button
+                            Positioned(
+                              bottom: 4,
+                              right: 4,
+                              child: GestureDetector(
+                                onTap: _pickFromGallery,
+                                child: Container(
+                                  width: 36,
+                                  height: 36,
+                                  decoration: BoxDecoration(
+                                    color: scheme.primary,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                        color: scheme.surface, width: 2),
+                                  ),
+                                  child: Icon(
+                                    Icons.camera_alt,
+                                    color: scheme.onPrimary,
+                                    size: 18,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 40),
+                      const SizedBox(height: 12),
+                      // "Use a preset avatar instead" link
+                      Center(
+                        child: TextButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              _usingGalleryImage = false;
+                              _galleryImageBytes = null;
+                              _galleryImageName = null;
+                              _avatarChanged = true;
+                            });
+                          },
+                          icon: Icon(Icons.grid_view,
+                              size: 16, color: scheme.primary),
+                          label: Text(
+                            'Use a preset avatar instead',
+                            style: TextStyle(
+                              color: scheme.primary,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                    ] else ...[
+                      // ── Preset Avatar Carousel ───────────────────────
+                      SizedBox(
+                        height: 220,
+                        child: PageView.builder(
+                          controller: _pageController,
+                          onPageChanged: (index) {
+                            setState(() {
+                              _selectedAvatar = availableAvatars[index];
+                              _avatarChanged = true;
+                            });
+                          },
+                          itemCount: availableAvatars.length,
+                          itemBuilder: (context, index) {
+                            final avatar = availableAvatars[index];
+                            final isSelected = _selectedAvatar == avatar;
+
+                            return GestureDetector(
+                              onTap: () {
+                                _pageController.animateToPage(
+                                  index,
+                                  duration: const Duration(milliseconds: 300),
+                                  curve: Curves.easeInOut,
+                                );
+                                setState(() {
+                                  _selectedAvatar = avatar;
+                                  _avatarChanged = true;
+                                });
+                              },
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                curve: Curves.easeInOut,
+                                margin:
+                                    const EdgeInsets.symmetric(horizontal: 8),
+                                child: Center(
+                                  child: Container(
+                                    width: isSelected ? 150 : 110,
+                                    height: isSelected ? 150 : 110,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: isSelected
+                                            ? AppBrandGradients
+                                                .avatarCarouselSelectedBorder
+                                            : AppBrandGradients
+                                                .avatarCarouselUnselectedBorder,
+                                        width: isSelected
+                                            ? AppBrandGradients
+                                                .avatarCarouselSelectedBorderWidth
+                                            : AppBrandGradients
+                                                .avatarCarouselUnselectedBorderWidth,
+                                      ),
+                                      boxShadow: isSelected
+                                          ? [
+                                              AppBrandGradients
+                                                  .avatarCarouselGlow,
+                                            ]
+                                          : null,
+                                    ),
+                                    child: ClipOval(
+                                      child: FutureBuilder<String>(
+                                        future: AvatarUploadService.getPresetAvatarUrl(
+                                          avatarName: avatar,
+                                          gender: user?.gender ?? 'male',
+                                        ),
+                                        builder: (context, snapshot) {
+                                          if (snapshot.hasData &&
+                                              snapshot.data != null) {
+                                            return Image.network(
+                                              snapshot.data!,
+                                              fit: BoxFit.cover,
+                                              errorBuilder:
+                                                  (context, error, stackTrace) {
+                                                return Container(
+                                                  color: scheme.surfaceContainerHigh,
+                                                  child: Icon(
+                                                    Icons.person,
+                                                    color: scheme.onSurfaceVariant,
+                                                    size: 40,
+                                                  ),
+                                                );
+                                              },
+                                            );
+                                          }
+                                          return Container(
+                                            color: scheme.surfaceContainerHigh,
+                                            child: Icon(
+                                              Icons.person,
+                                              color: scheme.onSurfaceVariant,
+                                              size: 40,
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // ── "Or pick from gallery" button ──────────────
+                      Center(
+                        child: OutlinedButton.icon(
+                          onPressed: _pickFromGallery,
+                          icon: const Icon(Icons.photo_library_outlined,
+                              size: 18),
+                          label: const Text('Pick from Gallery'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: scheme.primary,
+                            side: BorderSide(
+                                color: scheme.primary.withOpacity(0.5)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(24),
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 24, vertical: 12),
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 32),
+                    ],
+                    
+                    // Creator-specific fields
+                    if (user?.role == 'creator' || user?.role == 'admin') ...[
+                      // Name Field
+                      Text(
+                        'Name *',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: scheme.onSurface,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                            ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _nameController,
+                        style: TextStyle(color: scheme.onSurface),
+                        decoration: InputDecoration(
+                          filled: true,
+                          fillColor: scheme.surfaceContainerHigh,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                                color: scheme.outlineVariant, width: 1),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                                color: scheme.outlineVariant, width: 1),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide:
+                                BorderSide(color: scheme.primary, width: 2),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 16),
+                          hintText: 'Enter your name',
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      
+                      // About Field
+                      Text(
+                        'About *',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: scheme.onSurface,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                            ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _aboutController,
+                        style: TextStyle(color: scheme.onSurface),
+                        maxLines: 4,
+                        decoration: InputDecoration(
+                          filled: true,
+                          fillColor: scheme.surfaceContainerHigh,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                                color: scheme.outlineVariant, width: 1),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                                color: scheme.outlineVariant, width: 1),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide:
+                                BorderSide(color: scheme.primary, width: 2),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 16),
+                          hintText: 'Tell users about yourself',
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      
+                      // Age Field
+                      Text(
+                        'Age',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: scheme.onSurface,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                            ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _ageController,
+                        style: TextStyle(color: scheme.onSurface),
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          filled: true,
+                          fillColor: scheme.surfaceContainerHigh,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                                color: scheme.outlineVariant, width: 1),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                                color: scheme.outlineVariant, width: 1),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide:
+                                BorderSide(color: scheme.primary, width: 2),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 16),
+                          hintText: 'Enter your age (18-100)',
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                    ],
                   ],
 
                   // Username Field
@@ -698,18 +1113,6 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Text(
-                        'Can change username $remainingChanges more time${remainingChanges != 1 ? 's' : ''}.',
-                        style: TextStyle(
-                          color: scheme.onSurfaceVariant,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
                   Text(
                     'Username must be 4-10 characters.',
                     style: TextStyle(
@@ -722,7 +1125,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
                   // Category Selection
                   Text(
-                    'Select a category *',
+                    'Select categories',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           color: scheme.onSurface,
                           fontSize: 18,
@@ -790,7 +1193,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
                   const SizedBox(height: 12),
                   Text(
-                    'Select a minimum of 1 and maximum of 4.',
+                    'Select up to 4 categories (optional).',
                     style: TextStyle(
                       color: scheme.onSurfaceVariant,
                       fontSize: 12,

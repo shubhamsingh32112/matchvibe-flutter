@@ -4,6 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/app_constants.dart';
+import '../../features/user/providers/user_availability_provider.dart';
+import '../../features/auth/providers/auth_provider.dart';
+// 🔥 CRITICAL FIX: Import home provider to update it as well
+import '../../features/home/providers/availability_provider.dart' as home_provider;
 
 /// Creator availability status enum
 /// 
@@ -155,11 +159,11 @@ class AvailabilitySocketService {
     }
   }
 
-  /// 🔥 FIX 3: Update the toggle state (called by creator_status_provider)
+  /// Update the availability state (for internal tracking)
   void setToggleState(bool isOn) {
     _availabilityToggleOn = isOn;
     _persistToggleState(isOn);
-    debugPrint('📱 [SOCKET] Toggle state updated: $isOn');
+    debugPrint('📱 [SOCKET] Availability state updated: $isOn');
   }
 
   /// Connect to Socket.IO server
@@ -203,12 +207,49 @@ class AvailabilitySocketService {
       _isConnected = true;
       debugPrint('✅ [SOCKET] Connected to $socketUrl');
       
-      // 🔥 FIX 3: Re-emit online if creator and toggle is ON
-      if (_isCreator && _availabilityToggleOn) {
-        debugPrint('📤 [SOCKET] Reconnect: emitting online (toggle is ON)');
+      // 🔥 AUTOMATIC ONLINE: Creators are automatically online when app opens
+      // Backend socket handler will also set online on connect
+      // This ensures instant online status when socket connects
+      if (_isCreator) {
+        debugPrint('📤 [SOCKET] Creator connected - automatically emitting online');
         _socket!.emit('creator:online');
-      } else if (_isCreator) {
-        debugPrint('📤 [SOCKET] Reconnect: NOT emitting online (toggle is OFF)');
+        _availabilityToggleOn = true;
+        _persistToggleState(true);
+        
+        // 🔥 CRITICAL: Update creator's own status immediately in BOTH providers
+        // Backend will broadcast the status change, but we update locally first
+        // for instant UI feedback
+        if (_globalContainer != null) {
+          try {
+            final authState = _globalContainer!.read(authProvider);
+            final firebaseUid = authState.firebaseUser?.uid;
+            if (firebaseUid != null) {
+              // Update provider from availability_socket_service.dart
+              _globalContainer!.read(creatorAvailabilityProvider.notifier)
+                  .update(firebaseUid, CreatorAvailability.online);
+              
+              // 🔥 CRITICAL FIX: Also update provider from availability_provider.dart
+              // This ensures users see creator as online instantly
+              try {
+                _globalContainer!.read(home_provider.creatorAvailabilityProvider.notifier)
+                    .updateSingle(firebaseUid, 'online');
+                debugPrint('📡 [SOCKET] Updated both providers: creator own status to online immediately');
+              } catch (e) {
+                debugPrint('⚠️  [SOCKET] Failed to update home provider: $e');
+              }
+            }
+          } catch (e) {
+            debugPrint('⚠️  [SOCKET] Failed to update creator own status: $e');
+          }
+        }
+      }
+      
+      // 🔥 AUTOMATIC ONLINE: Regular users are automatically online when app opens
+      // Backend socket handler will also set online on connect
+      // This ensures instant online status when socket connects
+      if (!_isCreator && _authToken != null) {
+        debugPrint('📤 [SOCKET] User connected - automatically emitting online');
+        _socket!.emit('user:online');
       }
       
       // Note: Availability is fetched on-demand via requestAvailability()
@@ -218,6 +259,44 @@ class AvailabilitySocketService {
     _socket!.onDisconnect((reason) {
       _isConnected = false;
       debugPrint('🔌 [SOCKET] Disconnected: $reason');
+      
+      // 🔥 AUTOMATIC OFFLINE: Creators are automatically offline when app closes
+      // Backend socket handler will also set offline on disconnect
+      // This ensures instant offline status when socket disconnects
+      if (_isCreator) {
+        debugPrint('📤 [SOCKET] Creator disconnected - updating status to offline');
+        // Note: Socket is already disconnected, so we can't emit
+        // Backend will handle this automatically via disconnect event
+        _availabilityToggleOn = false;
+        _persistToggleState(false);
+        
+        // 🔥 CRITICAL: Update creator's own status immediately in BOTH providers
+        // Backend will broadcast the status change, but we update locally first
+        // for instant UI feedback
+        if (_globalContainer != null) {
+          try {
+            final authState = _globalContainer!.read(authProvider);
+            final firebaseUid = authState.firebaseUser?.uid;
+            if (firebaseUid != null) {
+              // Update provider from availability_socket_service.dart
+              _globalContainer!.read(creatorAvailabilityProvider.notifier)
+                  .update(firebaseUid, CreatorAvailability.busy);
+              
+              // 🔥 CRITICAL FIX: Also update provider from availability_provider.dart
+              // This ensures users see creator as busy instantly
+              try {
+                _globalContainer!.read(home_provider.creatorAvailabilityProvider.notifier)
+                    .updateSingle(firebaseUid, 'busy');
+                debugPrint('📡 [SOCKET] Updated both providers: creator own status to offline immediately');
+              } catch (e) {
+                debugPrint('⚠️  [SOCKET] Failed to update home provider: $e');
+              }
+            }
+          } catch (e) {
+            debugPrint('⚠️  [SOCKET] Failed to update creator own status: $e');
+          }
+        }
+      }
     });
 
     _socket!.onConnectError((error) {
@@ -237,13 +316,28 @@ class AvailabilitySocketService {
       _handleAvailabilityBatch(data);
     });
 
+    // User availability events
+    _socket!.on('user:status', (data) {
+      _handleUserStatus(data);
+    });
+
+    _socket!.on('user:availability:batch', (data) {
+      _handleUserAvailabilityBatch(data);
+    });
+
     // Connect
     _socket!.connect();
   }
 
   /// Handle single creator status update
+  /// 🔥 CRITICAL: Updates BOTH providers to ensure consistency
+  /// - Updates provider from availability_socket_service.dart (for creator's own status)
+  /// - Updates provider from availability_provider.dart (for user homepage)
   void _handleCreatorStatus(dynamic data) {
-    if (_globalContainer == null) return;
+    if (_globalContainer == null) {
+      debugPrint('⚠️  [SOCKET] _globalContainer is null, cannot update providers. Event will be handled by SocketService.');
+      return;
+    }
     
     try {
       final creatorId = data['creatorId'] as String?;
@@ -258,15 +352,36 @@ class AvailabilitySocketService {
           ? CreatorAvailability.online
           : CreatorAvailability.busy;
       
-      _globalContainer!.read(creatorAvailabilityProvider.notifier).update(creatorId, status);
+      // Update provider from availability_socket_service.dart (for creator's own status)
+      try {
+        _globalContainer!.read(creatorAvailabilityProvider.notifier).update(creatorId, status);
+        debugPrint('📡 [AVAILABILITY SOCKET] Updated provider 1 (socket service): $creatorId → $statusStr');
+      } catch (e) {
+        debugPrint('⚠️  [AVAILABILITY SOCKET] Could not update provider 1: $e');
+      }
+      
+      // 🔥 CRITICAL FIX: Also update provider from availability_provider.dart (for user homepage)
+      // This ensures users see status changes instantly without manual reload
+      try {
+        _globalContainer!.read(home_provider.creatorAvailabilityProvider.notifier)
+            .updateSingle(creatorId, statusStr);
+        debugPrint('📡 [AVAILABILITY SOCKET] Updated provider 2 (home provider): $creatorId → $statusStr');
+      } catch (e) {
+        debugPrint('⚠️  [AVAILABILITY SOCKET] Could not update home provider: $e');
+        // This is non-critical - SocketService will also handle the event if connected
+      }
     } catch (e) {
       debugPrint('❌ [SOCKET] Error handling creator:status: $e');
     }
   }
 
   /// Handle batch availability response
+  /// 🔥 CRITICAL: Updates BOTH providers to ensure consistency
   void _handleAvailabilityBatch(dynamic data) {
-    if (_globalContainer == null) return;
+    if (_globalContainer == null) {
+      debugPrint('⚠️  [SOCKET] _globalContainer is null, cannot update providers. Event will be handled by SocketService.');
+      return;
+    }
     
     try {
       if (data is! Map) {
@@ -274,18 +389,96 @@ class AvailabilitySocketService {
         return;
       }
       
+      // Convert to Map<String, String> for both providers
+      final batchMap = <String, String>{};
+      final batchMapEnum = <String, CreatorAvailability>{};
       data.forEach((key, value) {
         if (key is String && value is String) {
+          batchMap[key] = value;
           final status = value == 'online'
               ? CreatorAvailability.online
               : CreatorAvailability.busy;
-          _globalContainer!.read(creatorAvailabilityProvider.notifier).update(key, status);
+          batchMapEnum[key] = status;
         }
       });
+      
+      // Update provider from availability_socket_service.dart
+      try {
+        _globalContainer!.read(creatorAvailabilityProvider.notifier).updateAll(batchMapEnum);
+        debugPrint('📋 [AVAILABILITY SOCKET] Updated provider 1 with batch: ${batchMap.length} creator(s)');
+      } catch (e) {
+        debugPrint('⚠️  [AVAILABILITY SOCKET] Could not update provider 1 batch: $e');
+      }
+      
+      // 🔥 CRITICAL FIX: Also update provider from availability_provider.dart
+      try {
+        _globalContainer!.read(home_provider.creatorAvailabilityProvider.notifier)
+            .updateBatch(batchMap);
+        debugPrint('📋 [AVAILABILITY SOCKET] Updated provider 2 with batch: ${batchMap.length} creator(s)');
+      } catch (e) {
+        debugPrint('⚠️  [AVAILABILITY SOCKET] Could not update home provider batch: $e');
+      }
       
       debugPrint('📋 [SOCKET] Batch availability received: ${data.length} creator(s)');
     } catch (e) {
       debugPrint('❌ [SOCKET] Error handling availability:batch: $e');
+    }
+  }
+
+  /// Handle single user status update
+  void _handleUserStatus(dynamic data) {
+    if (_globalContainer == null) return;
+    
+    try {
+      final firebaseUid = data['firebaseUid'] as String?;
+      final statusStr = data['status'] as String?;
+      
+      if (firebaseUid == null || statusStr == null) {
+        debugPrint('⚠️  [SOCKET] Invalid user:status data: $data');
+        return;
+      }
+      
+      // Import user availability provider
+      final userAvailabilityNotifier = _globalContainer!.read(
+        userAvailabilityProvider.notifier,
+      );
+      
+      final status = statusStr == 'online'
+          ? UserAvailability.online
+          : UserAvailability.offline;
+      
+      userAvailabilityNotifier.update(firebaseUid, status);
+    } catch (e) {
+      debugPrint('❌ [SOCKET] Error handling user:status: $e');
+    }
+  }
+
+  /// Handle batch user availability response
+  void _handleUserAvailabilityBatch(dynamic data) {
+    if (_globalContainer == null) return;
+    
+    try {
+      if (data is! Map) {
+        debugPrint('⚠️  [SOCKET] Invalid user:availability:batch data: $data');
+        return;
+      }
+      
+      // Import user availability provider
+      final userAvailabilityNotifier = _globalContainer!.read(
+        userAvailabilityProvider.notifier,
+      );
+      
+      final batchData = <String, String>{};
+      data.forEach((key, value) {
+        if (key is String && value is String) {
+          batchData[key] = value;
+        }
+      });
+      
+      userAvailabilityNotifier.updateBatch(batchData);
+      debugPrint('📋 [SOCKET] Batch user availability received: ${batchData.length} user(s)');
+    } catch (e) {
+      debugPrint('❌ [SOCKET] Error handling user:availability:batch: $e');
     }
   }
 
@@ -354,9 +547,14 @@ class AvailabilitySocketService {
   void onLogout() {
     debugPrint('🔌 [SOCKET] Logout - disconnecting...');
     
-    // Emit offline before disconnecting (if creator)
-    if (_isCreator && _isConnected && _socket != null) {
-      _socket!.emit('creator:offline');
+    // Emit offline before disconnecting (if creator or user)
+    if (_isConnected && _socket != null) {
+      if (_isCreator) {
+        _socket!.emit('creator:offline');
+      } else if (_authToken != null) {
+        // Regular user
+        _socket!.emit('user:offline');
+      }
     }
     
     dispose();

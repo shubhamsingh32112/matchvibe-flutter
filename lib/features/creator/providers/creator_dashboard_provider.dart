@@ -4,6 +4,7 @@ import '../models/creator_dashboard_model.dart';
 import '../services/creator_dashboard_service.dart';
 import '../../wallet/models/earnings_model.dart';
 import '../models/creator_task_model.dart';
+import '../../auth/providers/auth_provider.dart';
 
 // ── Service provider ──────────────────────────────────────────────────────
 final creatorDashboardServiceProvider = Provider<CreatorDashboardService>(
@@ -51,8 +52,25 @@ final dashboardTodayEarningsProvider = FutureProvider<TodayEarnings>((ref) async
   return dashboard.todayEarnings;
 });
 
-/// Creator's current coin balance from the dashboard.
-final dashboardCoinsProvider = FutureProvider<int>((ref) async {
-  final dashboard = await ref.watch(creatorDashboardProvider.future);
-  return dashboard.coins;
+/// Creator's current coin balance.
+/// 🔥 OPTIMIZED: Uses auth state for instant updates (via socket events)
+/// Falls back to dashboard API if auth state not available
+final dashboardCoinsProvider = Provider<int>((ref) {
+  // 🔥 FIX: Use auth state for instant coin updates (updated via socket events)
+  // This provides instant UI updates without waiting for API calls
+  final authState = ref.watch(authProvider);
+  final authCoins = authState.user?.coins;
+  
+  if (authCoins != null) {
+    // Use auth state coins (updated instantly via socket events)
+    return authCoins;
+  }
+  
+  // Fallback: Try to get from dashboard if available (shouldn't happen in normal flow)
+  final dashboardAsync = ref.watch(creatorDashboardProvider);
+  return dashboardAsync.when(
+    data: (dashboard) => dashboard.coins,
+    loading: () => 0,
+    error: (_, __) => 0,
+  );
 });

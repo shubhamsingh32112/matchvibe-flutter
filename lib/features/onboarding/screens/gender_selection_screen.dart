@@ -5,8 +5,6 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/services/avatar_upload_service.dart';
 import '../../../shared/widgets/loading_indicator.dart';
-import '../../../shared/widgets/welcome_dialog.dart';
-import '../../../core/services/welcome_service.dart';
 import '../../auth/providers/auth_provider.dart';
 
 class GenderSelectionScreen extends ConsumerStatefulWidget {
@@ -19,65 +17,26 @@ class GenderSelectionScreen extends ConsumerStatefulWidget {
 
 class _GenderSelectionScreenState extends ConsumerState<GenderSelectionScreen> {
   final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _ageController = TextEditingController();
   String? _selectedGender;
   String? _selectedAvatar;
   bool _isLoading = false;
-  bool _welcomeDialogShown = false;
   final ApiClient _apiClient = ApiClient();
-
-  // Preset avatars seeded in Firebase Storage.
-  final List<String> _maleAvatars =
-      AvatarUploadService.getAvailablePresetAvatarNames('male');
-  final List<String> _femaleAvatars =
-      AvatarUploadService.getAvailablePresetAvatarNames('female');
 
   @override
   void initState() {
     super.initState();
-    _checkAndShowWelcomeDialog();
   }
 
   @override
   void dispose() {
     _nameController.dispose();
+    _ageController.dispose();
     super.dispose();
-  }
-
-  List<String> get _currentAvatars {
-    if (_selectedGender == 'male') return _maleAvatars;
-    if (_selectedGender == 'female') return _femaleAvatars;
-    return [];
   }
 
   String _defaultAvatarForGender(String gender) {
     return AvatarUploadService.getDefaultAvatarName(gender);
-  }
-
-  Future<void> _checkAndShowWelcomeDialog() async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    if (!mounted) return;
-
-    final authState = ref.read(authProvider);
-    if (!authState.isAuthenticated) return;
-
-    final hasSeen = await WelcomeService.hasSeenWelcome();
-    if (!hasSeen && !_welcomeDialogShown && mounted) {
-      _welcomeDialogShown = true;
-      _showWelcomeDialog();
-    }
-  }
-
-  void _showWelcomeDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => WelcomeDialog(
-        onAgree: () async {
-          await WelcomeService.markWelcomeAsSeen();
-          if (mounted) Navigator.of(context).pop();
-        },
-      ),
-    );
   }
 
   Future<void> _saveProfile() async {
@@ -98,6 +57,18 @@ class _GenderSelectionScreenState extends ConsumerState<GenderSelectionScreen> {
       return;
     }
 
+    // ── Validate age ────────────────────────────────────────────────────
+    final ageText = _ageController.text.trim();
+    if (ageText.isEmpty) {
+      _showError('Please enter your age');
+      return;
+    }
+    final age = int.tryParse(ageText);
+    if (age == null || age < 13 || age > 120) {
+      _showError('Please enter a valid age (13-120)');
+      return;
+    }
+
     // ── Validate avatar ─────────────────────────────────────────────────
     if (_selectedAvatar == null) {
       _showError('Please select an avatar');
@@ -110,6 +81,7 @@ class _GenderSelectionScreenState extends ConsumerState<GenderSelectionScreen> {
       debugPrint('───────────────────────────────────────────────────────');
       debugPrint('🔄 [ONBOARDING] Saving profile...');
       debugPrint('   Name: $name');
+      debugPrint('   Age: $age');
       debugPrint('   Gender: $_selectedGender');
       debugPrint('   Avatar: $_selectedAvatar');
 
@@ -127,6 +99,7 @@ class _GenderSelectionScreenState extends ConsumerState<GenderSelectionScreen> {
         data: {
           'gender': _selectedGender,
           'username': name,
+          'age': age,
           'avatar': avatarUrl,
         },
       );
@@ -161,8 +134,11 @@ class _GenderSelectionScreenState extends ConsumerState<GenderSelectionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final ageText = _ageController.text.trim();
+    final age = int.tryParse(ageText);
     final bool canContinue =
         _nameController.text.trim().length >= 4 &&
+        age != null && age >= 13 && age <= 120 &&
         _selectedGender != null &&
         _selectedAvatar != null;
 
@@ -319,28 +295,68 @@ class _GenderSelectionScreenState extends ConsumerState<GenderSelectionScreen> {
 
                   const SizedBox(height: 32),
 
-                  // ── Avatar selection (only when gender is chosen) ──
-                  if (_selectedGender != null) ...[
-                    Text(
-                      'Choose your avatar',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
+                  // ── Age field ────────────────────────────────────────
+                  Text(
+                    'Your Age',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  )
+                      .animate()
+                      .fadeIn(duration: 400.ms, delay: 350.ms),
+
+                  const SizedBox(height: 12),
+
+                  TextField(
+                    controller: _ageController,
+                    keyboardType: TextInputType.number,
+                    style: const TextStyle(color: Colors.white, fontSize: 16),
+                    maxLength: 3,
+                    onChanged: (_) => setState(() {}), // rebuild for button state
+                    decoration: InputDecoration(
+                      hintText: 'Enter your age',
+                      hintStyle: TextStyle(color: Colors.grey[500]),
+                      counterStyle: TextStyle(color: Colors.grey[500]),
+                      filled: true,
+                      fillColor: Colors.white.withOpacity(0.1),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: Colors.white.withOpacity(0.2),
+                        ),
                       ),
-                    )
-                        .animate()
-                        .fadeIn(duration: 300.ms),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: Colors.white.withOpacity(0.2),
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(
+                          color: Colors.white,
+                          width: 2,
+                        ),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 16,
+                      ),
+                    ),
+                  )
+                      .animate()
+                      .fadeIn(duration: 400.ms, delay: 400.ms),
 
-                    const SizedBox(height: 16),
+                  const SizedBox(height: 8),
 
-                    _buildAvatarGrid()
-                        .animate()
-                        .fadeIn(duration: 400.ms)
-                        .slideY(begin: 0.1, end: 0),
+                  Text(
+                    '13-120 years',
+                    style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                  ),
 
-                    const SizedBox(height: 32),
-                  ],
+                  const SizedBox(height: 32),
 
                   // ── Continue button ────────────────────────────────
                   SizedBox(
@@ -458,115 +474,4 @@ class _GenderSelectionScreenState extends ConsumerState<GenderSelectionScreen> {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // AVATAR GRID
-  // ─────────────────────────────────────────────────────────────────────────
-
-  Widget _buildAvatarGrid() {
-    final avatars = _currentAvatars;
-    if (avatars.isEmpty) return const SizedBox.shrink();
-
-    return Center(
-      child: Wrap(
-        alignment: WrapAlignment.center,
-        spacing: 20,
-        runSpacing: 20,
-        children: avatars.map((avatar) {
-          final isSelected = _selectedAvatar == avatar;
-          return SizedBox(
-            width: 170,
-            height: 250,
-            child: GestureDetector(
-              onTap: () => setState(() => _selectedAvatar = avatar),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
-                    color: isSelected ? Colors.white : Colors.white24,
-                    width: isSelected ? 3 : 1.5,
-                  ),
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.white.withOpacity(0.14),
-                      Colors.white.withOpacity(0.06),
-                    ],
-                  ),
-                  boxShadow: isSelected
-                      ? [
-                          BoxShadow(
-                            color: Colors.white.withOpacity(0.3),
-                            blurRadius: 16,
-                            spreadRadius: 2,
-                          ),
-                        ]
-                      : null,
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(22),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      FutureBuilder<String>(
-                        future: AvatarUploadService.getPresetAvatarUrl(
-                          avatarName: avatar,
-                          gender: _selectedGender ?? 'male',
-                        ),
-                        builder: (context, snapshot) {
-                          if (snapshot.hasData && snapshot.data != null) {
-                            return Image.network(
-                              snapshot.data!,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Container(
-                                  color: Colors.white.withOpacity(0.1),
-                                  child: const Icon(
-                                    Icons.person,
-                                    color: Colors.white54,
-                                    size: 52,
-                                  ),
-                                );
-                              },
-                            );
-                          }
-                          return Container(
-                            color: Colors.white.withOpacity(0.1),
-                            child: const Icon(
-                              Icons.person,
-                              color: Colors.white54,
-                              size: 52,
-                            ),
-                          );
-                        },
-                      ),
-                      if (isSelected)
-                        Positioned(
-                          right: 10,
-                          top: 10,
-                          child: Container(
-                            width: 28,
-                            height: 28,
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: const Icon(
-                              Icons.check,
-                              size: 18,
-                              color: Color(0xFF2D1B3D),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
 }

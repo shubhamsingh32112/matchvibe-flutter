@@ -6,6 +6,8 @@ import '../../../shared/models/profile_model.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../admin/providers/admin_view_provider.dart';
 import 'availability_provider.dart';
+import '../../user/providers/user_availability_provider.dart';
+import '../utils/creator_shuffle_utils.dart';
 
 // Provider to fetch creators (for users)
 // 🔥 FIX: Seeds creatorAvailabilityProvider with initial availability from API
@@ -69,9 +71,23 @@ final usersProvider = FutureProvider<List<UserProfileModel>>((ref) async {
     
     if (response.statusCode == 200) {
       final usersData = response.data['data']['users'] as List;
-      return usersData
+      final users = usersData
           .map((json) => UserProfileModel.fromJson(json as Map<String, dynamic>))
           .toList();
+      
+      // 🔥 FIX: Seed userAvailabilityProvider with initial availability
+      // from the API response (backed by Redis on the server).
+      final apiAvailability = <String, UserAvailability>{};
+      for (final user in users) {
+        if (user.firebaseUid != null) {
+          apiAvailability[user.firebaseUid!] = user.availability == 'online'
+              ? UserAvailability.online
+              : UserAvailability.offline;
+        }
+      }
+      ref.read(userAvailabilityProvider.notifier).seedFromApi(apiAvailability);
+      
+      return users;
     }
     print('❌ [HOME] Failed to fetch users: Status ${response.statusCode}');
     print('   Response: ${response.data}');
@@ -98,9 +114,17 @@ final homeFeedProvider = Provider<List<dynamic>>((ref) {
     
     // Default to user view if not set
     if (adminViewMode == null || adminViewMode == AdminViewMode.user) {
-      // Admin viewing as user: show ALL creators
+      // Admin viewing as user: show ALL creators (sorted and shuffled)
+      final availabilityMap = ref.watch(creatorAvailabilityProvider);
       return creatorsAsync.when(
-        data: (creators) => creators,
+        data: (creators) {
+          // Sort and shuffle for admin user view as well
+          return sortAndShuffleCreatorsByAvailability(
+            creators,
+            availabilityMap,
+            user.id,
+          );
+        },
         loading: () => [],
         error: (_, __) => [],
       );
@@ -128,10 +152,29 @@ final homeFeedProvider = Provider<List<dynamic>>((ref) {
   // If user is a regular user, show ALL creators.
   // Availability (online/busy) is managed via Socket.IO + Redis in real-time.
   final creatorsAsync = ref.watch(creatorsProvider);
+  // Watch real-time availability for accurate sorting
+  final availabilityMap = ref.watch(creatorAvailabilityProvider);
+  
   return creatorsAsync.when(
     data: (creators) {
-      debugPrint('✅ [HOME] Returning ALL ${creators.length} creator(s)');
-      return creators;
+      // Sort and shuffle: online creators first, busy creators at bottom
+      // Shuffling is seeded by user ID for consistent order per user session
+      final sortedAndShuffled = sortAndShuffleCreatorsByAvailability(
+        creators,
+        availabilityMap,
+        user.id,
+      );
+      
+      final onlineCount = sortedAndShuffled
+          .where((c) => c.firebaseUid != null &&
+              (availabilityMap[c.firebaseUid] ?? 
+               (c.availability == 'online' 
+                   ? CreatorAvailability.online 
+                   : CreatorAvailability.busy)) == CreatorAvailability.online)
+          .length;
+      
+      debugPrint('✅ [HOME] Returning ${sortedAndShuffled.length} creator(s) - $onlineCount online, ${sortedAndShuffled.length - onlineCount} busy');
+      return sortedAndShuffled;
     },
     loading: () => [],
     error: (_, __) => [],

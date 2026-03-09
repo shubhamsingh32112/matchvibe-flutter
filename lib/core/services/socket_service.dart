@@ -133,13 +133,23 @@ class SocketService {
     });
 
     _socket!.on('creator:status', (data) {
-      debugPrint('📡 [SOCKET] Received creator:status: $data');
+      debugPrint('📡 [SOCKET] Received creator:status event: $data');
       if (data is Map) {
         final creatorId = data['creatorId']?.toString();
         final status = data['status']?.toString();
         if (creatorId != null && status != null) {
-          onCreatorStatus?.call(creatorId, status);
+          debugPrint('📡 [SOCKET] Calling onCreatorStatus callback: $creatorId → $status');
+          if (onCreatorStatus != null) {
+            onCreatorStatus!(creatorId, status);
+            debugPrint('✅ [SOCKET] onCreatorStatus callback executed');
+          } else {
+            debugPrint('⚠️  [SOCKET] onCreatorStatus callback is null! Provider might not be initialized.');
+          }
+        } else {
+          debugPrint('⚠️  [SOCKET] Invalid creator:status data: creatorId=$creatorId, status=$status');
         }
+      } else {
+        debugPrint('⚠️  [SOCKET] creator:status data is not a Map: ${data.runtimeType}');
       }
     });
 
@@ -293,15 +303,20 @@ class SocketService {
   ///
   /// 🔥 FIX: If the socket is not connected, we now call the REST API
   /// directly as a fallback so billing is never silently dropped.
+  ///
+  /// [userFirebaseUid] - Optional. For creator-initiated calls, specifies the user who pays.
+  ///                     For user-initiated calls, this is null and the socket owner pays.
   void emitCallStarted({
     required String callId,
     required String creatorFirebaseUid,
     required String creatorMongoId,
+    String? userFirebaseUid,
   }) {
     final data = {
       'callId': callId,
       'creatorFirebaseUid': creatorFirebaseUid,
       'creatorMongoId': creatorMongoId,
+      if (userFirebaseUid != null) 'userFirebaseUid': userFirebaseUid,
     };
 
     if (_socket != null && _isConnected) {

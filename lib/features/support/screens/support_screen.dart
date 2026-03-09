@@ -4,6 +4,22 @@ import '../providers/support_provider.dart';
 import '../models/support_ticket_model.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/widgets/loading_indicator.dart';
+import '../../../shared/styles/app_brand_styles.dart';
+
+/// Bottom sheet wrapper for support screen
+class SupportBottomSheet extends StatelessWidget {
+  const SupportBottomSheet({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      builder: (context, scrollController) => const SupportScreen(),
+    );
+  }
+}
 
 class SupportScreen extends ConsumerStatefulWidget {
   const SupportScreen({super.key});
@@ -58,65 +74,74 @@ class _SupportScreenState extends ConsumerState<SupportScreen>
       }
     });
 
-    return AppScaffold(
-      padded: false,
-      child: Column(
-        children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-            child: Row(
-              children: [
-                IconButton(
-                  onPressed: () => Navigator.of(context).maybePop(),
-                  icon: Icon(Icons.arrow_back_ios_new, color: scheme.onSurface),
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    'Support',
-                    style: TextStyle(
-                      color: scheme.onSurface,
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
+    return Container(
+      decoration: BoxDecoration(
+        gradient: AppBrandGradients.appBackground,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            // Drag handle
+            Container(
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: scheme.onSurfaceVariant.withOpacity(0.4),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            // Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Support',
+                      style: TextStyle(
+                        color: scheme.onSurface,
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-
-          // Tabs
-          TabBar(
-            controller: _tabController,
-            labelColor: scheme.primary,
-            unselectedLabelColor: scheme.onSurfaceVariant,
-            indicatorColor: scheme.primary,
-            tabs: const [
-              Tab(text: 'New Ticket'),
-              Tab(text: 'My Tickets'),
-            ],
-          ),
-
-          // Tab content
-          Expanded(
-            child: TabBarView(
+            // Tabs
+            TabBar(
               controller: _tabController,
-              children: [
-                _NewTicketTab(
-                  isSubmitting: supportState.isSubmitting,
-                  onSubmit: _submitTicket,
-                ),
-                _MyTicketsTab(
-                  tickets: supportState.tickets,
-                  isLoading: supportState.isLoading,
-                  onRefresh: () =>
-                      ref.read(supportProvider.notifier).loadTickets(),
-                ),
+              labelColor: scheme.primary,
+              unselectedLabelColor: scheme.onSurfaceVariant,
+              indicatorColor: scheme.primary,
+              tabs: const [
+                Tab(text: 'New Ticket'),
+                Tab(text: 'My Tickets'),
               ],
             ),
-          ),
-        ],
+            // Tab content
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _NewTicketTab(
+                    isSubmitting: supportState.isSubmitting,
+                    onSubmit: _submitTicket,
+                  ),
+                  _MyTicketsTab(
+                    tickets: supportState.tickets,
+                    isLoading: supportState.isLoading,
+                    onRefresh: () =>
+                        ref.read(supportProvider.notifier).loadTickets(),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

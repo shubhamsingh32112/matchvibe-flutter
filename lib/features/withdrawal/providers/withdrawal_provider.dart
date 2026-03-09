@@ -47,10 +47,24 @@ class WithdrawalNotifier extends StateNotifier<WithdrawalState> {
   WithdrawalNotifier(this._service) : super(const WithdrawalState());
 
   /// Submit a new withdrawal request.
-  Future<bool> requestWithdrawal(int amount) async {
+  Future<bool> requestWithdrawal({
+    required int amount,
+    required String name,
+    required String number,
+    String? upi,
+    String? accountNumber,
+    String? ifsc,
+  }) async {
     state = state.copyWith(isSubmitting: true, error: null, successMessage: null);
     try {
-      final withdrawal = await _service.requestWithdrawal(amount);
+      final withdrawal = await _service.requestWithdrawal(
+        amount: amount,
+        name: name,
+        number: number,
+        upi: upi,
+        accountNumber: accountNumber,
+        ifsc: ifsc,
+      );
       state = state.copyWith(
         isSubmitting: false,
         successMessage: 'Withdrawal of ${withdrawal.amount.toInt()} coins submitted!',

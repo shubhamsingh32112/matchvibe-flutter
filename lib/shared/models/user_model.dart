@@ -13,6 +13,10 @@ class UserModel extends Equatable {
   final bool welcomeBonusClaimed;
   final int freeTextUsed; // Count of free text messages used (first 3 are free)
   final String? role; // 'user', 'creator', or 'admin'
+  // Creator-specific fields (only populated when role is 'creator')
+  final String? name; // Creator name
+  final String? about; // Creator about/bio
+  final int? age; // Creator age
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -29,6 +33,9 @@ class UserModel extends Equatable {
     this.welcomeBonusClaimed = false,
     this.freeTextUsed = 0,
     this.role,
+    this.name,
+    this.about,
+    this.age,
     this.createdAt,
     this.updatedAt,
   });
@@ -49,6 +56,9 @@ class UserModel extends Equatable {
       welcomeBonusClaimed: json['welcomeBonusClaimed'] as bool? ?? false,
       freeTextUsed: json['freeTextUsed'] as int? ?? 0,
       role: json['role'] as String?,
+      name: json['name'] as String?,
+      about: json['about'] as String?,
+      age: json['age'] != null ? json['age'] as int? : null,
       createdAt: json['createdAt'] != null
           ? DateTime.parse(json['createdAt'] as String)
           : null,
@@ -72,6 +82,9 @@ class UserModel extends Equatable {
       'welcomeBonusClaimed': welcomeBonusClaimed,
       'freeTextUsed': freeTextUsed,
       'role': role,
+      'name': name,
+      'about': about,
+      'age': age,
       'createdAt': createdAt?.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
     };
@@ -90,6 +103,9 @@ class UserModel extends Equatable {
     bool? welcomeBonusClaimed,
     int? freeTextUsed,
     String? role,
+    String? name,
+    String? about,
+    int? age,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -106,6 +122,9 @@ class UserModel extends Equatable {
       welcomeBonusClaimed: welcomeBonusClaimed ?? this.welcomeBonusClaimed,
       freeTextUsed: freeTextUsed ?? this.freeTextUsed,
       role: role ?? this.role,
+      name: name ?? this.name,
+      about: about ?? this.about,
+      age: age ?? this.age,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -125,6 +144,9 @@ class UserModel extends Equatable {
         welcomeBonusClaimed,
         freeTextUsed,
         role,
+        name,
+        about,
+        age,
         createdAt,
         updatedAt,
       ];

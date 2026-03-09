@@ -100,15 +100,16 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
   void _onPaste(String value) {
     debugPrint('📋 [OTP] Pasted value: $value');
     
-    // Only take first 6 digits
-    final digits = value.replaceAll(RegExp(r'[^0-9]'), '').substring(0, value.length > 6 ? 6 : value.length);
+    // Only take first 6 digits (safe against short/empty strings)
+    final rawDigits = value.replaceAll(RegExp(r'[^0-9]'), '');
+    final digits = rawDigits.length > 6 ? rawDigits.substring(0, 6) : rawDigits;
     
     for (int i = 0; i < digits.length && i < 6; i++) {
       _controllers[i].text = digits[i];
     }
     
     // Focus last filled field
-    final lastIndex = digits.length > 6 ? 5 : digits.length - 1;
+    final lastIndex = digits.isEmpty ? -1 : digits.length - 1;
     if (lastIndex >= 0) {
       _focusNodes[lastIndex].requestFocus();
     }
@@ -296,10 +297,11 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
         title: const Text('Verify Phone Number'),
       ),
       padded: false,
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Icon(
@@ -364,7 +366,14 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
                         ),
                       ),
                     ),
-                    onChanged: (value) => _onCodeChanged(index, value),
+                    onChanged: (value) {
+                      // If user pastes the whole OTP into any field, spread it across fields.
+                      if (value.length > 1) {
+                        _onPaste(value);
+                        return;
+                      }
+                      _onCodeChanged(index, value);
+                    },
                     onTap: () {
                       // Select all text when tapped
                       _controllers[index].selection = TextSelection(
@@ -434,6 +443,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
             )
                 .animate()
                 .fadeIn(delay: 800.ms),
+            const SizedBox(height: 24), // Extra bottom padding for keyboard
           ],
         ),
       ),
