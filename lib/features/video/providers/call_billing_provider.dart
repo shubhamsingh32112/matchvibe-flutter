@@ -29,9 +29,10 @@ class CallBillingState {
   final int? totalEarned;
   final int? durationSeconds;
   
-  // 🔥 FIX: Server time sync for accurate timer
-  final int? callStartTime; // Server timestamp when call started
+  // Server time sync for accurate timer (no jumps)
+  final int? callStartTime; // Server timestamp (ms) when call started
   final int? lastServerTimestamp; // Last server timestamp received
+  final int? serverTimeOffset; // serverTime - clientTime when last update received
 
   const CallBillingState({
     this.isActive = false,
@@ -50,6 +51,7 @@ class CallBillingState {
     this.durationSeconds,
     this.callStartTime,
     this.lastServerTimestamp,
+    this.serverTimeOffset,
   });
 
   CallBillingState copyWith({
@@ -69,6 +71,7 @@ class CallBillingState {
     int? durationSeconds,
     int? callStartTime,
     int? lastServerTimestamp,
+    int? serverTimeOffset,
   }) {
     return CallBillingState(
       isActive: isActive ?? this.isActive,
@@ -87,31 +90,23 @@ class CallBillingState {
       durationSeconds: durationSeconds ?? this.durationSeconds,
       callStartTime: callStartTime ?? this.callStartTime,
       lastServerTimestamp: lastServerTimestamp ?? this.lastServerTimestamp,
+      serverTimeOffset: serverTimeOffset ?? this.serverTimeOffset,
     );
   }
-  
-  // 🔥 FIX: Calculate accurate elapsed seconds based on server time
+
+  /// Elapsed seconds using server-authoritative time (no clock skew, no jumps)
   int get accurateElapsedSeconds {
-    if (callStartTime == null || !isActive) {
-      return elapsedSeconds; // Fallback to server-provided value
-    }
-    
-    // Calculate elapsed time based on server start time
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final elapsed = ((now - callStartTime!) / 1000).floor();
-    
-    // Use server-provided elapsedSeconds as authoritative, but interpolate between updates
-    // This ensures accuracy even if socket events are delayed
-    if (lastServerTimestamp != null) {
-      final timeSinceLastUpdate = ((now - lastServerTimestamp!) / 1000).floor();
-      // If last update was recent (< 2 seconds), trust server value + interpolation
-      if (timeSinceLastUpdate < 2) {
-        return elapsedSeconds + timeSinceLastUpdate;
-      }
-    }
-    
-    // If no recent update, use calculated elapsed time
-    return elapsed;
+    if (!isActive) return elapsedSeconds;
+    if (callStartTime == null || serverTimeOffset == null) return elapsedSeconds;
+
+    // Use server time only (avoids client clock skew and timer jumps)
+    // serverNow = clientNow + offset, where offset = serverTimestamp - clientTime at last update
+    final clientNow = DateTime.now().millisecondsSinceEpoch;
+    final serverNow = clientNow + serverTimeOffset!;
+    final elapsed = ((serverNow - callStartTime!) / 1000).floor();
+
+    // Never show less than server; allow +1 for smooth display between 1s updates
+    return elapsed.clamp(elapsedSeconds, elapsedSeconds + 1);
   }
 }
 
@@ -136,7 +131,11 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
       
       final serverTimestamp = (data['serverTimestamp'] as num?)?.toInt();
       final callStartTime = (data['callStartTime'] as num?)?.toInt();
-      
+      final clientNow = DateTime.now().millisecondsSinceEpoch;
+      final serverTimeOffset = serverTimestamp != null
+          ? serverTimestamp - clientNow
+          : null;
+
       state = CallBillingState(
         isActive: true,
         callId: data['callId'] as String?,
@@ -146,16 +145,20 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
         creatorEarnings: (data['earnings'] as num?)?.toDouble() ?? 0,
         callStartTime: callStartTime ?? serverTimestamp,
         lastServerTimestamp: serverTimestamp,
+        serverTimeOffset: serverTimeOffset,
       );
     };
 
     socketService.onBillingUpdate = (data) {
       if (!state.isActive) return;
-      
-      // 🔥 FIX: Sync with server timestamps for accurate timer
+
       final serverTimestamp = (data['serverTimestamp'] as num?)?.toInt();
       final callStartTime = (data['callStartTime'] as num?)?.toInt();
-      
+      final clientNow = DateTime.now().millisecondsSinceEpoch;
+      final serverTimeOffset = serverTimestamp != null
+          ? serverTimestamp - clientNow
+          : null;
+
       state = state.copyWith(
         userCoins: (data['coins'] as num?)?.toInt() ?? state.userCoins,
         elapsedSeconds:
@@ -166,6 +169,7 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
             (data['earnings'] as num?)?.toDouble() ?? state.creatorEarnings,
         callStartTime: callStartTime ?? state.callStartTime,
         lastServerTimestamp: serverTimestamp,
+        serverTimeOffset: serverTimeOffset,
       );
     };
 

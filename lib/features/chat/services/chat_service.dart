@@ -119,4 +119,22 @@ class ChatService {
       rethrow;
     }
   }
+
+  /// Resolve creator call info for video call from chat.
+  /// Used when Stream extraData (mongoId/appRole) is missing so the call button
+  /// can still work. Returns creatorFirebaseUid and creatorMongoId.
+  Future<Map<String, dynamic>?> getCreatorCallInfo(String channelId) async {
+    try {
+      final response = await _apiClient.get(
+        '/chat/channel/$channelId/creator-call-info',
+      );
+      if (response.data['success'] == true) {
+        return response.data['data'] as Map<String, dynamic>?;
+      }
+      return null;
+    } catch (e) {
+      debugPrint('⚠️ [CHAT] getCreatorCallInfo: $e');
+      return null;
+    }
+  }
 }

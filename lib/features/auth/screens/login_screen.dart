@@ -17,7 +17,7 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
-  bool _acceptTerms = false;
+  bool _acceptTerms = true;
   final _referralController = TextEditingController();
   final _referralFocusNode = FocusNode();
 

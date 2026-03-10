@@ -811,7 +811,7 @@ class _BillingOverlay extends StatelessWidget {
                 const Icon(Icons.trending_up, color: Colors.greenAccent, size: 18),
                 const SizedBox(width: 6),
                 Text(
-                  '${billingState.creatorEarnings.toStringAsFixed(1)} coins',
+                  '${billingState.creatorEarnings.truncateToDouble() == billingState.creatorEarnings ? billingState.creatorEarnings.toInt() : billingState.creatorEarnings.toStringAsFixed(1)} coins',
                   style: const TextStyle(
                     color: Colors.greenAccent,
                     fontSize: 14,

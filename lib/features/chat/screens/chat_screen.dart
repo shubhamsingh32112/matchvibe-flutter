@@ -544,13 +544,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
-  /// Whether the call button should be shown (regular user chatting with a creator)
+  /// Whether the video call button should be shown.
+  /// Always shown for regular users when we have the other member (so they can
+  /// start a call). Creator mongoId is resolved on tap if missing (Stream extraData).
   bool get _showCallButton {
-    if (_isCreator) return false; // Creators use _showCreatorCallButton instead
-    if (_otherUserFirebaseUid == null || _otherUserMongoId == null) return false;
-    // Only show if the other user is a creator
-    final otherRole = _otherUserAppRole;
-    return otherRole == 'creator' || otherRole == 'admin';
+    if (_isCreator) return false; // Creators use different flow
+    return _otherUserFirebaseUid != null;
   }
 
 
@@ -782,16 +781,45 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Future<void> _initiateVideoCall() async {
     if (_isInitiatingCall) return;
-    if (_otherUserFirebaseUid == null || _otherUserMongoId == null) return;
+    if (_otherUserFirebaseUid == null) return;
+    if (_isCreator) return;
 
-    // Only regular users can initiate calls (creators cannot call users)
-    if (_isCreator) {
-      return;
+    String? creatorFirebaseUid = _otherUserFirebaseUid;
+    String? creatorMongoId = _otherUserMongoId;
+
+    // Resolve creator mongoId from backend if missing (e.g. Stream extraData not set)
+    if (creatorMongoId == null) {
+      try {
+        final info = await _chatService.getCreatorCallInfo(widget.channelId);
+        if (info != null && mounted) {
+          creatorFirebaseUid = info['creatorFirebaseUid'] as String?;
+          creatorMongoId = info['creatorMongoId'] as String?;
+          if (creatorMongoId != null) {
+            setState(() {
+              _otherUserMongoId = creatorMongoId;
+              if (creatorFirebaseUid != null) _otherUserFirebaseUid = creatorFirebaseUid;
+            });
+          }
+        }
+      } catch (e) {
+        debugPrint('⚠️ [CHAT] Failed to resolve creator call info: $e');
+      }
+      if (creatorMongoId == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Unable to start call. Please try again.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
     }
 
     // Check if creator is online
     final availabilityMap = ref.read(creatorAvailabilityProvider);
-    final isCreatorOnline = (availabilityMap[_otherUserFirebaseUid!] ??
+    final isCreatorOnline = (availabilityMap[creatorFirebaseUid!] ??
             CreatorAvailability.busy) ==
         CreatorAvailability.online;
 
@@ -845,12 +873,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     setState(() => _isInitiatingCall = true);
 
     try {
-      // User calling creator
       await ref
           .read(callConnectionControllerProvider.notifier)
           .startUserCall(
-            creatorFirebaseUid: _otherUserFirebaseUid!,
-            creatorMongoId: _otherUserMongoId!,
+            creatorFirebaseUid: creatorFirebaseUid,
+            creatorMongoId: creatorMongoId,
             creatorImageUrl: _otherUserImage,
           );
     } finally {
@@ -1038,8 +1065,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   icon: const Icon(Icons.flag_outlined),
                   tooltip: 'Report Creator',
                 ),
-              // Always show video call button if chatting with a creator (for regular users)
-              if (!_isCreator && (_otherUserAppRole == 'creator' || _otherUserAppRole == 'admin'))
+              // Video call button: always visible for users when we have the other member
+              if (_showCallButton)
                 _buildCallAction(colorScheme, isCreatorOnline),
             ],
           ),
