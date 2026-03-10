@@ -17,6 +17,7 @@ class UserModel extends Equatable {
   final String? name; // Creator name
   final String? about; // Creator about/bio
   final int? age; // Creator age
+  final String? referralCode; // User's unique 6-char referral code (e.g. JO4832)
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -36,6 +37,7 @@ class UserModel extends Equatable {
     this.name,
     this.about,
     this.age,
+    this.referralCode,
     this.createdAt,
     this.updatedAt,
   });
@@ -59,6 +61,7 @@ class UserModel extends Equatable {
       name: json['name'] as String?,
       about: json['about'] as String?,
       age: json['age'] != null ? json['age'] as int? : null,
+      referralCode: json['referralCode'] as String?,
       createdAt: json['createdAt'] != null
           ? DateTime.parse(json['createdAt'] as String)
           : null,
@@ -85,6 +88,7 @@ class UserModel extends Equatable {
       'name': name,
       'about': about,
       'age': age,
+      'referralCode': referralCode,
       'createdAt': createdAt?.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
     };
@@ -106,6 +110,7 @@ class UserModel extends Equatable {
     String? name,
     String? about,
     int? age,
+    String? referralCode,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -125,6 +130,7 @@ class UserModel extends Equatable {
       name: name ?? this.name,
       about: about ?? this.about,
       age: age ?? this.age,
+      referralCode: referralCode ?? this.referralCode,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -147,6 +153,7 @@ class UserModel extends Equatable {
         name,
         about,
         age,
+        referralCode,
         createdAt,
         updatedAt,
       ];

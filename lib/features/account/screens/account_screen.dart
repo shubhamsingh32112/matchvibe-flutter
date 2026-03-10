@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -15,6 +16,7 @@ import '../../wallet/screens/transactions_screen.dart';
 import 'help_support_screen.dart';
 import '../../support/screens/support_screen.dart';
 import 'account_settings_screen.dart';
+import '../../referral/screens/referral_screen.dart';
 
 class AccountScreen extends ConsumerStatefulWidget {
   const AccountScreen({super.key});
@@ -159,6 +161,15 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     );
   }
 
+  void _showReferralBottomSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const ReferralBottomSheet(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
@@ -220,6 +231,60 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                                           fontWeight: FontWeight.w600,
                                         ),
                                   ),
+                                  // Referral code (if available)
+                                  if (user?.referralCode != null &&
+                                      user!.referralCode!.isNotEmpty) ...[
+                                    const SizedBox(height: 8),
+                                    GestureDetector(
+                                      onTap: () async {
+                                        await Clipboard.setData(
+                                          ClipboardData(text: user.referralCode!),
+                                        );
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(
+                                                content: Text('Referral code copied')),
+                                          );
+                                        }
+                                      },
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 12, vertical: 6),
+                                        decoration: BoxDecoration(
+                                          color: scheme.surfaceContainerHigh,
+                                          borderRadius: BorderRadius.circular(20),
+                                          border: Border.all(
+                                              color: scheme.outlineVariant),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              Icons.card_giftcard,
+                                              size: 16,
+                                              color: scheme.primary,
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              user.referralCode!,
+                                              style: TextStyle(
+                                                color: scheme.onSurface,
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w600,
+                                                letterSpacing: 1,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Icon(
+                                              Icons.copy,
+                                              size: 14,
+                                              color: scheme.onSurfaceVariant,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
 
                                   // Creator Badge
                                   if (user?.role == 'creator') ...[
@@ -284,6 +349,12 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                             icon: Icons.account_balance_wallet_outlined,
                             title: 'Wallet',
                             onTap: () => _showWalletBottomSheet(context),
+                          ),
+                          _divider(scheme),
+                          _buildMenuItem(
+                            icon: Icons.card_giftcard_outlined,
+                            title: 'Referral',
+                            onTap: () => _showReferralBottomSheet(context),
                           ),
                           _divider(scheme),
                           _buildMenuItem(

@@ -7,6 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/services/availability_socket_service.dart';
+import '../../../core/services/device_fingerprint_service.dart';
+import '../../../core/services/install_id_service.dart';
 import '../../../shared/models/user_model.dart';
 import '../../chat/services/chat_service.dart';
 
@@ -61,6 +63,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
   final ApiClient _apiClient = ApiClient();
   bool _isInitializing = false;
   
+  // Referral: optional code to apply on first signup (cleared after sync)
+  String? _pendingReferralCode;
+
   // 🔥 FIX: Guards to prevent duplicate operations
   bool _otpVerified = false;  // Prevents multiple OTP verify attempts
   bool _isSyncingToBackend = false;  // Prevents duplicate backend syncs
@@ -273,8 +278,23 @@ class AuthNotifier extends StateNotifier<AuthState> {
       debugPrint('   🌐 Full URL: ${AppConstants.baseUrl}/auth/login');
       debugPrint('   🔑 Auth token: Present (${token.length} chars)');
       debugPrint('   💡 Make sure backend is running and accessible');
+      // Send all identities we know (deviceFingerprint, etc.) for bonus eligibility check
+      final Map<String, dynamic> loginBody = {};
+      try {
+        if (await DeviceFingerprintService.isFastLoginAllowed()) {
+          final fp = await DeviceFingerprintService.getDeviceFingerprint();
+          if (fp.isNotEmpty) loginBody['deviceFingerprint'] = fp;
+        }
+      } catch (_) {
+        // Emulator or unsupported platform — omit deviceFingerprint
+      }
+      if (_pendingReferralCode != null &&
+          _pendingReferralCode!.trim().length == 6) {
+        loginBody['referralCode'] = _pendingReferralCode!.trim().toUpperCase();
+        _pendingReferralCode = null; // Clear after use
+      }
       final apiStartTime = DateTime.now();
-      final response = await _apiClient.post('/auth/login');
+      final response = await _apiClient.post('/auth/login', data: loginBody.isNotEmpty ? loginBody : null);
       final apiDuration = DateTime.now().difference(apiStartTime);
       debugPrint('📥 [AUTH] Backend response received');
       debugPrint('   ⏱️  API call duration: ${apiDuration.inMilliseconds}ms');
@@ -311,6 +331,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
             name: creatorData['name'] as String?, // Creator name
             about: creatorData['about'] as String?, // Creator about
             age: creatorData['age'] != null ? creatorData['age'] as int? : null, // Creator age
+            referralCode: creatorData['referralCode'] as String?,
             createdAt: creatorData['createdAt'] != null
                 ? DateTime.parse(creatorData['createdAt'] as String)
                 : null,
@@ -462,6 +483,95 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
+  /// Set pending referral code to apply on next signup (login/fast-login).
+  void setPendingReferralCode(String? code) {
+    _pendingReferralCode = code?.trim().isNotEmpty == true ? code!.trim().toUpperCase() : null;
+  }
+
+  /// Sign in with Fast Login (device-based; no Google account).
+  /// Backend returns a Firebase custom token; we sign in with it so the same
+  /// Firebase UID identity model applies (Stream, sockets, calls unchanged).
+  /// [referralCode] optional 6-char code to apply for new users.
+  Future<void> signInWithFastLogin({String? referralCode}) async {
+    try {
+      debugPrint('═══════════════════════════════════════════════════════');
+      debugPrint('⚡ [FAST LOGIN] Starting Fast Login');
+      debugPrint('═══════════════════════════════════════════════════════');
+
+      if (_auth == null) {
+        debugPrint('❌ [FAST LOGIN] Firebase not initialized');
+        state = state.copyWith(error: 'Firebase not initialized');
+        return;
+      }
+
+      final allowed = await DeviceFingerprintService.isFastLoginAllowed();
+      if (!allowed) {
+        debugPrint('❌ [FAST LOGIN] Emulator detected - Fast Login disabled');
+        state = state.copyWith(
+          error: 'Fast Login is not available on emulators. Please use Google Sign-In.',
+        );
+        return;
+      }
+
+      state = state.copyWith(isLoading: true, error: null);
+
+      final deviceFingerprint = await DeviceFingerprintService.getDeviceFingerprint();
+      final installId = await InstallIdService.getInstallId();
+
+      final body = <String, dynamic>{
+        'deviceFingerprint': deviceFingerprint,
+        'installId': installId,
+      };
+      final refCode = referralCode ?? _pendingReferralCode;
+      if (refCode != null && refCode.trim().length == 6) {
+        body['referralCode'] = refCode.trim().toUpperCase();
+      }
+
+      // Call fast-login without auth token (unauthenticated endpoint)
+      final dio = Dio(
+        BaseOptions(
+          baseUrl: AppConstants.baseUrl,
+          connectTimeout: const Duration(seconds: 15),
+          receiveTimeout: const Duration(seconds: 30),
+          headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+          validateStatus: (status) => status != null && status >= 200 && status < 300,
+        ),
+      );
+      final response = await dio.post(
+        '/auth/fast-login',
+        data: body,
+      );
+
+      final data = response.data;
+      if (data is! Map<String, dynamic> || data['success'] != true) {
+        final msg = (data is Map && data['error'] != null) ? data['error'].toString() : 'Fast login failed';
+        state = state.copyWith(isLoading: false, error: msg);
+        return;
+      }
+
+      final inner = data['data'];
+      final token = inner is Map ? inner['firebaseCustomToken'] as String? : null;
+      if (token == null || token.isEmpty) {
+        state = state.copyWith(isLoading: false, error: 'Invalid response from server');
+        return;
+      }
+
+      await _auth!.signInWithCustomToken(token);
+      debugPrint('✅ [FAST LOGIN] Sign-in with custom token successful');
+      state = state.copyWith(isLoading: false);
+      // Auth state listener will trigger _syncUserToBackend
+    } on DioException catch (e) {
+      debugPrint('❌ [FAST LOGIN] Dio error: $e');
+      final message = e.response?.data is Map && (e.response!.data as Map)['error'] != null
+          ? (e.response!.data as Map)['error'].toString()
+          : (e.message ?? 'Network error. Please try again.');
+      state = state.copyWith(isLoading: false, error: message);
+    } catch (e) {
+      debugPrint('❌ [FAST LOGIN] Error: $e');
+      state = state.copyWith(isLoading: false, error: e.toString());
+    }
+  }
+
   /// Sign in with Google (primary auth method)
   Future<void> signInWithGoogle() async {
     try {
@@ -494,6 +604,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       }
 
       state = state.copyWith(isLoading: true, error: null);
+      // Note: _pendingReferralCode is set by login screen before calling signInWithGoogle
 
       final googleSignIn = GoogleSignIn();
       final googleUser = await googleSignIn.signIn();
@@ -841,6 +952,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
             name: responseData['name'] as String?, // Creator name
             about: responseData['about'] as String?, // Creator about
             age: responseData['age'] != null ? responseData['age'] as int? : null, // Creator age
+            referralCode: responseData['referralCode'] as String?,
             createdAt: responseData['createdAt'] != null
                 ? DateTime.parse(responseData['createdAt'] as String)
                 : null,

@@ -18,6 +18,39 @@ class LoginScreen extends ConsumerStatefulWidget {
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _acceptTerms = false;
+  final _referralController = TextEditingController();
+  final _referralFocusNode = FocusNode();
+
+  @override
+  void dispose() {
+    _referralController.dispose();
+    _referralFocusNode.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleFastLogin() async {
+    debugPrint('═══════════════════════════════════════════════════════');
+    debugPrint('🖱️  [UI] Fast Login button pressed');
+    debugPrint('═══════════════════════════════════════════════════════');
+
+    if (!_acceptTerms) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please accept the terms and conditions')),
+      );
+      return;
+    }
+
+    final refCode = _referralController.text.trim();
+    if (refCode.isNotEmpty && refCode.length != 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Referral code must be 6 characters (e.g. JO4832)')),
+      );
+      return;
+    }
+
+    ref.read(authProvider.notifier).setPendingReferralCode(refCode.isEmpty ? null : refCode);
+    await ref.read(authProvider.notifier).signInWithFastLogin();
+  }
 
   Future<void> _handleGoogleLogin() async {
     debugPrint('═══════════════════════════════════════════════════════');
@@ -31,6 +64,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       return;
     }
 
+    final refCode = _referralController.text.trim();
+    if (refCode.isNotEmpty && refCode.length != 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Referral code must be 6 characters (e.g. JO4832)')),
+      );
+      return;
+    }
+
+    ref.read(authProvider.notifier).setPendingReferralCode(refCode.isEmpty ? null : refCode);
     await ref.read(authProvider.notifier).signInWithGoogle();
   }
 
@@ -158,16 +200,39 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               ),
               const SizedBox(height: AppSpacing.lg),
               Text(
-                'Sign in with your Google account to continue.',
+                'Sign in with Fast Login or Google to continue.',
                 style: textTheme.bodyMedium?.copyWith(
                   color: scheme.onSurfaceVariant,
                 ),
                 textAlign: TextAlign.center,
               ),
+              const SizedBox(height: AppSpacing.lg),
+              // Referral code (optional)
+              TextField(
+                controller: _referralController,
+                focusNode: _referralFocusNode,
+                decoration: InputDecoration(
+                  labelText: 'Referral Code (optional)',
+                  hintText: 'e.g. JO4832',
+                  hintStyle: TextStyle(color: scheme.onSurfaceVariant.withOpacity(0.6)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: scheme.outline),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                ),
+                textCapitalization: TextCapitalization.characters,
+                maxLength: 6,
+                onChanged: (v) {
+                  if (v.length <= 6) {
+                    setState(() {});
+                  }
+                },
+              ),
               const SizedBox(height: AppSpacing.xl),
-              // Google Sign-In button
+              // Fast Login (primary — one tap, no account picker)
               OutlinedButton.icon(
-                onPressed: (authState.isLoading || !_acceptTerms) ? null : _handleGoogleLogin,
+                onPressed: (authState.isLoading || !_acceptTerms) ? null : _handleFastLogin,
                 icon: authState.isLoading
                     ? SizedBox(
                         width: 20,
@@ -177,9 +242,27 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           color: scheme.primary,
                         ),
                       )
-                    : Icon(Icons.g_mobiledata, size: 28, color: scheme.primary),
+                    : Icon(Icons.flash_on, size: 24, color: scheme.primary),
                 label: Text(
-                  authState.isLoading ? 'Signing in...' : 'Continue with Google',
+                  authState.isLoading ? 'Signing in...' : 'Continue with Fast Login',
+                  style: textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: scheme.onSurface,
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
+                  side: BorderSide(color: scheme.outline),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              // Google Sign-In
+              OutlinedButton.icon(
+                onPressed: (authState.isLoading || !_acceptTerms) ? null : _handleGoogleLogin,
+                icon: Icon(Icons.g_mobiledata, size: 28, color: scheme.primary),
+                label: Text(
+                  'Continue with Google',
                   style: textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                     color: scheme.onSurface,
