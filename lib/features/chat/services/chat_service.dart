@@ -120,6 +120,24 @@ class ChatService {
     }
   }
 
+  /// Get the other channel member's display info for chat header.
+  /// Used when Stream client state is incomplete (e.g. members not yet loaded).
+  /// Returns displayName, image, firebaseUid, mongoId, appRole.
+  Future<Map<String, dynamic>?> getOtherMemberInfo(String channelId) async {
+    try {
+      final response = await _apiClient.get(
+        '/chat/channel/$channelId/other-member',
+      );
+      if (response.data['success'] == true) {
+        return response.data['data'] as Map<String, dynamic>?;
+      }
+      return null;
+    } catch (e) {
+      debugPrint('⚠️ [CHAT] getOtherMemberInfo: $e');
+      return null;
+    }
+  }
+
   /// Resolve creator call info for video call from chat.
   /// Used when Stream extraData (mongoId/appRole) is missing so the call button
   /// can still work. Returns creatorFirebaseUid and creatorMongoId.

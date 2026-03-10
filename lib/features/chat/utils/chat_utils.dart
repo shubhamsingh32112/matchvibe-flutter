@@ -33,45 +33,46 @@ String extractDisplayName(User? user) {
 }
 
 /// Extracts the other user from a channel (the one that's not the current user).
-/// Returns null if not found or if there are not exactly 2 members.
+/// Returns null if not found, if there are not exactly 2 members, or if the
+/// "other" user would be the current user (prevents showing own name).
+///
+/// BUG FIX: Previously, orElse: () => memberList.first returned the current user
+/// when only one member was in the list (pagination/sync delay), causing users
+/// to see their own name instead of the creator's.
 User? getOtherUserFromChannel(Channel channel, String currentUserId) {
   final channelState = channel.state;
   if (channelState == null) return null;
-  
-  // Access members - in Stream Chat Flutter, channelState.members is a List<Member>
-  // Handle runtime type variations safely
+
+  // Access members - Stream Chat Flutter uses List<Member>
   final members = channelState.members;
-  List<Member> memberList;
-  
+  if (members.isEmpty) return null;
+
+  final memberList = List<Member>.from(members);
+
+  if (memberList.isEmpty) return null;
+
+  // Find the member that is NOT the current user.
+  // CRITICAL: Do NOT use orElse that returns memberList.first — that would
+  // return the current user when only one member exists, causing "own name" bug.
+  Member? otherMember;
   try {
-    // channelState.members is typically a List<Member>, but handle edge cases
-    final dynamicMembers = members as dynamic;
-    
-    if (dynamicMembers is List) {
-      // Direct list access (most common case)
-      memberList = dynamicMembers.cast<Member>();
-    } else if (dynamicMembers is Map) {
-      // Map access (fallback for edge cases)
-      memberList = (dynamicMembers.values as Iterable).cast<Member>().toList();
-    } else {
-      // Last resort: try to convert to list
-      final iterable = dynamicMembers as Iterable;
-      memberList = iterable.cast<Member>().toList();
-    }
-  } catch (e) {
-    debugPrint('⚠️ [CHAT] Failed to parse members: $e (type: ${members.runtimeType})');
+    otherMember = memberList.firstWhere((m) => m.userId != currentUserId);
+  } catch (_) {
+    // No match — all members might be current user (sync issue)
+    debugPrint('⚠️ [CHAT] No other member found; members may be incomplete');
     return null;
   }
-  
-  if (memberList.isEmpty) return null;
-  
-  // Get the other member (not the current user)
-  final otherMember = memberList.firstWhere(
-    (m) => m.userId != currentUserId,
-    orElse: () => memberList.first,
-  );
-  
-  return otherMember.user;
+
+  final otherUser = otherMember.user;
+  if (otherUser == null) return null;
+
+  // Defensive: never return the current user as "other"
+  if (otherUser.id == currentUserId) {
+    debugPrint('⚠️ [CHAT] getOtherUserFromChannel would return current user; rejecting');
+    return null;
+  }
+
+  return otherUser;
 }
 
 /// Gets the display name for the other user in a channel.

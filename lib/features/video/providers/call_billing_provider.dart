@@ -94,7 +94,8 @@ class CallBillingState {
     );
   }
 
-  /// Elapsed seconds using server-authoritative time (no clock skew, no jumps)
+  /// Elapsed seconds using server-authoritative time (no clock skew, no jumps).
+  /// Each new call starts at 0 and increments by 1 second; only events for the current callId update state.
   int get accurateElapsedSeconds {
     if (!isActive) return elapsedSeconds;
     if (callStartTime == null || serverTimeOffset == null) return elapsedSeconds;
@@ -103,7 +104,10 @@ class CallBillingState {
     // serverNow = clientNow + offset, where offset = serverTimestamp - clientTime at last update
     final clientNow = DateTime.now().millisecondsSinceEpoch;
     final serverNow = clientNow + serverTimeOffset!;
-    final elapsed = ((serverNow - callStartTime!) / 1000).floor();
+    int elapsed = ((serverNow - callStartTime!) / 1000).floor();
+
+    // Guard against clock skew (negative or way-off elapsed)
+    if (elapsed < 0) return elapsedSeconds;
 
     // Never show less than server; allow +1 for smooth display between 1s updates
     return elapsed.clamp(elapsedSeconds, elapsedSeconds + 1);
@@ -141,6 +145,7 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
         callId: data['callId'] as String?,
         userCoins: (data['coins'] as num?)?.toInt() ?? 0,
         pricePerSecond: (data['pricePerSecond'] as num?)?.toDouble() ?? 0,
+        elapsedSeconds: 0,
         remainingSeconds: (data['maxSeconds'] as num?)?.toInt() ?? 0,
         creatorEarnings: (data['earnings'] as num?)?.toDouble() ?? 0,
         callStartTime: callStartTime ?? serverTimestamp,
@@ -151,6 +156,13 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
 
     socketService.onBillingUpdate = (data) {
       if (!state.isActive) return;
+
+      // Ignore updates for a different call (e.g. delayed event from previous call)
+      final eventCallId = data['callId'] as String?;
+      if (eventCallId == null || eventCallId != state.callId) {
+        debugPrint('💰 [BILLING] Ignoring billing:update for different call: event=$eventCallId current=${state.callId}');
+        return;
+      }
 
       final serverTimestamp = (data['serverTimestamp'] as num?)?.toInt();
       final callStartTime = (data['callStartTime'] as num?)?.toInt();
@@ -175,6 +187,12 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
 
     socketService.onBillingSettled = (data) {
       debugPrint('💰 [BILLING] Settled: $data');
+      // Only apply settlement for the current call; ignore stale settled from a previous call
+      final eventCallId = data['callId'] as String?;
+      if (eventCallId == null || eventCallId != state.callId) {
+        debugPrint('💰 [BILLING] Ignoring billing:settled for different call: event=$eventCallId current=${state.callId}');
+        return;
+      }
       state = state.copyWith(
         isActive: false,
         settled: true,
@@ -187,6 +205,12 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
 
     socketService.onCallForceEnd = (data) {
       debugPrint('🚨 [BILLING] Force end: $data');
+      // Only apply force-end for the current call; ignore stale event from a previous call
+      final eventCallId = data['callId'] as String?;
+      if (eventCallId == null || eventCallId != state.callId) {
+        debugPrint('🚨 [BILLING] Ignoring call:force-end for different call: event=$eventCallId current=${state.callId}');
+        return;
+      }
       state = state.copyWith(
         forceEnded: true,
         forceEndReason: data['reason'] as String?,

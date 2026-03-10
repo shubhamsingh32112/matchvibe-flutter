@@ -163,34 +163,72 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
       // Extract other user's name using helper function (prioritizes username)
       final currentUserId = client.state.currentUser!.id;
-      final otherUser = getOtherUserFromChannel(channel, currentUserId);
+      User? otherUser = getOtherUserFromChannel(channel, currentUserId);
+
+      // Fallback: when Stream state is incomplete, fetch from backend
+      if (otherUser == null) {
+        debugPrint('📞 [CHAT] Stream state incomplete; fetching other member from backend');
+        final fallback = await _chatService.getOtherMemberInfo(widget.channelId);
+        if (fallback != null && mounted) {
+          final displayName = fallback['displayName'] as String?;
+          final image = fallback['image'] as String?;
+          final firebaseUid = fallback['firebaseUid'] as String?;
+          final mongoId = fallback['mongoId'] as String?;
+          final creatorMongoId = fallback['creatorMongoId'] as String?;
+          final appRole = fallback['appRole'] as String?;
+          final authState = ref.read(authProvider);
+          final isCreator = authState.user?.role == 'creator' ||
+              authState.user?.role == 'admin';
+          if (mounted) {
+            setState(() {
+              _channel = channel;
+              _otherUserName =
+                  displayName?.trim().isNotEmpty == true ? displayName : 'User';
+              _otherUserImage = image;
+              _otherUserFirebaseUid = firebaseUid;
+              // Prefer creatorMongoId (Creator._id) for video call when other is creator
+              _otherUserMongoId = creatorMongoId ?? mongoId;
+              _otherUserAppRole = appRole;
+              _isCreator = isCreator;
+            });
+            if (!isCreator) {
+              _refreshQuota();
+              if (appRole == 'creator' || appRole == 'admin') {
+                _checkIfCreatorBlocked();
+              }
+            }
+            return;
+          }
+        }
+      }
+
       final otherUserName = extractDisplayName(otherUser);
       final otherUserImage = otherUser?.image;
-      
-      // Get other member's userId (Firebase UID) - need to access members properly
+
+      // Get other member's userId (Firebase UID)
       final channelState = channel.state;
       String? otherUserFirebaseUid;
       if (channelState != null) {
-        // channelState.members is a List<Member>, not a Map
         final members = channelState.members;
         List<Member> memberList;
-        
         try {
           memberList = members.cast<Member>();
         } catch (e) {
           debugPrint('⚠️ [CHAT] Failed to parse members: $e');
           memberList = [];
         }
-        
         if (memberList.isNotEmpty) {
-          final otherMember = memberList.firstWhere(
-            (m) => m.userId != currentUserId,
-            orElse: () => memberList.first,
-          );
-          otherUserFirebaseUid = otherMember.userId;
+          try {
+            final otherMember = memberList.firstWhere(
+              (m) => m.userId != currentUserId,
+            );
+            otherUserFirebaseUid = otherMember.userId;
+          } catch (_) {
+            // No other member in list
+          }
         }
       }
-      
+
       final otherUserMongoId = otherUser?.extraData['mongoId'] as String?;
       final otherUserAppRole = otherUser?.extraData['appRole'] as String?;
 
