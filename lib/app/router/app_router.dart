@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../features/auth/screens/splash_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
-// OTP screen - commented out (phone login disabled, using Google Sign-In only)
-// import '../../features/auth/screens/otp_screen.dart';
+import '../../features/auth/screens/otp_screen.dart';
 import '../../features/onboarding/screens/gender_selection_screen.dart';
 import '../../features/home/screens/home_screen.dart';
 import '../../features/home/screens/favorite_creators_screen.dart';
@@ -46,11 +45,20 @@ final appRouter = GoRouter(
       path: '/login',
       builder: (context, state) => const LoginScreen(),
     ),
-          // OTP route - redirect to login (phone login disabled, Google Sign-In only)
           GoRoute(
             path: '/otp',
-            redirect: (_, __) => '/login',
-            builder: (context, state) => const LoginScreen(),
+            builder: (context, state) {
+              final extra = state.extra as Map<String, String>?;
+              if (extra == null ||
+                  extra['phoneNumber'] == null ||
+                  extra['verificationId'] == null) {
+                return const LoginScreen();
+              }
+              return OtpScreen(
+                phoneNumber: extra['phoneNumber']!,
+                verificationId: extra['verificationId']!,
+              );
+            },
           ),
           GoRoute(
             path: '/gender',

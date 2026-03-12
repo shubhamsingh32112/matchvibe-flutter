@@ -6,16 +6,16 @@ import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/api/api_client.dart';
+import '../../chat/services/chat_service.dart';
 import '../../../core/services/availability_socket_service.dart';
 import '../../../core/services/device_fingerprint_service.dart';
 import '../../../core/services/install_id_service.dart';
 import '../../../shared/models/user_model.dart';
-import '../../chat/services/chat_service.dart';
+
 
 final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
   return AuthNotifier();
 });
-
 class AuthState {
   final User? firebaseUser;
   final UserModel? user;
@@ -634,29 +634,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  /// Stub: Phone login disabled (use signInWithGoogle)
-  /// Kept for backward compatibility with otp_screen.dart
+  /// Phone number login - sends OTP via Firebase
   Future<void> signInWithPhone(String phoneNumber) async {
-    state = state.copyWith(
-      error: 'Phone login is disabled. Please use Google Sign-In.',
-      isLoading: false,
-    );
+    await _signInWithPhoneImpl(phoneNumber);
   }
 
-  /// Stub: OTP verification disabled (use signInWithGoogle)
-  /// Kept for backward compatibility with otp_screen.dart
+  /// OTP verification - completes phone sign-in after code is sent
   Future<void> verifyOtp(String verificationId, String otp) async {
-    state = state.copyWith(
-      error: 'Phone login is disabled. Please use Google Sign-In.',
-      isLoading: false,
-    );
+    await _verifyOtpImpl(verificationId, otp);
   }
 
-  // ─────────────────────────────────────────────────────────────────
-  // PHONE LOGIN FULL IMPLEMENTATION (COMMENTED OUT)
-  // Uncomment signInWithPhone + verifyOtp above and restore these to re-enable
-  // ─────────────────────────────────────────────────────────────────
-  /*
   Future<void> _signInWithPhoneImpl(String phoneNumber) async {
     try {
       debugPrint('═══════════════════════════════════════════════════════');
@@ -788,7 +775,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
             case 'missing-client-identifier':
             case 'captcha-check-failed':
               friendly = kDebugMode
-                  ? 'Phone verification blocked for this build. Add release SHA-256/SHA-1 to Firebase (Android app: com.example.zztherapy), then retry.'
+                  ? 'Phone verification blocked for this build. Add release SHA-256/SHA-1 to Firebase (Android app: com.matchvibe.app), then retry.'
                   : 'Verification is temporarily unavailable. Please try again later.';
               break;
             default:
@@ -838,43 +825,148 @@ class AuthNotifier extends StateNotifier<AuthState> {
       state = state.copyWith(isLoading: false, error: e.toString());
     }
   }
-  */
+
+  Future<void> _verifyOtpImpl(String verificationId, String otp) async {
+    try {
+      debugPrint('🔐 [OTP] Starting OTP verification...');
+      debugPrint('   🆔 Verification ID: $verificationId');
+      debugPrint('   🔢 OTP: $otp');
+
+      if (_otpVerified) {
+        debugPrint('⏭️ [OTP] Already verified, skipping duplicate');
+        return;
+      }
+
+      if (_auth == null) {
+        debugPrint('❌ [OTP] Firebase not initialized');
+        state = state.copyWith(error: 'Firebase not initialized');
+        return;
+      }
+
+      _otpVerified = true;
+      state = state.copyWith(isLoading: true, error: null);
+
+      final credential = PhoneAuthProvider.credential(
+        verificationId: verificationId,
+        smsCode: otp,
+      );
+
+      debugPrint('🔑 [OTP] Credential created, signing in...');
+
+      UserCredential? userCredential;
+      try {
+        userCredential = await _auth!.signInWithCredential(credential);
+      } catch (signInError) {
+        final currentUser = _auth!.currentUser;
+        if (currentUser != null) {
+          debugPrint('⚠️  [OTP] Sign in had error but user is authenticated');
+          state = state.copyWith(
+            verificationId: null,
+            resendToken: null,
+            phoneNumber: null,
+            isLoading: false,
+          );
+          return;
+        }
+        rethrow;
+      }
+
+      debugPrint('✅ [OTP] Sign in successful');
+
+      if (userCredential.user != null) {
+        state = state.copyWith(
+          verificationId: null,
+          resendToken: null,
+          phoneNumber: null,
+          isLoading: false,
+        );
+      }
+    } catch (e) {
+      final currentUser = _auth?.currentUser;
+      if (currentUser != null) {
+        state = state.copyWith(
+          verificationId: null,
+          resendToken: null,
+          phoneNumber: null,
+          isLoading: false,
+          error: null,
+        );
+        return;
+      }
+
+      _otpVerified = false;
+      debugPrint('❌ [OTP] Verification error: $e');
+      if (e is FirebaseAuthException) {
+        String errorMessage = e.message ?? 'Verification failed. Please try again.';
+        switch (e.code) {
+          case 'invalid-verification-code':
+            errorMessage = 'Invalid verification code. Please check and try again.';
+            break;
+          case 'session-expired':
+            errorMessage = 'Verification code expired. Please request a new code.';
+            state = state.copyWith(
+              verificationId: null,
+              resendToken: null,
+              phoneNumber: null,
+              isLoading: false,
+              error: errorMessage,
+            );
+            return;
+          case 'invalid-verification-id':
+            errorMessage = 'Invalid verification session. Please request a new code.';
+            state = state.copyWith(
+              verificationId: null,
+              resendToken: null,
+              phoneNumber: null,
+              isLoading: false,
+              error: errorMessage,
+            );
+            return;
+          default:
+            break;
+        }
+        state = state.copyWith(isLoading: false, error: errorMessage);
+      } else {
+        state = state.copyWith(
+          isLoading: false,
+          error: 'Verification failed. Please try again.',
+        );
+      }
+    }
+  }
 
   Future<void> signOut() async {
     try {
       debugPrint('🚪 [AUTH] Starting sign out...');
-      
-      // 🔥 FIX 5: Disconnect availability socket on logout
-      // This emits offline and cleans up the connection
+
       try {
         AvailabilitySocketService.instance.onLogout();
         debugPrint('✅ [AUTH] Availability socket disconnected');
       } catch (e) {
         debugPrint('⚠️  [AUTH] Availability socket disconnect error (non-critical): $e');
       }
-      
+
       if (_auth != null) {
         final currentUser = _auth!.currentUser;
         if (currentUser != null) {
           debugPrint('   🆔 Signing out user: ${currentUser.uid}');
           debugPrint('   📧 Email: ${currentUser.email ?? "N/A"}');
         }
-        
+
         await _auth!.signOut();
         debugPrint('✅ [AUTH] Firebase sign out successful');
       }
-      
+
       debugPrint('🗑️  [AUTH] Clearing local storage...');
       final prefs = await SharedPreferences.getInstance();
       await prefs.clear();
       debugPrint('✅ [AUTH] Local storage cleared');
-      
-      // 🔥 Reset ALL guards on sign out
+
       _otpVerified = false;
       _isSyncingToBackend = false;
       _lastSyncedUid = null;
       _phoneVerificationInProgress = false;
-      
+
       state = AuthState();
       debugPrint('✅ [AUTH] Sign out completed');
     } catch (e) {
@@ -899,6 +991,30 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(user: updatedUser);
     
     debugPrint('✅ [AUTH] Coins updated optimistically');
+  }
+
+  /// Refresh Firebase ID token and save to SharedPreferences.
+  /// Call on app resume to avoid 401s from token expiration (~1hr lifetime).
+  /// Returns true if token was refreshed successfully.
+  Future<bool> refreshAuthToken() async {
+    if (_auth == null) return false;
+    final firebaseUser = _auth!.currentUser;
+    if (firebaseUser == null) return false;
+    try {
+      final token = await firebaseUser.getIdToken(true);
+      if (token == null) return false;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(AppConstants.keyAuthToken, token);
+      if (kDebugMode) {
+        debugPrint('🔑 [AUTH] Firebase ID token refreshed proactively');
+      }
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('⚠️  [AUTH] Failed to refresh auth token: $e');
+      }
+      return false;
+    }
   }
 
   /// Refresh user data from backend (gets latest coins balance, etc.)
@@ -979,163 +1095,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
 
   // OTP verification - commented out (phone login disabled)
-  /*
-  Future<void> verifyOtp(String verificationId, String otp) async {
-    try {
-      debugPrint('🔐 [OTP] Starting OTP verification...');
-      debugPrint('   🆔 Verification ID: $verificationId');
-      debugPrint('   🔢 OTP: $otp');
-      
-      // 🔥 CRITICAL GUARD: Prevent double verification
-      if (_otpVerified) {
-        debugPrint('⏭️ [OTP] Already verified, skipping duplicate');
-        return;
-      }
-      
-      if (_auth == null) {
-        debugPrint('❌ [OTP] Firebase not initialized');
-        state = state.copyWith(error: 'Firebase not initialized');
-        return;
-      }
-      
-      _otpVerified = true;  // 🔥 Set BEFORE async work
-      state = state.copyWith(isLoading: true, error: null);
-      
-      // Create credential from verification ID and OTP
-      final credential = PhoneAuthProvider.credential(
-        verificationId: verificationId,
-        smsCode: otp,
-      );
-      
-      debugPrint('🔑 [OTP] Credential created, signing in...');
-      
-      UserCredential? userCredential;
-      try {
-        userCredential = await _auth!.signInWithCredential(credential);
-      } catch (signInError) {
-        // Sometimes Firebase throws an internal error but still signs in
-        // Check if user is actually signed in
-        final currentUser = _auth!.currentUser;
-        if (currentUser != null) {
-          debugPrint('⚠️  [OTP] Sign in had error but user is authenticated');
-          debugPrint('   🆔 UID: ${currentUser.uid}');
-          debugPrint('   📱 Phone: ${currentUser.phoneNumber}');
-          debugPrint('   ⚠️  Original error (ignored): $signInError');
-          
-          // Clear verification data
-          state = state.copyWith(
-            verificationId: null,
-            resendToken: null,
-            phoneNumber: null,
-            isLoading: false,
-          );
-          
-          // Auth state listener will handle backend sync
-          return;
-        } else {
-          // Re-throw if user is not signed in
-          rethrow;
-        }
-      }
-      
-      debugPrint('✅ [OTP] Sign in successful');
-      debugPrint('   🆔 UID: ${userCredential.user?.uid}');
-      debugPrint('   📱 Phone: ${userCredential.user?.phoneNumber}');
-      
-      if (userCredential.user != null) {
-        // Clear verification data
-        state = state.copyWith(
-          verificationId: null,
-          resendToken: null,
-          phoneNumber: null,
-          isLoading: false,
-        );
-        
-        // Don't call _syncUserToBackend here - let the auth state listener handle it
-        // This prevents duplicate calls and race conditions
-      }
-    } catch (e) {
-      // Check if user is actually authenticated despite the error
-      final currentUser = _auth?.currentUser;
-      if (currentUser != null) {
-        debugPrint('⚠️  [OTP] Error occurred but user is authenticated');
-        debugPrint('   🆔 UID: ${currentUser.uid}');
-        debugPrint('   📱 Phone: ${currentUser.phoneNumber}');
-        debugPrint('   ⚠️  Error (non-critical): $e');
-        
-        // Clear verification data and mark as not loading
-        // Auth state listener will handle backend sync
-        state = state.copyWith(
-          verificationId: null,
-          resendToken: null,
-          phoneNumber: null,
-          isLoading: false,
-          error: null, // Don't show error if user is authenticated
-        );
-        return;
-      }
-      
-      // User is not authenticated, show the error
-      _otpVerified = false;  // 🔥 Reset so user can retry
-      debugPrint('❌ [OTP] Verification error');
-      if (e is FirebaseAuthException) {
-        debugPrint('   Code: ${e.code}');
-        debugPrint('   Message: ${e.message}');
-        debugPrint('   Details: ${e.toString()}');
-        
-        String errorMessage = e.message ?? e.toString();
-        
-        // Common error codes with user-friendly messages
-        switch (e.code) {
-          case 'invalid-verification-code':
-            debugPrint('   💡 Invalid OTP code. Please check and try again.');
-            errorMessage = 'Invalid verification code. Please check and try again.';
-            break;
-          case 'session-expired':
-            debugPrint('   💡 Verification session expired. Please request a new code.');
-            errorMessage = 'Verification code expired. Please request a new code.';
-            // Clear verification state for expired sessions
-            state = state.copyWith(
-              verificationId: null,
-              resendToken: null,
-              phoneNumber: null,
-              isLoading: false,
-              error: errorMessage,
-            );
-            return;
-          case 'invalid-verification-id':
-            debugPrint('   💡 Invalid verification ID. Please request a new code.');
-            errorMessage = 'Invalid verification session. Please request a new code.';
-            // Clear verification state for invalid sessions
-            state = state.copyWith(
-              verificationId: null,
-              resendToken: null,
-              phoneNumber: null,
-              isLoading: false,
-              error: errorMessage,
-            );
-            return;
-          default:
-            errorMessage = e.message ?? 'Verification failed. Please try again.';
-        }
-        
-        state = state.copyWith(
-          isLoading: false,
-          error: errorMessage,
-        );
-      } else {
-        debugPrint('   Error: $e');
-        debugPrint('   Stack trace: ${StackTrace.current}');
-        
-        state = state.copyWith(
-          isLoading: false,
-          error: 'Verification failed. Please try again.',
-        );
-      }
-    }
-  }
-  */
-
   void clearVerificationState() {
     debugPrint('🗑️  [AUTH] Clearing verification state');
     state = state.copyWith(

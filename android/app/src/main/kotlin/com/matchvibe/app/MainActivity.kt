@@ -1,4 +1,4 @@
-package com.example.zztherapy
+package com.matchvibe.app
 
 import android.os.Bundle
 import android.view.WindowManager
@@ -45,4 +45,3 @@ class MainActivity : FlutterActivity() {
         }
     }
 }
-

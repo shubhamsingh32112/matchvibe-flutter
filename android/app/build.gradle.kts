@@ -15,7 +15,7 @@ import java.nio.charset.StandardCharsets
 
 android {
     // NOTE: Set this to your real production package (reverse-DNS), then run `flutterfire configure` with the same value.
-    namespace = "com.example.zztherapy"
+    namespace = "com.matchvibe.app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -87,7 +87,7 @@ android {
 
     defaultConfig {
         // Base applicationId for PROD; debug build appends ".dev" below.
-        applicationId = "com.example.zztherapy"
+        applicationId = "com.matchvibe.app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

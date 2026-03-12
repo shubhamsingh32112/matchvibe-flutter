@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
@@ -7,6 +8,7 @@ import '../constants/app_constants.dart';
 class ApiClient {
   late final Dio _dio;
   static final ApiClient _instance = ApiClient._internal();
+  bool _isRefreshingToken = false;
 
   factory ApiClient() => _instance;
 
@@ -88,7 +90,7 @@ class ApiClient {
           }
           return handler.next(response);
         },
-        onError: (error, handler) {
+        onError: (error, handler) async {
           if (kDebugMode) {
             debugPrint('═══════════════════════════════════════════════════════');
             debugPrint('❌ [API] Request failed');
@@ -105,6 +107,35 @@ class ApiClient {
             if (kDebugMode) {
               debugPrint('   📦 Error data: ${error.response?.data}');
               debugPrint('   📋 Response headers: ${error.response?.headers}');
+            }
+          }
+          
+          // 🔥 Firebase ID token expired: refresh and retry once
+          if (error.response?.statusCode == 401 && !_isRefreshingToken) {
+            final isTokenExpired = _isTokenExpiredError(error);
+            if (kDebugMode && isTokenExpired) {
+              debugPrint('   🔒 Token expired - attempting refresh and retry');
+            }
+            if (isTokenExpired) {
+              _isRefreshingToken = true;
+              try {
+                final newToken = await _refreshFirebaseToken();
+                if (newToken != null) {
+                  if (kDebugMode) {
+                    debugPrint('   ✅ Token refreshed, retrying request');
+                  }
+                  final opts = error.requestOptions;
+                  opts.headers['Authorization'] = 'Bearer $newToken';
+                  final response = await _dio.fetch(opts);
+                  _isRefreshingToken = false;
+                  return handler.resolve(response);
+                }
+              } catch (e) {
+                if (kDebugMode) {
+                  debugPrint('   ⚠️ Token refresh failed: $e');
+                }
+              }
+              _isRefreshingToken = false;
             }
           }
           
@@ -216,6 +247,31 @@ class ApiClient {
         },
       ),
     );
+  }
+
+  /// Check if we should attempt token refresh for this 401
+  bool _isTokenExpiredError(DioException error) {
+    if (error.response?.statusCode != 401) return false;
+    // Only try refresh if request had auth (Firebase token)
+    final hadAuth = error.requestOptions.headers['Authorization'] != null;
+    if (!hadAuth) return false;
+    final data = error.response?.data;
+    if (data is Map && data['error'] != null) {
+      final err = data['error'].toString().toLowerCase();
+      if (err.contains('id-token-expired') || err.contains('expired')) return true;
+    }
+    return true; // Attempt refresh for any 401 with auth header
+  }
+
+  /// Refresh Firebase ID token and save to SharedPreferences
+  Future<String?> _refreshFirebaseToken() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return null;
+    final token = await user.getIdToken(true);
+    if (token == null) return null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(AppConstants.keyAuthToken, token);
+    return token;
   }
 
   Future<Response> get(String path) async {

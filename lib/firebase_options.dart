@@ -51,7 +51,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyAF3AmluBl-_AqnMfTPCuSI4uOiWkQ-hfQ',
-    appId: '1:911372372113:android:65d2a2d572d7cc564d1730',
+    appId: '1:911372372113:android:a2b80561b097a0a34d1730',
     messagingSenderId: '911372372113',
     projectId: 'matchvibe-d55f9',
     storageBucket: 'matchvibe-d55f9.firebasestorage.app',
@@ -59,10 +59,11 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyDR0AEomxpY08XwsPFY_3i_q3OAV7Up7lc',
-    appId: '1:911372372113:ios:891d7b0578f756414d1730',
+    appId: '1:911372372113:ios:3a468aba52d72f1a4d1730',
     messagingSenderId: '911372372113',
     projectId: 'matchvibe-d55f9',
     storageBucket: 'matchvibe-d55f9.firebasestorage.app',
-    iosBundleId: 'com.example.zztherapy',
+    iosBundleId: 'com.matchvibe.app',
   );
+
 }

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/api/api_client.dart';
-import '../../../core/constants/app_constants.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 import 'blocked_buddies_screen.dart';
@@ -59,7 +58,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
   }
 
   Future<void> _openPrivacyPolicy() async {
-    final url = '${AppConstants.websiteBaseUrl}/privacy-policy';
+    const url = 'https://matchvibes.vercel.app/privacy-policy';
     final uri = Uri.parse(url);
     final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!launched && mounted) {

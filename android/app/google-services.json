@@ -42,6 +42,25 @@
           "other_platform_oauth_client": []
         }
       }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:911372372113:android:a2b80561b097a0a34d1730",
+        "android_client_info": {
+          "package_name": "com.matchvibe.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAF3AmluBl-_AqnMfTPCuSI4uOiWkQ-hfQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
     }
   ],
   "configuration_version": "1"

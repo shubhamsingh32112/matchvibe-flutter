@@ -160,6 +160,11 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
             controllerPhase != CallConnectionPhase.failed;
 
     if (state == AppLifecycleState.resumed) {
+      // 🔥 Firebase ID token expires ~1hr: refresh proactively on app resume
+      if (user != null) {
+        ref.read(authProvider.notifier).refreshAuthToken();
+      }
+
       // 🔥 CRITICAL: DO NOT navigate from lifecycle — causes race conditions.
       // Only log / refresh data.  Navigation is owned by CallConnectionController.
       if (hasActiveCall) {
