@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl_phone_field/intl_phone_field.dart';
 import '../../../core/utils/error_handler.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../shared/widgets/ui_primitives.dart';
@@ -27,132 +26,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     super.dispose();
   }
 
-  Future<void> _handleFastLogin() async {
-    debugPrint('═══════════════════════════════════════════════════════');
-    debugPrint('🖱️  [UI] Fast Login button pressed');
-    debugPrint('═══════════════════════════════════════════════════════');
-
-    if (!_acceptTerms) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please accept the terms and conditions')),
-      );
-      return;
-    }
-
-    final refCode = _referralController.text.trim();
-    if (refCode.isNotEmpty && refCode.length != 6) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Referral code must be 6 characters (e.g. JO4832)')),
-      );
-      return;
-    }
-
-    ref.read(authProvider.notifier).setPendingReferralCode(refCode.isEmpty ? null : refCode);
-    await ref.read(authProvider.notifier).signInWithFastLogin();
-  }
-
-  Future<void> _handlePhoneLogin(String phoneNumber) async {
-    debugPrint('═══════════════════════════════════════════════════════');
-    debugPrint('🖱️  [UI] Phone Login - sending OTP to $phoneNumber');
-    debugPrint('═══════════════════════════════════════════════════════');
-
-    if (!_acceptTerms) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please accept the terms and conditions')),
-      );
-      return;
-    }
-
-    final refCode = _referralController.text.trim();
-    if (refCode.isNotEmpty && refCode.length != 6) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Referral code must be 6 characters (e.g. JO4832)')),
-      );
-      return;
-    }
-
-    ref.read(authProvider.notifier).setPendingReferralCode(refCode.isEmpty ? null : refCode);
-    await ref.read(authProvider.notifier).signInWithPhone(phoneNumber);
-  }
-
-  void _showPhoneLoginSheet() {
-    final scheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-    String? phoneValue;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom,
-        ),
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: scheme.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Continue with Phone Number',
-                style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Enter your phone number. We\'ll send you a verification code.',
-                style: textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
-              ),
-              const SizedBox(height: 20),
-              IntlPhoneField(
-                decoration: InputDecoration(
-                  labelText: 'Phone Number',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                ),
-                initialCountryCode: 'IN',
-                onChanged: (phone) {
-                  phoneValue = phone.completeNumber;
-                },
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () {
-                  final phone = phoneValue?.trim();
-                  if (phone == null || phone.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Please enter your phone number')),
-                    );
-                    return;
-                  }
-                  Navigator.of(context).pop();
-                  _handlePhoneLogin(phone);
-                },
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text('Send Code'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _handleGoogleLogin() async {
-    debugPrint('═══════════════════════════════════════════════════════');
+  Future<void> _handleGoogleSignIn() async {
     debugPrint('🖱️  [UI] Google Sign-In button pressed');
-    debugPrint('═══════════════════════════════════════════════════════');
 
     if (!_acceptTerms) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -170,7 +45,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
 
     ref.read(authProvider.notifier).setPendingReferralCode(refCode.isEmpty ? null : refCode);
-    await ref.read(authProvider.notifier).signInWithGoogle();
+    await ref.read(authProvider.notifier).signInWithGoogle(referralCode: refCode.isEmpty ? null : refCode);
   }
 
   /// Show network error dialog with retry option
@@ -247,22 +122,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final textTheme = Theme.of(context).textTheme;
 
     ref.listen(authProvider, (previous, next) {
-      // Navigate to OTP screen when code is sent (phone login)
-      if (next.verificationId != null &&
-          next.phoneNumber != null &&
-          !next.isLoading &&
-          mounted &&
-          previous?.verificationId != next.verificationId) {
-        debugPrint('✅ [UI] OTP sent, navigating to OTP screen...');
-        Future.delayed(const Duration(milliseconds: 100), () {
-          if (mounted) {
-            context.push('/otp', extra: {
-              'phoneNumber': next.phoneNumber!,
-              'verificationId': next.verificationId!,
-            });
-          }
-        });
-      }
       // Navigate to home or gender selection when authenticated
       if (next.isAuthenticated && mounted && previous?.isAuthenticated != true) {
         debugPrint('✅ [UI] User authenticated, navigating...');
@@ -313,7 +172,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               ),
               const SizedBox(height: AppSpacing.lg),
               Text(
-                'Sign in with Fast Login, Google, or Phone to continue.',
+                'Sign in with Google to continue.',
                 style: textTheme.bodyMedium?.copyWith(
                   color: scheme.onSurfaceVariant,
                 ),
@@ -343,9 +202,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 },
               ),
               const SizedBox(height: AppSpacing.xl),
-              // Fast Login (primary — one tap, no account picker)
+              // Google Sign-In
               OutlinedButton.icon(
-                onPressed: (authState.isLoading || !_acceptTerms) ? null : _handleFastLogin,
+                onPressed: (authState.isLoading || !_acceptTerms) ? null : _handleGoogleSignIn,
                 icon: authState.isLoading
                     ? SizedBox(
                         width: 20,
@@ -355,45 +214,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           color: scheme.primary,
                         ),
                       )
-                    : Icon(Icons.flash_on, size: 24, color: scheme.primary),
+                    : Icon(Icons.g_mobiledata_rounded, size: 28, color: scheme.onSurface),
                 label: Text(
-                  authState.isLoading ? 'Signing in...' : 'Continue with Fast Login',
-                  style: textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: scheme.onSurface,
-                  ),
-                ),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
-                  side: BorderSide(color: scheme.outline),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-              const SizedBox(height: AppSpacing.md),
-              // Google Sign-In
-              OutlinedButton.icon(
-                onPressed: (authState.isLoading || !_acceptTerms) ? null : _handleGoogleLogin,
-                icon: Icon(Icons.g_mobiledata, size: 28, color: scheme.primary),
-                label: Text(
-                  'Continue with Google',
-                  style: textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: scheme.onSurface,
-                  ),
-                ),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
-                  side: BorderSide(color: scheme.outline),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-              const SizedBox(height: AppSpacing.md),
-              // Phone Number Login
-              OutlinedButton.icon(
-                onPressed: (authState.isLoading || !_acceptTerms) ? null : _showPhoneLoginSheet,
-                icon: Icon(Icons.phone_android, size: 24, color: scheme.primary),
-                label: Text(
-                  'Continue with Phone Number',
+                  authState.isLoading ? 'Signing in...' : 'Continue with Google',
                   style: textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                     color: scheme.onSurface,

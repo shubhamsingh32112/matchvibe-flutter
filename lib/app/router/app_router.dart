@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../features/auth/screens/splash_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
-import '../../features/auth/screens/otp_screen.dart';
 import '../../features/onboarding/screens/gender_selection_screen.dart';
 import '../../features/home/screens/home_screen.dart';
 import '../../features/home/screens/favorite_creators_screen.dart';
@@ -45,21 +44,6 @@ final appRouter = GoRouter(
       path: '/login',
       builder: (context, state) => const LoginScreen(),
     ),
-          GoRoute(
-            path: '/otp',
-            builder: (context, state) {
-              final extra = state.extra as Map<String, String>?;
-              if (extra == null ||
-                  extra['phoneNumber'] == null ||
-                  extra['verificationId'] == null) {
-                return const LoginScreen();
-              }
-              return OtpScreen(
-                phoneNumber: extra['phoneNumber']!,
-                verificationId: extra['verificationId']!,
-              );
-            },
-          ),
           GoRoute(
             path: '/gender',
             builder: (context, state) => const GenderSelectionScreen(),

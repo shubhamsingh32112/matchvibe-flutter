@@ -9,11 +9,10 @@ class CallBillingState {
   final bool isActive;
   final String? callId;
 
-  // User-facing
+  // User-facing (coins only; timer UI removed)
   final int userCoins;
-  final int elapsedSeconds;
-  final int remainingSeconds;
   final double pricePerSecond;
+  final int? remainingSeconds;
 
   // Creator-facing
   final double creatorEarnings;
@@ -28,19 +27,16 @@ class CallBillingState {
   final int? totalDeducted;
   final int? totalEarned;
   final int? durationSeconds;
-  
-  // Server time sync for accurate timer (no jumps)
-  final int? callStartTime; // Server timestamp (ms) when call started
-  final int? lastServerTimestamp; // Last server timestamp received
-  final int? serverTimeOffset; // serverTime - clientTime when last update received
+
+  // UI-only: show a brief "call ending soon" banner when remainingSeconds <= 10
+  final bool showEndingSoonOverlay;
 
   const CallBillingState({
     this.isActive = false,
     this.callId,
     this.userCoins = 0,
-    this.elapsedSeconds = 0,
-    this.remainingSeconds = 0,
     this.pricePerSecond = 0,
+    this.remainingSeconds,
     this.creatorEarnings = 0,
     this.forceEnded = false,
     this.forceEndReason,
@@ -49,18 +45,15 @@ class CallBillingState {
     this.totalDeducted,
     this.totalEarned,
     this.durationSeconds,
-    this.callStartTime,
-    this.lastServerTimestamp,
-    this.serverTimeOffset,
+    this.showEndingSoonOverlay = false,
   });
 
   CallBillingState copyWith({
     bool? isActive,
     String? callId,
     int? userCoins,
-    int? elapsedSeconds,
-    int? remainingSeconds,
     double? pricePerSecond,
+    int? remainingSeconds,
     double? creatorEarnings,
     bool? forceEnded,
     String? forceEndReason,
@@ -69,17 +62,14 @@ class CallBillingState {
     int? totalDeducted,
     int? totalEarned,
     int? durationSeconds,
-    int? callStartTime,
-    int? lastServerTimestamp,
-    int? serverTimeOffset,
+     bool? showEndingSoonOverlay,
   }) {
     return CallBillingState(
       isActive: isActive ?? this.isActive,
       callId: callId ?? this.callId,
       userCoins: userCoins ?? this.userCoins,
-      elapsedSeconds: elapsedSeconds ?? this.elapsedSeconds,
-      remainingSeconds: remainingSeconds ?? this.remainingSeconds,
       pricePerSecond: pricePerSecond ?? this.pricePerSecond,
+      remainingSeconds: remainingSeconds ?? this.remainingSeconds,
       creatorEarnings: creatorEarnings ?? this.creatorEarnings,
       forceEnded: forceEnded ?? this.forceEnded,
       forceEndReason: forceEndReason ?? this.forceEndReason,
@@ -88,29 +78,8 @@ class CallBillingState {
       totalDeducted: totalDeducted ?? this.totalDeducted,
       totalEarned: totalEarned ?? this.totalEarned,
       durationSeconds: durationSeconds ?? this.durationSeconds,
-      callStartTime: callStartTime ?? this.callStartTime,
-      lastServerTimestamp: lastServerTimestamp ?? this.lastServerTimestamp,
-      serverTimeOffset: serverTimeOffset ?? this.serverTimeOffset,
+      showEndingSoonOverlay: showEndingSoonOverlay ?? this.showEndingSoonOverlay,
     );
-  }
-
-  /// Elapsed seconds using server-authoritative time (no clock skew, no jumps).
-  /// Each new call starts at 0 and increments by 1 second; only events for the current callId update state.
-  int get accurateElapsedSeconds {
-    if (!isActive) return elapsedSeconds;
-    if (callStartTime == null || serverTimeOffset == null) return elapsedSeconds;
-
-    // Use server time only (avoids client clock skew and timer jumps)
-    // serverNow = clientNow + offset, where offset = serverTimestamp - clientTime at last update
-    final clientNow = DateTime.now().millisecondsSinceEpoch;
-    final serverNow = clientNow + serverTimeOffset!;
-    int elapsed = ((serverNow - callStartTime!) / 1000).floor();
-
-    // Guard against clock skew (negative or way-off elapsed)
-    if (elapsed < 0) return elapsedSeconds;
-
-    // Never show less than server; allow +1 for smooth display between 1s updates
-    return elapsed.clamp(elapsedSeconds, elapsedSeconds + 1);
   }
 }
 
@@ -118,7 +87,6 @@ class CallBillingState {
 
 class CallBillingNotifier extends StateNotifier<CallBillingState> {
   final Ref _ref;
-  Timer? _clientTimer; // 🔥 FIX: Client-side timer for accurate updates
 
   CallBillingNotifier(this._ref) : super(const CallBillingState()) {
     _wireSocketCallbacks();
@@ -129,28 +97,19 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
 
     socketService.onBillingStarted = (data) {
       debugPrint('💰 [BILLING] Started: $data');
-      
-      // 🔥 FIX: Start client-side timer for accurate updates
-      _startClientTimer();
-      
-      final serverTimestamp = (data['serverTimestamp'] as num?)?.toInt();
-      final callStartTime = (data['callStartTime'] as num?)?.toInt();
-      final clientNow = DateTime.now().millisecondsSinceEpoch;
-      final serverTimeOffset = serverTimestamp != null
-          ? serverTimestamp - clientNow
-          : null;
+
+      // Initialize remainingSeconds from backend if provided (maxSeconds / remainingSeconds)
+      final remaining = (data['remainingSeconds'] as num?)?.toInt() ??
+          (data['maxSeconds'] as num?)?.toInt();
 
       state = CallBillingState(
         isActive: true,
         callId: data['callId'] as String?,
         userCoins: (data['coins'] as num?)?.toInt() ?? 0,
         pricePerSecond: (data['pricePerSecond'] as num?)?.toDouble() ?? 0,
-        elapsedSeconds: 0,
-        remainingSeconds: (data['maxSeconds'] as num?)?.toInt() ?? 0,
         creatorEarnings: (data['earnings'] as num?)?.toDouble() ?? 0,
-        callStartTime: callStartTime ?? serverTimestamp,
-        lastServerTimestamp: serverTimestamp,
-        serverTimeOffset: serverTimeOffset,
+        remainingSeconds: remaining,
+        showEndingSoonOverlay: false,
       );
     };
 
@@ -164,24 +123,21 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
         return;
       }
 
-      final serverTimestamp = (data['serverTimestamp'] as num?)?.toInt();
-      final callStartTime = (data['callStartTime'] as num?)?.toInt();
-      final clientNow = DateTime.now().millisecondsSinceEpoch;
-      final serverTimeOffset = serverTimestamp != null
-          ? serverTimestamp - clientNow
-          : null;
+      final newRemaining =
+          (data['remainingSeconds'] as num?)?.toInt() ?? state.remainingSeconds;
+
+      // Determine if we should trigger the "ending soon" overlay (once) when remainingSeconds <= 10
+      final shouldShowEndingSoon =
+          state.isActive && newRemaining != null && newRemaining <= 10;
 
       state = state.copyWith(
         userCoins: (data['coins'] as num?)?.toInt() ?? state.userCoins,
-        elapsedSeconds:
-            (data['elapsedSeconds'] as num?)?.toInt() ?? state.elapsedSeconds,
-        remainingSeconds:
-            (data['remainingSeconds'] as num?)?.toInt() ?? state.remainingSeconds,
         creatorEarnings:
             (data['earnings'] as num?)?.toDouble() ?? state.creatorEarnings,
-        callStartTime: callStartTime ?? state.callStartTime,
-        lastServerTimestamp: serverTimestamp,
-        serverTimeOffset: serverTimeOffset,
+        remainingSeconds: newRemaining,
+        // Only set to true when threshold is met; clearing is handled by UI (2s timer)
+        showEndingSoonOverlay:
+            shouldShowEndingSoon ? true : state.showEndingSoonOverlay,
       );
     };
 
@@ -218,31 +174,19 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
     };
   }
 
-  /// 🔥 FIX: Start client-side timer for accurate updates between server events
-  void _startClientTimer() {
-    _clientTimer?.cancel();
-    _clientTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
-      if (!state.isActive) {
-        timer.cancel();
-        return;
-      }
-      
-      // Update state to trigger UI refresh with accurate elapsed time
-      // The accurateElapsedSeconds getter will calculate the correct time
-      state = state.copyWith();
-    });
-  }
-
   /// Reset billing state (call ended, user dismissed dialogs).
   void reset() {
-    _clientTimer?.cancel();
-    _clientTimer = null;
     state = const CallBillingState();
+  }
+
+  /// Clear the "call ending soon" overlay flag (called by UI after 2 seconds).
+  void clearEndingSoonOverlay() {
+    if (!state.showEndingSoonOverlay) return;
+    state = state.copyWith(showEndingSoonOverlay: false);
   }
 
   @override
   void dispose() {
-    _clientTimer?.cancel();
     // Clear callbacks to avoid memory leaks
     try {
       final socketService = _ref.read(socketServiceProvider);

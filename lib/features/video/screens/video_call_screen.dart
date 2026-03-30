@@ -503,6 +503,7 @@ class _VideoCallScreenContentState
   bool _isScreenCaptured = false;
   bool _forceEndDialogShown = false;
   StreamSubscription<int>? _participantsSubscription;
+  Timer? _endingSoonTimer;
 
   @override
   void initState() {
@@ -515,6 +516,7 @@ class _VideoCallScreenContentState
   void dispose() {
     _participantsSubscription?.cancel();
     SecurityService.clearOnScreenCaptureChanged();
+    _endingSoonTimer?.cancel();
     super.dispose();
   }
 
@@ -601,8 +603,8 @@ class _VideoCallScreenContentState
 
   @override
   Widget build(BuildContext context) {
-    final billingState = ref.watch(callBillingProvider);
     final authState = ref.watch(authProvider);
+    final billingState = ref.watch(callBillingProvider);
     final callConnectionState = ref.watch(callConnectionControllerProvider);
     final materialTheme = Theme.of(context);
     final baseStreamTheme = materialTheme.extension<StreamVideoTheme>() ??
@@ -623,8 +625,9 @@ class _VideoCallScreenContentState
     final isCreator =
         authState.user?.role == 'creator' || authState.user?.role == 'admin';
 
-    // ── Force-end handling ──────────────────────────────────────────
+    // ── Force-end & ending-soon handling ────────────────────────────
     ref.listen<CallBillingState>(callBillingProvider, (prev, next) {
+      // Out of coins → force-end
       if (next.forceEnded && !_forceEndDialogShown) {
         _forceEndDialogShown = true;
         // End the call first
@@ -634,6 +637,17 @@ class _VideoCallScreenContentState
           if (mounted) {
             _showOutOfCoinsDialog(context);
           }
+        });
+      }
+
+      // Call ending soon overlay → trigger a 2s banner
+      final prevFlag = prev?.showEndingSoonOverlay ?? false;
+      final nextFlag = next.showEndingSoonOverlay;
+      if (!prevFlag && nextFlag && next.isActive) {
+        _endingSoonTimer?.cancel();
+        _endingSoonTimer = Timer(const Duration(seconds: 2), () {
+          if (!mounted) return;
+          ref.read(callBillingProvider.notifier).clearEndingSoonOverlay();
         });
       }
     });
@@ -703,19 +717,6 @@ class _VideoCallScreenContentState
               },
             ),
           ),
-
-          // ── Billing overlay (top of screen, below call controls) ────
-          if (billingState.isActive)
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 48,
-              left: 16,
-              right: 16,
-              child: _BillingOverlay(
-                billingState: billingState,
-                isCreator: isCreator,
-              ),
-            ),
-
           // Show overlay if screen capture detected (iOS)
           if (_isScreenCaptured)
             Container(
@@ -739,6 +740,49 @@ class _VideoCallScreenContentState
                 ),
               ),
             ),
+
+          // "Call ending soon" red banner (user side only)
+          if (billingState.isActive &&
+              billingState.showEndingSoonOverlay &&
+              billingState.remainingSeconds != null &&
+              billingState.remainingSeconds! <= 10 &&
+              !isCreator)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 16,
+              left: 16,
+              right: 16,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.redAccent.withValues(alpha: 0.9),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Colors.black54,
+                      blurRadius: 8,
+                      offset: Offset(0, 2),
+                    )
+                  ],
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.warning_amber_rounded,
+                        color: Colors.white, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Call ending soon',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
         ],
       ),
       ),
@@ -754,107 +798,6 @@ class _VideoCallScreenContentState
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => const CoinPurchaseBottomSheet(),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Billing overlay widget
-// ---------------------------------------------------------------------------
-
-class _BillingOverlay extends StatelessWidget {
-  final CallBillingState billingState;
-  final bool isCreator;
-
-  const _BillingOverlay({
-    required this.billingState,
-    required this.isCreator,
-  });
-
-  String _formatDuration(int totalSeconds) {
-    final minutes = totalSeconds ~/ 60;
-    final seconds = totalSeconds % 60;
-    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.7),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          // Timer
-          Row(
-            children: [
-              const Icon(Icons.timer, color: Colors.white, size: 18),
-              const SizedBox(width: 6),
-              Text(
-                _formatDuration(billingState.accurateElapsedSeconds),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'monospace',
-                ),
-              ),
-            ],
-          ),
-          // Coins / Earnings
-          if (isCreator)
-            Row(
-              children: [
-                const Icon(Icons.trending_up, color: Colors.greenAccent, size: 18),
-                const SizedBox(width: 6),
-                Text(
-                  '${billingState.creatorEarnings.truncateToDouble() == billingState.creatorEarnings ? billingState.creatorEarnings.toInt() : billingState.creatorEarnings.toStringAsFixed(1)} coins',
-                  style: const TextStyle(
-                    color: Colors.greenAccent,
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            )
-          else
-            Row(
-              children: [
-                GemIcon(
-                  color: billingState.remainingSeconds < 30
-                      ? Colors.redAccent
-                      : Colors.amber,
-                  size: 18,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  '${billingState.userCoins}',
-                  style: TextStyle(
-                    color: billingState.remainingSeconds < 30
-                        ? Colors.redAccent
-                        : Colors.amber,
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                // Remaining time
-                Text(
-                  '(${_formatDuration(billingState.remainingSeconds)})',
-                  style: TextStyle(
-                    color: billingState.remainingSeconds < 30
-                        ? Colors.redAccent.withValues(alpha: 0.8)
-                        : Colors.white70,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-        ],
-      ),
     );
   }
 }

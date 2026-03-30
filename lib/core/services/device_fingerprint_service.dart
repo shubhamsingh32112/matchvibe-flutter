@@ -1,11 +1,15 @@
 import 'dart:io';
+import 'package:android_id/android_id.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 
 /// Provides a stable device fingerprint for Fast Login (one account per device).
-/// Android: androidId. iOS: identifierForVendor.
+/// Android: Settings.Secure.ANDROID_ID (via android_id package). iOS: identifierForVendor.
+/// We do NOT use device_info_plus AndroidDeviceInfo.id — that is Build.ID (same for all devices
+/// with the same OS build) and can cause different users to get the same account.
 class DeviceFingerprintService {
   static final DeviceInfoPlugin _deviceInfo = DeviceInfoPlugin();
+  static const AndroidId _androidId = AndroidId();
 
   /// Returns true if Fast Login is allowed on this device.
   /// Disables Fast Login on Android emulators to prevent emulator-farm abuse.
@@ -27,17 +31,24 @@ class DeviceFingerprintService {
     }
   }
 
-  /// Returns a stable string identifying this device.
+  /// Returns a stable string identifying this device (unique per device/app-signing-key on Android).
   /// Throws if the platform is unsupported or info cannot be obtained.
   static Future<String> getDeviceFingerprint() async {
     try {
       if (Platform.isAndroid) {
+        // Use real Android ID (Settings.Secure.ANDROID_ID). device_info_plus's android.id
+        // is Build.ID — not unique per device, so different phones can collide and show wrong account.
+        final id = await _androidId.getId();
+        if (id != null && id.isNotEmpty) {
+          return id;
+        }
+        // Fallback only if android_id fails (e.g. old plugin); prefer failing so we don't use Build.ID.
         final android = await _deviceInfo.androidInfo;
-        final id = android.id;
-        if (id.isEmpty) {
+        final fallback = android.id;
+        if (fallback.isEmpty) {
           throw Exception('Android ID is empty');
         }
-        return id;
+        return fallback;
       }
       if (Platform.isIOS) {
         final ios = await _deviceInfo.iosInfo;

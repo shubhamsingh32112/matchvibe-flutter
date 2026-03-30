@@ -543,6 +543,23 @@ class AvailabilitySocketService {
     debugPrint('📤 [SOCKET] Requested availability for ${creatorIds.length} creator(s)');
   }
 
+  /// Request availability for specific users (batch)
+  /// @param firebaseUids - List of Firebase UIDs to get availability for
+  void requestUserAvailability(List<String> firebaseUids) {
+    if (!_isConnected || _socket == null) {
+      debugPrint('⚠️  [SOCKET] Cannot request user availability: not connected');
+      return;
+    }
+
+    if (firebaseUids.isEmpty) {
+      debugPrint('⚠️  [SOCKET] Empty firebaseUids list, skipping user:availability:get');
+      return;
+    }
+
+    _socket!.emit('user:availability:get', firebaseUids);
+    debugPrint('📤 [SOCKET] Requested user availability for ${firebaseUids.length} user(s)');
+  }
+
   /// 🔥 FIX 5: Handle logout - disconnect and clear state
   void onLogout() {
     debugPrint('🔌 [SOCKET] Logout - disconnecting...');

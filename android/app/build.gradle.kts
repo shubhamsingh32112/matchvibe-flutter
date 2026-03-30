@@ -29,15 +29,8 @@ android {
         jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
-    // DEV signing config - uses separate keystore with unique SHA-1
+    // Signing configs
     signingConfigs {
-        create("devDebug") {
-            storeFile = file("../dev-debug.keystore")
-            storePassword = "android"
-            keyAlias = "devkey"
-            keyPassword = "android"
-        }
-
         // Release signing config - loaded from android/key.properties (DO NOT COMMIT)
         // Standard Flutter convention:
         // - android/key.properties (ignored)
@@ -101,9 +94,11 @@ android {
 
     buildTypes {
         getByName("debug") {
-            applicationIdSuffix = ".dev"
+            // No applicationIdSuffix → debug also uses com.matchvibe.app
+            // applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
-            signingConfig = signingConfigs.getByName("devDebug")
+            // Use the standard debug keystore
+            signingConfig = signingConfigs.getByName("debug")
             // Dev typically uses HTTP for local backend.
             manifestPlaceholders["usesCleartextTraffic"] = "true"
         }

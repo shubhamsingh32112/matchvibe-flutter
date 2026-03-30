@@ -55,6 +55,12 @@ class CreatorAvailabilityNotifier
     if (creatorId == null) return CreatorAvailability.busy;
     return state[creatorId] ?? CreatorAvailability.busy;
   }
+
+  /// Clear all availability (e.g., on disconnect / logout).
+  void clear() {
+    state = {};
+    debugPrint('📡 [AVAILABILITY] Cleared all creator availability');
+  }
 }
 
 // ── Providers ─────────────────────────────────────────────────────────────

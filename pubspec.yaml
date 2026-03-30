@@ -44,6 +44,7 @@ dependencies:
   flutter_secure_storage: ^9.2.2
   # Fast Login: device fingerprint and install ID
   device_info_plus: ^11.0.0
+  android_id: ^0.5.1  # Real Android ID (Settings.Secure.ANDROID_ID); device_info_plus .id is Build.ID, not unique
   uuid: ^4.5.1
   
   # Animations
@@ -59,9 +60,6 @@ dependencies:
   permission_handler: ^12.0.1
   image_picker: ^1.1.2
   flutter_dotenv: ^5.1.0
-  
-  # Phone Input (kept for backward compatibility if phone login is re-enabled)
-  intl_phone_field: ^3.2.0
   
   # Stream Chat
   stream_chat_flutter: ^9.0.0

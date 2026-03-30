@@ -47,35 +47,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // Check and show welcome dialog if needed
     _checkAndShowWelcomeDialog();
     // Note: Video permissions are now requested after welcome bonus dialog
-    // Connect Socket.IO and hydrate creator availability from Redis
-    _initSocketAndHydrateAvailability();
+    // Socket.IO is now connected globally after login (AppLifecycleWrapper).
+    // We only hydrate availability once creators are loaded.
+    _hydrateAvailabilityOnceCreatorsLoaded();
     // Note: Coin purchase popup is now handled in AppLifecycleWrapper
     // to show once per app session, not every time user navigates to homepage
   }
 
-  /// Connect to Socket.IO, then hydrate availability once creators are loaded.
+  /// Hydrate availability once creators are loaded.
   ///
-  /// Sequence:
-  ///   1. Get Firebase token
-  ///   2. Connect socket (auth handshake)
-  ///   3. Wait for creatorsProvider to resolve
-  ///   4. Emit availability:get with all creator firebaseUids
-  ///   5. Socket service auto-re-requests on reconnect
-  Future<void> _initSocketAndHydrateAvailability() async {
+  /// Socket connection is handled globally; this just triggers the batch
+  /// availability fetch so initial ordering/badges reflect Redis immediately.
+  Future<void> _hydrateAvailabilityOnceCreatorsLoaded() async {
     // Give the widget tree a moment to settle
     await Future.delayed(const Duration(milliseconds: 200));
     if (!mounted) return;
 
     final authState = ref.read(authProvider);
     if (!authState.isAuthenticated || authState.firebaseUser == null) return;
-
-    // Get a fresh Firebase ID token for the socket auth handshake
-    final token = await authState.firebaseUser!.getIdToken();
-    if (token == null || !mounted) return;
-
-    // Connect socket (no-op if already connected)
     final socketService = ref.read(socketServiceProvider);
-    socketService.connect(token);
 
     // Only request creator availability if the current user is a regular user
     // (or admin).  Creators don't need this — they see users, not creators.

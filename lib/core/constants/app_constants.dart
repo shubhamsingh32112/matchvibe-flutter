@@ -8,6 +8,12 @@ class AppConstants {
   static String get socketUrl => dotenv.env['SOCKET_URL'] ?? 'http://localhost:3000';
   static String get websiteBaseUrl => dotenv.env['WEBSITE_BASE_URL'] ?? 'http://localhost:8080';
   static String get streamApiKey => dotenv.env['STREAM_API_KEY'] ?? 'd536t7g4q75v';
+
+  /// Google OAuth Web client ID (used as serverClientId for `google_sign_in`).
+  /// Can be overridden via env for different Firebase projects.
+  static String get googleWebClientId =>
+      dotenv.env['GOOGLE_WEB_CLIENT_ID'] ??
+      '911372372113-jpbm0el15fmlltaajrhe7boqk0n4vfs2.apps.googleusercontent.com';
   
   // Health check URL (derived from socket URL)
   static String get healthCheckUrl => '$socketUrl/health';

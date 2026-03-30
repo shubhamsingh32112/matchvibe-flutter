@@ -8,6 +8,7 @@ import '../../features/auth/providers/auth_provider.dart';
 import '../../features/creator/providers/creator_dashboard_provider.dart';
 import '../../features/video/controllers/call_connection_controller.dart';
 import '../../features/home/providers/home_provider.dart';
+import '../../features/home/providers/availability_provider.dart';
 import '../../shared/widgets/coin_purchase_popup.dart';
 
 /// Widget that wraps the app and handles lifecycle events.
@@ -165,6 +166,38 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
         ref.read(authProvider.notifier).refreshAuthToken();
       }
 
+      // Ensure Socket.IO is connected promptly on resume (keeps availability instant).
+      if (authState.isAuthenticated && authState.firebaseUser != null) {
+        () async {
+          try {
+            final token = await authState.firebaseUser!.getIdToken(true);
+            if (token != null) {
+              await ref.read(socketServiceProvider).ensureConnected(token);
+
+              // Re-hydrate creator availability on resume for user homepage ordering.
+              // (SocketService will also re-emit last request, but this guarantees it exists.)
+              final role = authState.user?.role;
+              if (role != 'creator') {
+                try {
+                  final creators = await ref.read(creatorsProvider.future);
+                  final ids = creators
+                      .where((c) => c.firebaseUid != null)
+                      .map((c) => c.firebaseUid!)
+                      .toList();
+                  if (ids.isNotEmpty) {
+                    ref.read(socketServiceProvider).requestAvailability(ids);
+                  }
+                } catch (e) {
+                  debugPrint('⚠️  [APP LIFECYCLE] Failed to rehydrate availability on resume: $e');
+                }
+              }
+            }
+          } catch (e) {
+            debugPrint('⚠️  [APP LIFECYCLE] Failed to ensure socket connected on resume: $e');
+          }
+        }();
+      }
+
       // 🔥 CRITICAL: DO NOT navigate from lifecycle — causes race conditions.
       // Only log / refresh data.  Navigation is owned by CallConnectionController.
       if (hasActiveCall) {
@@ -282,6 +315,49 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
           user != null && (user.role == 'creator' || user.role == 'admin');
       if (next.isAuthenticated && isCreator) {
         _ensureCreatorOnline();
+      }
+
+      // 🔌 Global Socket.IO lifecycle:
+      // - Connect immediately after auth so Home availability is instant.
+      // - Disconnect + clear availability on logout.
+      final prevAuthed = prev?.isAuthenticated == true;
+      final nextAuthed = next.isAuthenticated == true;
+
+      if (!prevAuthed && nextAuthed && next.firebaseUser != null) {
+        () async {
+          try {
+            final token = await next.firebaseUser!.getIdToken(true);
+            if (token != null) {
+              ref.read(socketServiceProvider).connect(token);
+            }
+
+            // Immediately hydrate creator availability for user homepage ordering.
+            // Doing this here (not in HomeScreen) makes it “instant” after login navigation.
+            final role = next.user?.role;
+            if (role != 'creator') {
+              try {
+                final creators = await ref.read(creatorsProvider.future);
+                final ids = creators
+                    .where((c) => c.firebaseUid != null)
+                    .map((c) => c.firebaseUid!)
+                    .toList();
+                if (ids.isNotEmpty) {
+                  ref.read(socketServiceProvider).requestAvailability(ids);
+                }
+              } catch (e) {
+                debugPrint('⚠️  [APP LIFECYCLE] Failed to hydrate availability after login: $e');
+              }
+            }
+          } catch (e) {
+            debugPrint('⚠️  [APP LIFECYCLE] Failed to connect socket after login: $e');
+          }
+        }();
+      }
+
+      if (prevAuthed && !nextAuthed) {
+        // Logout: close socket + clear cached availability so next login rehydrates cleanly.
+        ref.read(socketServiceProvider).disconnect();
+        ref.read(creatorAvailabilityProvider.notifier).clear();
       }
       
       // Show coin purchase popup once per app session when user becomes authenticated

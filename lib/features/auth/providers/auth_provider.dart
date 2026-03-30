@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:async';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/api/api_client.dart';
 import '../../chat/services/chat_service.dart';
@@ -21,18 +22,12 @@ class AuthState {
   final UserModel? user;
   final bool isLoading;
   final String? error;
-  final String? verificationId;
-  final int? resendToken;
-  final String? phoneNumber;
 
   AuthState({
     this.firebaseUser,
     this.user,
     this.isLoading = false,
     this.error,
-    this.verificationId,
-    this.resendToken,
-    this.phoneNumber,
   });
 
   bool get isAuthenticated => firebaseUser != null && user != null;
@@ -42,18 +37,12 @@ class AuthState {
     UserModel? user,
     bool? isLoading,
     String? error,
-    String? verificationId,
-    int? resendToken,
-    String? phoneNumber,
   }) {
     return AuthState(
       firebaseUser: firebaseUser ?? this.firebaseUser,
       user: user ?? this.user,
       isLoading: isLoading ?? this.isLoading,
       error: error,
-      verificationId: verificationId ?? this.verificationId,
-      resendToken: resendToken ?? this.resendToken,
-      phoneNumber: phoneNumber ?? this.phoneNumber,
     );
   }
 }
@@ -62,30 +51,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
   FirebaseAuth? _auth;
   final ApiClient _apiClient = ApiClient();
   bool _isInitializing = false;
+  final GoogleSignIn _googleSignIn = GoogleSignIn(
+    serverClientId: AppConstants.googleWebClientId,
+  );
   
   // Referral: optional code to apply on first signup (cleared after sync)
   String? _pendingReferralCode;
 
-  // 🔥 FIX: Guards to prevent duplicate operations
-  bool _otpVerified = false;  // Prevents multiple OTP verify attempts
-  bool _isSyncingToBackend = false;  // Prevents duplicate backend syncs
-  String? _lastSyncedUid;  // Tracks which UID was last synced
-  bool _phoneVerificationInProgress = false;  // Prevents duplicate verifyPhoneNumber calls
-  DateTime? _lastVerificationAttempt;  // Track last verification request time
-  static const Duration _verificationCooldown = Duration(seconds: 30);  // Minimum time between requests
-  
-  // 🔥 FIX: Test phone numbers (for Firebase test authentication)
-  // These numbers use manual OTP flow, no SMS auto-retrieval
-  static const Set<String> _testPhoneNumbers = {
-    '+919999999999',
-    '+911234567890',
-    '+15555555555',  // Common US test number
-  };
-  
-  /// Check if a phone number is a Firebase test number
-  bool _isTestNumber(String phone) {
-    return _testPhoneNumbers.contains(phone);
-  }
+  // Guards to prevent duplicate backend syncs
+  bool _isSyncingToBackend = false;
+  String? _lastSyncedUid;
 
   AuthNotifier() : super(AuthState()) {
     _initialize();
@@ -176,11 +151,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
         await _syncUserToBackend(user);
       } else {
         debugPrint('🚪 [AUTH] Auth state changed: User logged out');
-        // 🔥 FIX: Reset all guards on logout
-        _otpVerified = false;
         _isSyncingToBackend = false;
         _lastSyncedUid = null;
-        _phoneVerificationInProgress = false;
         state = AuthState();
       }
     });
@@ -196,17 +168,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
     _isSyncingToBackend = true;
     
     try {
-      // Determine auth method for logging context
-      final authMethod = firebaseUser.providerData
-              .where((p) => p.providerId == 'phone')
-              .isNotEmpty
-          ? 'PHONE'
-          : 'OTHER';
-      
       debugPrint('───────────────────────────────────────────────────────');
       debugPrint('🔄 [AUTH] Starting backend sync');
       debugPrint('───────────────────────────────────────────────────────');
-      debugPrint('   🔐 Auth Method: $authMethod');
       debugPrint('   🆔 Firebase UID: ${firebaseUser.uid}');
       debugPrint('   📧 Email: ${firebaseUser.email ?? "N/A"}');
       debugPrint('   📱 Phone: ${firebaseUser.phoneNumber ?? "N/A"}');
@@ -219,38 +183,32 @@ class AuthNotifier extends StateNotifier<AuthState> {
         firebaseUser: firebaseUser,
       );
       
-      // CRITICAL: Test backend connectivity before attempting login
-      debugPrint('🧪 [AUTH] Testing backend connectivity...');
-      final apiClient = ApiClient();
-      final isConnected = await apiClient.testConnection();
-      
-      if (!isConnected) {
-        debugPrint('❌ [AUTH] Backend connectivity test failed');
-        debugPrint('   💡 Backend is not reachable at: ${AppConstants.baseUrl}');
-        debugPrint('   🧪 Test URL: ${AppConstants.healthCheckUrl}');
-        debugPrint('   📋 Troubleshooting:');
-        debugPrint('      1. Verify backend is running (check terminal)');
-        debugPrint('      2. Check IP address: ${AppConstants.baseUrl}');
-        debugPrint('      3. Test in browser: ${AppConstants.healthCheckUrl}');
-        debugPrint('      4. Ensure phone and laptop are on same Wi-Fi');
-        debugPrint('      5. Disable mobile data on phone');
-        debugPrint('      6. Check firewall settings');
-        
-        throw Exception(
-          'Backend server is not reachable. Please check:\n'
-          '• Backend is running\n'
-          '• Correct IP address: ${AppConstants.baseUrl}\n'
-          '• Phone and laptop are on same Wi-Fi\n'
-          '• Mobile data is disabled\n'
-          '• Test in browser: ${AppConstants.healthCheckUrl}'
-        );
-      }
-      
-      debugPrint('✅ [AUTH] Backend connectivity test passed');
-      
-      debugPrint('🎫 [AUTH] Requesting Firebase ID token...');
+      const overallTimeout = Duration(seconds: 20);
+      debugPrint('🎫 [AUTH] Preparing login (token + optional identities)...');
+
       final tokenStartTime = DateTime.now();
-      final token = await firebaseUser.getIdToken();
+
+      final tokenFuture = firebaseUser.getIdToken();
+
+      final fingerprintFuture = (() async {
+        try {
+          if (await DeviceFingerprintService.isFastLoginAllowed()) {
+            final fp = await DeviceFingerprintService.getDeviceFingerprint();
+            return fp.isNotEmpty ? fp : null;
+          }
+        } catch (_) {
+          // Unsupported platform / emulator / plugin failure — omit deviceFingerprint
+        }
+        return null;
+      })();
+
+      final results = await Future.wait<dynamic>([
+        tokenFuture,
+        fingerprintFuture,
+      ]).timeout(overallTimeout);
+
+      final token = results[0] as String?;
+      final deviceFingerprint = results[1] as String?;
       final tokenDuration = DateTime.now().difference(tokenStartTime);
       
       if (token == null) {
@@ -280,13 +238,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       debugPrint('   💡 Make sure backend is running and accessible');
       // Send all identities we know (deviceFingerprint, etc.) for bonus eligibility check
       final Map<String, dynamic> loginBody = {};
-      try {
-        if (await DeviceFingerprintService.isFastLoginAllowed()) {
-          final fp = await DeviceFingerprintService.getDeviceFingerprint();
-          if (fp.isNotEmpty) loginBody['deviceFingerprint'] = fp;
-        }
-      } catch (_) {
-        // Emulator or unsupported platform — omit deviceFingerprint
+      if (deviceFingerprint != null && deviceFingerprint.isNotEmpty) {
+        loginBody['deviceFingerprint'] = deviceFingerprint;
       }
       if (_pendingReferralCode != null &&
           _pendingReferralCode!.trim().length == 6) {
@@ -294,7 +247,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
         _pendingReferralCode = null; // Clear after use
       }
       final apiStartTime = DateTime.now();
-      final response = await _apiClient.post('/auth/login', data: loginBody.isNotEmpty ? loginBody : null);
+      final response = await _apiClient
+          .post('/auth/login', data: loginBody.isNotEmpty ? loginBody : null)
+          .timeout(overallTimeout);
       final apiDuration = DateTime.now().difference(apiStartTime);
       debugPrint('📥 [AUTH] Backend response received');
       debugPrint('   ⏱️  API call duration: ${apiDuration.inMilliseconds}ms');
@@ -381,18 +336,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
         debugPrint('   🎉 Ready for app usage');
         
         // Connect to Stream Chat
-        try {
-          debugPrint('🔌 [AUTH] Connecting to Stream Chat...');
-          final chatService = ChatService();
-          await chatService.getChatToken();
-          
-          // Get Stream Chat notifier from provider (we'll need to pass ref)
-          // For now, we'll handle this in a separate widget that watches auth state
-          debugPrint('✅ [AUTH] Stream Chat token received');
-        } catch (e) {
-          debugPrint('⚠️  [AUTH] Failed to connect to Stream Chat: $e');
-          // Don't block login if Stream Chat fails
-        }
+        unawaited(() async {
+          try {
+            debugPrint('🔌 [AUTH] Connecting to Stream Chat...');
+            final chatService = ChatService();
+            await chatService.getChatToken();
+            debugPrint('✅ [AUTH] Stream Chat token received');
+          } catch (e) {
+            debugPrint('⚠️  [AUTH] Failed to connect to Stream Chat: $e');
+          }
+        }());
         
       } else {
         debugPrint('───────────────────────────────────────────────────────');
@@ -433,6 +386,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
       
       // Create a more descriptive error message
       String errorMessage = e.toString();
+      if (e is TimeoutException) {
+        errorMessage = 'Login timed out. Please try again.';
+      }
       if (e is DioException) {
         if (e.type == DioExceptionType.connectionError) {
           // Check for specific connection error types
@@ -488,6 +444,60 @@ class AuthNotifier extends StateNotifier<AuthState> {
     _pendingReferralCode = code?.trim().isNotEmpty == true ? code!.trim().toUpperCase() : null;
   }
 
+  /// Sign in with Google. Uses Firebase Auth; auth state listener triggers _syncUserToBackend.
+  /// [referralCode] optional 6-char code to apply for new users (via _pendingReferralCode).
+  Future<void> signInWithGoogle({String? referralCode}) async {
+    try {
+      debugPrint('═══════════════════════════════════════════════════════');
+      debugPrint('🔐 [GOOGLE] Starting Google Sign-In');
+      debugPrint('═══════════════════════════════════════════════════════');
+
+      if (_auth == null) {
+        debugPrint('❌ [GOOGLE] Firebase not initialized');
+        state = state.copyWith(error: 'Firebase not initialized');
+        return;
+      }
+
+      if (referralCode != null && referralCode.trim().length == 6) {
+        setPendingReferralCode(referralCode.trim());
+      }
+
+      state = state.copyWith(isLoading: true, error: null);
+
+      final googleUser = await _googleSignIn.signIn();
+      if (googleUser == null) {
+        debugPrint('⏭️ [GOOGLE] User cancelled sign-in');
+        state = state.copyWith(isLoading: false);
+        return;
+      }
+
+      final googleAuth = await googleUser.authentication;
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+      if (credential.idToken == null) {
+        debugPrint('❌ [GOOGLE] No ID token from Google');
+        state = state.copyWith(isLoading: false, error: 'Google sign-in failed: no ID token');
+        return;
+      }
+
+      await _auth!.signInWithCredential(credential);
+      debugPrint('✅ [GOOGLE] Sign-in with credential successful');
+      state = state.copyWith(isLoading: false);
+      // Auth state listener will trigger _syncUserToBackend
+    } on FirebaseAuthException catch (e) {
+      debugPrint('❌ [GOOGLE] Firebase Auth error: $e');
+      final message = e.code == 'account-exists-with-different-credential'
+          ? 'This email is already used with another sign-in method.'
+          : (e.message ?? 'Google sign-in failed. Please try again.');
+      state = state.copyWith(isLoading: false, error: message);
+    } catch (e) {
+      debugPrint('❌ [GOOGLE] Error: $e');
+      state = state.copyWith(isLoading: false, error: e.toString());
+    }
+  }
+
   /// Sign in with Fast Login (device-based; no Google account).
   /// Backend returns a Firebase custom token; we sign in with it so the same
   /// Firebase UID identity model applies (Stream, sockets, calls unchanged).
@@ -508,7 +518,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       if (!allowed) {
         debugPrint('❌ [FAST LOGIN] Emulator detected - Fast Login disabled');
         state = state.copyWith(
-          error: 'Fast Login is not available on emulators. Please use Google Sign-In.',
+          error: 'Fast Login requires a real device. Please run the app on a physical device.',
         );
         return;
       }
@@ -572,369 +582,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  /// Sign in with Google (primary auth method)
-  Future<void> signInWithGoogle() async {
-    try {
-      debugPrint('═══════════════════════════════════════════════════════');
-      debugPrint('🔐 [GOOGLE AUTH] Starting Google Sign-In');
-      debugPrint('═══════════════════════════════════════════════════════');
-
-      if (_auth == null) {
-        debugPrint('❌ [GOOGLE AUTH] Firebase not initialized');
-        state = state.copyWith(error: 'Firebase not initialized');
-        return;
-      }
-
-      if (_auth!.currentUser != null && !state.isAuthenticated) {
-        debugPrint('🔄 [GOOGLE AUTH] User signed in with Firebase, retrying backend sync');
-        state = state.copyWith(
-          isLoading: true,
-          error: null,
-          firebaseUser: _auth!.currentUser,
-        );
-        _lastSyncedUid = null;
-        _isSyncingToBackend = false;
-        await _syncUserToBackend(_auth!.currentUser!);
-        return;
-      }
-
-      if (_auth!.currentUser != null && state.isAuthenticated) {
-        debugPrint('✅ [GOOGLE AUTH] Already fully authenticated');
-        return;
-      }
-
-      state = state.copyWith(isLoading: true, error: null);
-      // Note: _pendingReferralCode is set by login screen before calling signInWithGoogle
-
-      final googleSignIn = GoogleSignIn();
-      final googleUser = await googleSignIn.signIn();
-
-      if (googleUser == null) {
-        debugPrint('⏭️ [GOOGLE AUTH] User canceled sign-in');
-        state = state.copyWith(isLoading: false);
-        return;
-      }
-
-      final googleAuth = await googleUser.authentication;
-      final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
-
-      await _auth!.signInWithCredential(credential);
-      debugPrint('✅ [GOOGLE AUTH] Sign-in successful');
-      state = state.copyWith(isLoading: false);
-      // Auth state listener will trigger _syncUserToBackend
-    } catch (e) {
-      debugPrint('❌ [GOOGLE AUTH] Error: $e');
-      state = state.copyWith(
-        isLoading: false,
-        error: e.toString(),
-      );
-    }
-  }
-
-  /// Phone number login - sends OTP via Firebase
-  Future<void> signInWithPhone(String phoneNumber) async {
-    await _signInWithPhoneImpl(phoneNumber);
-  }
-
-  /// OTP verification - completes phone sign-in after code is sent
-  Future<void> verifyOtp(String verificationId, String otp) async {
-    await _verifyOtpImpl(verificationId, otp);
-  }
-
-  Future<void> _signInWithPhoneImpl(String phoneNumber) async {
-    try {
-      debugPrint('═══════════════════════════════════════════════════════');
-      debugPrint('📱 [PHONE AUTH] Starting phone number authentication');
-      debugPrint('═══════════════════════════════════════════════════════');
-      debugPrint('   📞 Phone number: $phoneNumber');
-      debugPrint('   ⏰ Timestamp: ${DateTime.now().toIso8601String()}');
-      
-      if (_auth == null) {
-        debugPrint('❌ [PHONE AUTH] Firebase not initialized');
-        state = state.copyWith(error: 'Firebase not initialized');
-        return;
-      }
-      
-      // 🔥 GUARD: Already signed in — don't call verifyPhoneNumber again
-      // BUT: If the app state isn't authenticated (e.g. backend sync failed
-      //       on a previous attempt), retry the sync instead of returning silently.
-      if (_auth!.currentUser != null) {
-        debugPrint('⏭️ [PHONE AUTH] User already signed in with Firebase');
-        debugPrint('   🆔 UID: ${_auth!.currentUser!.uid}');
-        
-        if (!state.isAuthenticated) {
-          debugPrint('🔄 [PHONE AUTH] App state NOT authenticated — retrying backend sync');
-          // Clear previous error so UI shows loading instead of stale error
-          state = state.copyWith(
-            isLoading: true,
-            error: null,
-            firebaseUser: _auth!.currentUser,
-          );
-          _lastSyncedUid = null; // Reset so sync is allowed
-          _isSyncingToBackend = false; // Reset guard so sync proceeds
-          await _syncUserToBackend(_auth!.currentUser!);
-        } else {
-          debugPrint('✅ [PHONE AUTH] Already fully authenticated — no action needed');
-        }
-        return;
-      }
-      
-      // 🔥 GUARD: Verification already in progress
-      if (_phoneVerificationInProgress) {
-        debugPrint('⏭️ [PHONE AUTH] BLOCKED - Verification already in progress');
-        return;
-      }
-      
-      // 🔥 GUARD: Rate limiting - prevent too many requests
-      if (_lastVerificationAttempt != null) {
-        final timeSinceLastAttempt = DateTime.now().difference(_lastVerificationAttempt!);
-        if (timeSinceLastAttempt < _verificationCooldown) {
-          final remainingSeconds = (_verificationCooldown - timeSinceLastAttempt).inSeconds;
-          debugPrint('⏭️ [PHONE AUTH] BLOCKED - Rate limit cooldown active');
-          debugPrint('   ⏱️  Please wait ${remainingSeconds}s before trying again');
-          state = state.copyWith(
-            isLoading: false,
-            error: 'Please wait ${remainingSeconds}s before requesting a new code.',
-          );
-          return;
-        }
-      }
-      
-      _phoneVerificationInProgress = true;
-      _lastVerificationAttempt = DateTime.now();
-      
-      final isTest = _isTestNumber(phoneNumber);
-      debugPrint('   🧪 Is test number: $isTest');
-      
-      state = state.copyWith(isLoading: true, error: null);
-      debugPrint('🔄 [PHONE AUTH] Requesting phone verification from Firebase...');
-      
-      await _auth!.verifyPhoneNumber(
-        phoneNumber: phoneNumber,
-        verificationCompleted: (PhoneAuthCredential credential) async {
-          debugPrint('───────────────────────────────────────────────────────');
-          debugPrint('✅ [PHONE AUTH] Auto-verification completed');
-          debugPrint('───────────────────────────────────────────────────────');
-          
-          // 🔥 GUARD: Prevent double sign-in
-          if (_otpVerified) {
-            debugPrint('⏭️ [PHONE AUTH] OTP already verified, skipping auto-verify');
-            return;
-          }
-          if (_auth?.currentUser != null) {
-            debugPrint('⏭️ [PHONE AUTH] User already signed in, skipping auto-verify');
-            return;
-          }
-          _otpVerified = true;
-          
-          try {
-            final userCredential = await _auth!.signInWithCredential(credential);
-            debugPrint('✅ [PHONE AUTH] Auto sign-in successful');
-            debugPrint('   🆔 UID: ${userCredential.user?.uid}');
-            _phoneVerificationInProgress = false;
-          } catch (e) {
-            debugPrint('❌ [PHONE AUTH] Auto sign-in error: $e');
-            _otpVerified = false;  // Reset so manual OTP can still work
-            _phoneVerificationInProgress = false;
-          }
-        },
-        verificationFailed: (FirebaseAuthException e) {
-          debugPrint('───────────────────────────────────────────────────────');
-          debugPrint('❌ [PHONE AUTH] Verification failed');
-          debugPrint('───────────────────────────────────────────────────────');
-          debugPrint('   Code: ${e.code}');
-          debugPrint('   Message: ${e.message ?? "No message"}');
-          
-          _phoneVerificationInProgress = false;  // 🔥 Reset so user can retry
-
-          // Map common Firebase Phone Auth errors to user-friendly messages.
-          // In release, avoid leaking implementation details (SHA, Play Integrity, etc.)
-          // but keep enough hints for developers in debug builds.
-          String friendly;
-          switch (e.code) {
-            case 'invalid-phone-number':
-              friendly = 'Please enter a valid phone number.';
-              break;
-            case 'too-many-requests':
-              // Firebase rate limit hit - enforce longer cooldown
-              _lastVerificationAttempt = DateTime.now();
-              // Extend cooldown to 5 minutes for too-many-requests
-              _lastVerificationAttempt = _lastVerificationAttempt!.subtract(
-                const Duration(minutes: 5) - _verificationCooldown,
-              );
-              friendly = 'Too many verification attempts. Please wait 5 minutes before trying again, or try using a different phone number.';
-              break;
-            case 'quota-exceeded':
-              friendly = 'OTP service is temporarily unavailable. Please try again later.';
-              break;
-            case 'app-not-authorized':
-            case 'invalid-app-credential':
-            case 'missing-client-identifier':
-            case 'captcha-check-failed':
-              friendly = kDebugMode
-                  ? 'Phone verification blocked for this build. Add release SHA-256/SHA-1 to Firebase (Android app: com.matchvibe.app), then retry.'
-                  : 'Verification is temporarily unavailable. Please try again later.';
-              break;
-            default:
-              friendly = e.message ?? 'Verification failed. Please try again.';
-          }
-          
-          state = state.copyWith(
-            isLoading: false,
-            error: friendly,
-          );
-        },
-        codeSent: (String verificationId, int? resendToken) {
-          debugPrint('───────────────────────────────────────────────────────');
-          debugPrint('✅ [PHONE AUTH] Verification code sent successfully');
-          debugPrint('───────────────────────────────────────────────────────');
-          debugPrint('   🆔 Verification ID: $verificationId');
-          debugPrint('   📱 Phone: $phoneNumber');
-          
-          _otpVerified = false;  // Reset for new verification round
-          _phoneVerificationInProgress = false;  // 🔥 Reset so user can navigate to OTP
-          
-          state = state.copyWith(
-            isLoading: false,
-            verificationId: verificationId,
-            resendToken: resendToken,
-            phoneNumber: phoneNumber,
-            error: null,
-          );
-          debugPrint('   ✅ Ready for OTP input screen');
-        },
-        codeAutoRetrievalTimeout: (String verificationId) {
-          if (isTest) return;  // 🔥 Ignore timeout for test numbers
-          debugPrint('⏱️  [PHONE AUTH] Auto-retrieval timeout');
-          debugPrint('   💡 User must enter code manually');
-        },
-        // 🔥 Test numbers: zero timeout disables auto-retrieval
-        // Real numbers: 60s for SMS auto-read
-        timeout: isTest ? Duration.zero : const Duration(seconds: 60),
-      );
-      
-      debugPrint('✅ [PHONE AUTH] verifyPhoneNumber() call completed');
-    } catch (e) {
-      debugPrint('───────────────────────────────────────────────────────');
-      debugPrint('❌ [PHONE AUTH] Unexpected error');
-      debugPrint('───────────────────────────────────────────────────────');
-      debugPrint('   Error: $e');
-      state = state.copyWith(isLoading: false, error: e.toString());
-    }
-  }
-
-  Future<void> _verifyOtpImpl(String verificationId, String otp) async {
-    try {
-      debugPrint('🔐 [OTP] Starting OTP verification...');
-      debugPrint('   🆔 Verification ID: $verificationId');
-      debugPrint('   🔢 OTP: $otp');
-
-      if (_otpVerified) {
-        debugPrint('⏭️ [OTP] Already verified, skipping duplicate');
-        return;
-      }
-
-      if (_auth == null) {
-        debugPrint('❌ [OTP] Firebase not initialized');
-        state = state.copyWith(error: 'Firebase not initialized');
-        return;
-      }
-
-      _otpVerified = true;
-      state = state.copyWith(isLoading: true, error: null);
-
-      final credential = PhoneAuthProvider.credential(
-        verificationId: verificationId,
-        smsCode: otp,
-      );
-
-      debugPrint('🔑 [OTP] Credential created, signing in...');
-
-      UserCredential? userCredential;
-      try {
-        userCredential = await _auth!.signInWithCredential(credential);
-      } catch (signInError) {
-        final currentUser = _auth!.currentUser;
-        if (currentUser != null) {
-          debugPrint('⚠️  [OTP] Sign in had error but user is authenticated');
-          state = state.copyWith(
-            verificationId: null,
-            resendToken: null,
-            phoneNumber: null,
-            isLoading: false,
-          );
-          return;
-        }
-        rethrow;
-      }
-
-      debugPrint('✅ [OTP] Sign in successful');
-
-      if (userCredential.user != null) {
-        state = state.copyWith(
-          verificationId: null,
-          resendToken: null,
-          phoneNumber: null,
-          isLoading: false,
-        );
-      }
-    } catch (e) {
-      final currentUser = _auth?.currentUser;
-      if (currentUser != null) {
-        state = state.copyWith(
-          verificationId: null,
-          resendToken: null,
-          phoneNumber: null,
-          isLoading: false,
-          error: null,
-        );
-        return;
-      }
-
-      _otpVerified = false;
-      debugPrint('❌ [OTP] Verification error: $e');
-      if (e is FirebaseAuthException) {
-        String errorMessage = e.message ?? 'Verification failed. Please try again.';
-        switch (e.code) {
-          case 'invalid-verification-code':
-            errorMessage = 'Invalid verification code. Please check and try again.';
-            break;
-          case 'session-expired':
-            errorMessage = 'Verification code expired. Please request a new code.';
-            state = state.copyWith(
-              verificationId: null,
-              resendToken: null,
-              phoneNumber: null,
-              isLoading: false,
-              error: errorMessage,
-            );
-            return;
-          case 'invalid-verification-id':
-            errorMessage = 'Invalid verification session. Please request a new code.';
-            state = state.copyWith(
-              verificationId: null,
-              resendToken: null,
-              phoneNumber: null,
-              isLoading: false,
-              error: errorMessage,
-            );
-            return;
-          default:
-            break;
-        }
-        state = state.copyWith(isLoading: false, error: errorMessage);
-      } else {
-        state = state.copyWith(
-          isLoading: false,
-          error: 'Verification failed. Please try again.',
-        );
-      }
-    }
-  }
-
   Future<void> signOut() async {
     try {
       debugPrint('🚪 [AUTH] Starting sign out...');
@@ -957,15 +604,20 @@ class AuthNotifier extends StateNotifier<AuthState> {
         debugPrint('✅ [AUTH] Firebase sign out successful');
       }
 
+      try {
+        await _googleSignIn.signOut();
+        debugPrint('✅ [AUTH] Google Sign-In sign out successful');
+      } catch (e) {
+        debugPrint('⚠️  [AUTH] Google sign out (non-critical): $e');
+      }
+
       debugPrint('🗑️  [AUTH] Clearing local storage...');
       final prefs = await SharedPreferences.getInstance();
       await prefs.clear();
       debugPrint('✅ [AUTH] Local storage cleared');
 
-      _otpVerified = false;
       _isSyncingToBackend = false;
       _lastSyncedUid = null;
-      _phoneVerificationInProgress = false;
 
       state = AuthState();
       debugPrint('✅ [AUTH] Sign out completed');
@@ -1093,17 +745,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-
-  // OTP verification - commented out (phone login disabled)
-  void clearVerificationState() {
-    debugPrint('🗑️  [AUTH] Clearing verification state');
-    state = state.copyWith(
-      verificationId: null,
-      resendToken: null,
-      phoneNumber: null,
-      error: null,
-    );
-  }
 
   /// Clear error state
   void clearError() {

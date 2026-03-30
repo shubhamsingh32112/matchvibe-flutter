@@ -1,46 +1,31 @@
 # Google Sign-In Setup
 
-The app now uses **Google Sign-In only** (phone/OTP login has been commented out).
+The app supports **Fast Login** and **Google Sign-In**. Both use Firebase Auth; the backend finds or creates a user by Firebase UID on `POST /auth/login`.
 
-## Firebase Console Setup
+## Firebase Console
 
-1. **Enable Google Sign-In Provider**
-   - Go to [Firebase Console](https://console.firebase.google.com) → Your Project
-   - **Authentication** → **Sign-in method**
-   - Click **Google** → Enable → Save
+1. **Enable Google provider**
+   - Firebase Console → your project → **Authentication** → **Sign-in method**
+   - Enable **Google** (turn on, set support email, save)
 
-2. **Configure OAuth Consent (Web)**
-   - Go to [Google Cloud Console](https://console.cloud.google.com)
-   - Select your Firebase project
-   - **APIs & Services** → **OAuth consent screen**
-   - Configure app name, support email, developer contact
+2. **Project configured via `flutterfire configure`**
+   - `lib/firebase_options.dart` (gitignored) contains your Firebase config
+   - Backend must have Firebase Admin SDK credentials: `FIREBASE_PROJECT_ID`, `FIREBASE_PRIVATE_KEY`, `FIREBASE_CLIENT_EMAIL`
 
-3. **Create OAuth 2.0 Credentials**
-   - **APIs & Services** → **Credentials**
-   - **Create Credentials** → **OAuth client ID**
-   - Application type: **Android** and **iOS** (create separate for each)
-   - For Android: Add your app's package name and SHA-1 certificate fingerprint
-   - For iOS: Add your iOS bundle ID
+3. **Android: SHA fingerprints**
+   - Add your debug and release SHA-1 (and SHA-256 if required) in Firebase Console → Project settings → Your apps → Android app
+   - See `FIREBASE_SHA_FINGERPRINTS.md` if you have a separate doc for this
 
-4. **Add SHA-1/SHA-256 (Android)**
-   - Run: `cd android && ./gradlew signingReport` (or use `keytool` for release)
-   - Add debug and release fingerprints to Firebase: Project Settings → Your Apps
+4. **iOS (if you ship iOS)**
+   - Add your iOS app bundle ID in Firebase
+   - Download `GoogleService-Info.plist` and add to Xcode (flutterfire configure does this)
 
-## Platform-Specific
+## App flow
 
-### Android
-- `google-services.json` is already in `android/app/`
-- Ensure `minSdkVersion` is at least 19 for Google Sign-In
+- **Login screen:** User can tap "Continue with Fast Login" or "Continue with Google".
+- **Google:** `GoogleSignIn().signIn()` → get ID token → `signInWithCredential(GoogleAuthProvider.credential(...))` → Firebase Auth state updates → `_syncUserToBackend` → `POST /auth/login` with Bearer token → backend finds/creates user by `firebaseUid`.
+- **Sign out:** App calls `FirebaseAuth.signOut()` and `GoogleSignIn().signOut()` so next time the user gets the Google account picker.
 
-### iOS
-- Add URL scheme in `ios/Runner/Info.plist` for Google Sign-In callback
-- Add `GoogleService-Info.plist` to the project
+## Data safety / Play Store
 
-## Re-enabling Phone Login
-
-To restore phone/OTP login:
-
-1. Uncomment the phone implementation in `lib/features/auth/providers/auth_provider.dart`
-2. Restore the original `login_screen.dart` (phone field + Get OTP button)
-3. Restore the `/otp` route in `lib/app/router/app_router.dart` to use `OtpScreen`
-4. Ensure `intl_phone_field` is in `pubspec.yaml`
+If you collect Google sign-in (email/name), declare it in your app’s Data Safety section and privacy policy as required by Google Play and applicable laws.

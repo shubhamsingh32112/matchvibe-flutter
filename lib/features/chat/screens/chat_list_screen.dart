@@ -7,6 +7,7 @@ import '../../../shared/models/profile_model.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../home/providers/home_provider.dart';
 import '../../user/providers/user_availability_provider.dart';
+import '../../../core/services/availability_socket_service.dart';
 import '../services/chat_service.dart';
 import '../utils/chat_utils.dart';
 
@@ -301,6 +302,7 @@ class _OnlineUsersTab extends ConsumerStatefulWidget {
 
 class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
   final Set<String> _loadingUserIds = {};
+  bool _requestedInitialAvailability = false;
 
   Future<void> _openChat(UserProfileModel user) async {
     if (_loadingUserIds.contains(user.id)) return;
@@ -339,6 +341,19 @@ class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
 
     return usersAsync.when(
       data: (users) {
+        // On first successful load, request a real-time availability batch for all users.
+        if (!_requestedInitialAvailability && users.isNotEmpty) {
+          _requestedInitialAvailability = true;
+          final socketService = ref.read(availabilitySocketServiceProvider);
+          final firebaseUids = users
+              .where((u) => u.firebaseUid != null)
+              .map((u) => u.firebaseUid!)
+              .toList();
+          if (firebaseUids.isNotEmpty) {
+            socketService.requestUserAvailability(firebaseUids);
+          }
+        }
+
         // 🔥 NEW: Filter to show only online users
         // Use real-time availability from Socket.IO (userAvailabilityProvider)
         // Fallback to API availability if socket data not available
