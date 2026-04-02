@@ -17,7 +17,9 @@ android {
     // NOTE: Set this to your real production package (reverse-DNS), then run `flutterfire configure` with the same value.
     namespace = "com.matchvibe.app"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    // Required for Google Play's 16 KB page-size compatibility checks.
+    // Pin to a modern NDK so any native plugins rebuild with correct alignment.
+    ndkVersion = "28.0.13004108"
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
