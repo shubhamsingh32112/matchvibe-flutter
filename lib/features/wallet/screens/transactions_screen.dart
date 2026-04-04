@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../services/transaction_service.dart';
 import '../models/transaction_model.dart';
+import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/widgets/gem_icon.dart';
@@ -81,7 +82,10 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = e.toString();
+          _error = UserMessageMapper.userMessageFor(
+            e,
+            fallback: 'Couldn\'t load transactions. Please try again.',
+          );
           _isLoading = false;
         });
       }

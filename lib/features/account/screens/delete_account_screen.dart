@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/utils/user_message_mapper.dart';
+import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 import '../../auth/providers/auth_provider.dart';
 
@@ -101,10 +103,11 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
       context.go('/login');
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to delete account: $e'),
-          backgroundColor: Theme.of(context).colorScheme.error,
+      AppToast.showError(
+        context,
+        UserMessageMapper.userMessageFor(
+          e,
+          fallback: 'Couldn\'t delete account. Please try again.',
         ),
       );
     } finally {

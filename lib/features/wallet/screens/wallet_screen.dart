@@ -9,6 +9,8 @@ import '../providers/wallet_pricing_provider.dart';
 import '../services/payment_service.dart';
 import '../models/earnings_model.dart';
 import '../models/wallet_pricing_model.dart';
+import '../../../core/utils/user_message_mapper.dart';
+import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/widgets/gem_icon.dart';
@@ -138,7 +140,10 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                       loading: () => const Center(child: LoadingIndicator()),
                       error: (error, _) => ErrorState(
                         title: 'Failed to load earnings',
-                        message: error.toString(),
+                        message: UserMessageMapper.userMessageFor(
+                          error,
+                          fallback: 'Couldn\'t load earnings. Please try again.',
+                        ),
                         actionLabel: 'Retry',
                         onAction: () => ref.invalidate(creatorDashboardProvider),
                       ),
@@ -157,7 +162,10 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                       loading: () => const Center(child: LoadingIndicator()),
                       error: (error, _) => ErrorState(
                         title: 'Failed to load wallet pricing',
-                        message: error.toString(),
+                        message: UserMessageMapper.userMessageFor(
+                          error,
+                          fallback: 'Couldn\'t load coin packs. Please try again.',
+                        ),
                         actionLabel: 'Retry',
                         onAction: () => ref.invalidate(walletPricingProvider),
                       ),
@@ -305,13 +313,10 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
       }
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Complete payment on the website. App will reopen automatically.',
-            ),
-            duration: Duration(seconds: 3),
-          ),
+        AppToast.showInfo(
+          context,
+          'Complete payment on the website. App will reopen automatically.',
+          duration: const Duration(seconds: 3),
         );
       }
     } catch (e) {
@@ -323,12 +328,13 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
 
       // Show error message
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('❌ Failed to start checkout: ${e.toString()}'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-            duration: const Duration(seconds: 3),
+        AppToast.showError(
+          context,
+          UserMessageMapper.userMessageFor(
+            e,
+            fallback: 'Couldn\'t start checkout. Please try again.',
           ),
+          duration: const Duration(seconds: 3),
         );
       }
     } finally {

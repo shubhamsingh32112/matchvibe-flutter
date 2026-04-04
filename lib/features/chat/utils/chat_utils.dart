@@ -2,22 +2,34 @@ import 'package:flutter/foundation.dart';
 import 'package:stream_chat_flutter/stream_chat_flutter.dart';
 
 /// Extracts the display name for a user from Stream Chat user data.
-/// Priority: username (from extraData) > name > id > 'User'
-/// 
-/// This ensures we always show the username if available, avoiding phone numbers.
+///
+/// Creators/admins: prefer Stream [User.name] (synced to public creator name on the server).
+/// Regular users: prefer [username] in extraData, then non-phone [name], then id.
 String extractDisplayName(User? user) {
   if (user == null) return 'User';
-  
-  // Priority 1: username from extraData (single source of truth)
+
+  final appRole = user.extraData['appRole'] as String?;
+  final isCreatorLike =
+      appRole == 'creator' || appRole == 'admin';
+
+  if (isCreatorLike) {
+    final streamName = user.name.trim();
+    if (streamName.isNotEmpty &&
+        !streamName.startsWith('+') &&
+        !RegExp(r'^\d+$').hasMatch(streamName)) {
+      return streamName;
+    }
+  }
+
+  // Regular users (and creator fallback): username from extraData
   final username = user.extraData['username'] as String?;
   if (username != null && username.trim().isNotEmpty) {
     return username.trim();
   }
-  
-  // Priority 2: name field (may be phone number if username not set)
+
+  // Name field (may be phone number if username not set)
   final name = user.name;
   if (name.trim().isNotEmpty) {
-    // If name looks like a phone number (starts with + or is all digits), skip it
     final trimmedName = name.trim();
     if (!trimmedName.startsWith('+') && !RegExp(r'^\d+$').hasMatch(trimmedName)) {
       return trimmedName;

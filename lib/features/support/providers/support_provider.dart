@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/utils/user_message_mapper.dart';
 import '../models/support_ticket_model.dart';
 import '../services/support_service.dart';
 
@@ -51,11 +52,13 @@ class SupportNotifier extends StateNotifier<SupportState> {
       final tickets = await _service.getMyTickets();
       state = state.copyWith(isLoading: false, tickets: tickets);
     } catch (e) {
-      String errorMsg = e.toString();
-      if (errorMsg.startsWith('Exception: ')) {
-        errorMsg = errorMsg.substring(11);
-      }
-      state = state.copyWith(isLoading: false, error: errorMsg);
+      state = state.copyWith(
+        isLoading: false,
+        error: UserMessageMapper.userMessageFor(
+          e,
+          fallback: 'Couldn\'t load support tickets. Please try again.',
+        ),
+      );
     }
   }
 
@@ -81,11 +84,13 @@ class SupportNotifier extends StateNotifier<SupportState> {
       );
       return true;
     } catch (e) {
-      String errorMsg = e.toString();
-      if (errorMsg.startsWith('Exception: ')) {
-        errorMsg = errorMsg.substring(11);
-      }
-      state = state.copyWith(isSubmitting: false, error: errorMsg);
+      state = state.copyWith(
+        isSubmitting: false,
+        error: UserMessageMapper.userMessageFor(
+          e,
+          fallback: 'Couldn\'t submit your ticket. Please try again.',
+        ),
+      );
       return false;
     }
   }

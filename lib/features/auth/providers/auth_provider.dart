@@ -1,15 +1,17 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:dio/dio.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/utils/user_message_mapper.dart';
 import '../../chat/services/chat_service.dart';
 import '../../../core/services/availability_socket_service.dart';
 import '../../../core/services/device_fingerprint_service.dart';
-import '../../../core/services/install_id_service.dart';
+import '../../../core/services/google_sign_in_service.dart';
 import '../../../shared/models/user_model.dart';
 
 
@@ -126,7 +128,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
       } catch (e) {
         debugPrint('❌ [AUTH] Firebase Auth still not available: $e');
         debugPrint('   💡 Please run: flutterfire configure');
-        state = state.copyWith(error: 'Firebase initialization required. Please run: flutterfire configure');
+        state = state.copyWith(
+          error: kDebugMode
+              ? 'Firebase initialization required. Run flutterfire configure.'
+              : 'Sign-in isn\'t ready yet. Please restart the app or contact support.',
+        );
       }
     } finally {
       _isInitializing = false;
@@ -146,6 +152,25 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
     
     debugPrint('🔐 [AUTH] Setting up auth state listener...');
+
+    // Keep SharedPreferences Bearer token aligned with Firebase refresh cycles (~1h).
+    _auth!.idTokenChanges().listen((User? user) async {
+      if (user == null) return;
+      try {
+        final token = await user.getIdToken();
+        if (token != null && token.isNotEmpty) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(AppConstants.keyAuthToken, token);
+          if (kDebugMode) {
+            debugPrint('💾 [AUTH] ID token persisted from idTokenChanges');
+          }
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('⚠️  [AUTH] idTokenChanges persist skipped: $e');
+        }
+      }
+    });
 
     _auth!.authStateChanges().listen((user) async {
       if (user != null) {
@@ -278,10 +303,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
       debugPrint('   🌐 Full URL: ${AppConstants.baseUrl}/auth/login');
       debugPrint('   🔑 Auth token: Present (${token.length} chars)');
       debugPrint('   💡 Make sure backend is running and accessible');
-      // Send all identities we know (deviceFingerprint, etc.) for bonus eligibility check
+      // Optional device fingerprint for welcome-bonus eligibility (skip emulators / abuse).
       final Map<String, dynamic> loginBody = {};
       try {
-        if (await DeviceFingerprintService.isFastLoginAllowed()) {
+        if (await DeviceFingerprintService.shouldSendDeviceFingerprintForBonus()) {
           final fp = await DeviceFingerprintService.getDeviceFingerprint();
           if (fp.isNotEmpty) loginBody['deviceFingerprint'] = fp;
         }
@@ -431,45 +456,17 @@ class AuthNotifier extends StateNotifier<AuthState> {
         }
       }
       
-      // Create a more descriptive error message
-      String errorMessage = e.toString();
-      if (e is DioException) {
-        if (e.type == DioExceptionType.connectionError) {
-          // Check for specific connection error types
-          final errorString = e.toString().toLowerCase();
-          if (errorString.contains('no route to host') || 
-              errorString.contains('socketexception') ||
-              errorString.contains('errno: 113')) {
-            // Provide detailed error message with actionable steps
-            errorMessage = 'Cannot connect to backend server.\n\n'
-                'Current server: ${AppConstants.baseUrl}\n\n'
-                'Please check:\n'
-                '1. Backend is running (check terminal)\n'
-                '2. Correct IP address (test: ${AppConstants.healthCheckUrl})\n'
-                '3. Phone and laptop on same Wi-Fi\n'
-                '4. Mobile data disabled\n'
-                '5. Firewall allows port 3000';
-          } else {
-            errorMessage = 'Network error, no connection please try again.';
-          }
-        } else if (e.type == DioExceptionType.connectionTimeout || 
-                   e.type == DioExceptionType.receiveTimeout) {
-          errorMessage = 'Connection timeout. Backend server may be slow or unreachable.\n\n'
-              'Test: ${AppConstants.healthCheckUrl}';
-        } else if (e.response != null) {
-          errorMessage = 'Server error: ${e.response?.statusCode} - ${e.response?.statusMessage ?? "Unknown error"}';
-        } else {
-          errorMessage = 'Network error, no connection please try again.';
-        }
-      } else if (e.toString().toLowerCase().contains('backend server is not reachable')) {
-        // This is from our connectivity test
-        errorMessage = e.toString();
-      } else if (e.toString().toLowerCase().contains('socket') || 
-                 e.toString().toLowerCase().contains('connection') ||
-                 e.toString().toLowerCase().contains('network')) {
-        errorMessage = 'Network error, no connection please try again.';
+      if (kDebugMode && e is DioException) {
+        debugPrint(
+          '   Dev hints: baseUrl=${AppConstants.baseUrl} health=${AppConstants.healthCheckUrl}',
+        );
       }
-      
+
+      final errorMessage = UserMessageMapper.userMessageFor(
+        e,
+        fallback: 'Failed to sync with server. Please check your connection and try again.',
+      );
+
       // 🔥 FIX: Preserve firebaseUser in error state so retry mechanism works.
       state = state.copyWith(
         firebaseUser: firebaseUser,
@@ -483,93 +480,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  /// Set pending referral code to apply on next signup (login/fast-login).
+  /// Set pending referral code to apply on next signup (first successful login).
   void setPendingReferralCode(String? code) {
     _pendingReferralCode = code?.trim().isNotEmpty == true ? code!.trim().toUpperCase() : null;
-  }
-
-  /// Sign in with Fast Login (device-based; no Google account).
-  /// Backend returns a Firebase custom token; we sign in with it so the same
-  /// Firebase UID identity model applies (Stream, sockets, calls unchanged).
-  /// [referralCode] optional 6-char code to apply for new users.
-  Future<void> signInWithFastLogin({String? referralCode}) async {
-    try {
-      debugPrint('═══════════════════════════════════════════════════════');
-      debugPrint('⚡ [FAST LOGIN] Starting Fast Login');
-      debugPrint('═══════════════════════════════════════════════════════');
-
-      if (_auth == null) {
-        debugPrint('❌ [FAST LOGIN] Firebase not initialized');
-        state = state.copyWith(error: 'Firebase not initialized');
-        return;
-      }
-
-      final allowed = await DeviceFingerprintService.isFastLoginAllowed();
-      if (!allowed) {
-        debugPrint('❌ [FAST LOGIN] Emulator detected - Fast Login disabled');
-        state = state.copyWith(
-          error: 'Fast Login is not available on emulators. Please use Google Sign-In.',
-        );
-        return;
-      }
-
-      state = state.copyWith(isLoading: true, error: null);
-
-      final deviceFingerprint = await DeviceFingerprintService.getDeviceFingerprint();
-      final installId = await InstallIdService.getInstallId();
-
-      final body = <String, dynamic>{
-        'deviceFingerprint': deviceFingerprint,
-        'installId': installId,
-      };
-      final refCode = referralCode ?? _pendingReferralCode;
-      if (refCode != null && refCode.trim().length == 6) {
-        body['referralCode'] = refCode.trim().toUpperCase();
-      }
-
-      // Call fast-login without auth token (unauthenticated endpoint)
-      final dio = Dio(
-        BaseOptions(
-          baseUrl: AppConstants.baseUrl,
-          connectTimeout: const Duration(seconds: 15),
-          receiveTimeout: const Duration(seconds: 30),
-          headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
-          validateStatus: (status) => status != null && status >= 200 && status < 300,
-        ),
-      );
-      final response = await dio.post(
-        '/auth/fast-login',
-        data: body,
-      );
-
-      final data = response.data;
-      if (data is! Map<String, dynamic> || data['success'] != true) {
-        final msg = (data is Map && data['error'] != null) ? data['error'].toString() : 'Fast login failed';
-        state = state.copyWith(isLoading: false, error: msg);
-        return;
-      }
-
-      final inner = data['data'];
-      final token = inner is Map ? inner['firebaseCustomToken'] as String? : null;
-      if (token == null || token.isEmpty) {
-        state = state.copyWith(isLoading: false, error: 'Invalid response from server');
-        return;
-      }
-
-      await _auth!.signInWithCustomToken(token);
-      debugPrint('✅ [FAST LOGIN] Sign-in with custom token successful');
-      state = state.copyWith(isLoading: false);
-      // Auth state listener will trigger _syncUserToBackend
-    } on DioException catch (e) {
-      debugPrint('❌ [FAST LOGIN] Dio error: $e');
-      final message = e.response?.data is Map && (e.response!.data as Map)['error'] != null
-          ? (e.response!.data as Map)['error'].toString()
-          : (e.message ?? 'Network error. Please try again.');
-      state = state.copyWith(isLoading: false, error: message);
-    } catch (e) {
-      debugPrint('❌ [FAST LOGIN] Error: $e');
-      state = state.copyWith(isLoading: false, error: e.toString());
-    }
   }
 
   /// Sign in with Google (primary auth method)
@@ -606,8 +519,23 @@ class AuthNotifier extends StateNotifier<AuthState> {
       state = state.copyWith(isLoading: true, error: null);
       // Note: _pendingReferralCode is set by login screen before calling signInWithGoogle
 
-      final googleSignIn = GoogleSignIn();
-      final googleUser = await googleSignIn.signIn();
+      if (AppConstants.googleWebClientId.isEmpty && kDebugMode) {
+        debugPrint(
+          '⚠️  [GOOGLE AUTH] GOOGLE_WEB_CLIENT_ID is empty — idToken may be null; set in .env',
+        );
+      }
+
+      GoogleSignInAccount? googleUser;
+      try {
+        googleUser = await AppGoogleSignIn.instance.signIn();
+      } on PlatformException catch (e) {
+        debugPrint('❌ [GOOGLE AUTH] PlatformException: ${e.code} ${e.message}');
+        state = state.copyWith(
+          isLoading: false,
+          error: _googleSignInPlatformMessage(e),
+        );
+        return;
+      }
 
       if (googleUser == null) {
         debugPrint('⏭️ [GOOGLE AUTH] User canceled sign-in');
@@ -616,21 +544,76 @@ class AuthNotifier extends StateNotifier<AuthState> {
       }
 
       final googleAuth = await googleUser.authentication;
+      final idToken = googleAuth.idToken;
+      if (idToken == null || idToken.isEmpty) {
+        debugPrint('❌ [GOOGLE AUTH] Missing idToken from GoogleSignIn');
+        state = state.copyWith(
+          isLoading: false,
+          error: kDebugMode
+              ? (AppConstants.googleWebClientId.isEmpty
+                  ? 'Google: set GOOGLE_WEB_CLIENT_ID in .env (Web client) and rebuild.'
+                  : 'Google: add release SHA-1 in Firebase and Web client ID in .env, rebuild.')
+              : 'Google sign-in isn\'t available on this build. Please try again later.',
+        );
+        return;
+      }
+
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
+        idToken: idToken,
       );
 
       await _auth!.signInWithCredential(credential);
       debugPrint('✅ [GOOGLE AUTH] Sign-in successful');
       state = state.copyWith(isLoading: false);
       // Auth state listener will trigger _syncUserToBackend
+    } on FirebaseAuthException catch (e) {
+      debugPrint('❌ [GOOGLE AUTH] FirebaseAuthException: ${e.code} ${e.message}');
+      state = state.copyWith(
+        isLoading: false,
+        error: _firebaseAuthMessage(e),
+      );
     } catch (e) {
       debugPrint('❌ [GOOGLE AUTH] Error: $e');
       state = state.copyWith(
         isLoading: false,
-        error: e.toString(),
+        error: UserMessageMapper.userMessageFor(
+          e,
+          fallback: 'Sign-in failed. Please try again.',
+        ),
       );
+    }
+  }
+
+  String _googleSignInPlatformMessage(PlatformException e) {
+    final code = e.code.toLowerCase();
+    if (code.contains('network') || code.contains('connection')) {
+      return 'Network error during Google Sign-In. Check your connection and try again.';
+    }
+    if (code == 'sign_in_failed' || code.contains('sign_in')) {
+      return kDebugMode
+          ? 'Google Sign-In failed (${e.message ?? e.code}). Check Firebase OAuth clients and SHA certificates.'
+          : 'Google Sign-In failed. Please try again or use phone sign-in.';
+    }
+    return UserMessageMapper.fromString(
+      e.message ?? '',
+      fallback: 'Google Sign-In failed. Please try again.',
+    );
+  }
+
+  String _firebaseAuthMessage(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'invalid-credential':
+        return 'Your Google session is invalid or expired. Please try signing in again.';
+      case 'user-disabled':
+        return 'This account has been disabled.';
+      case 'account-exists-with-different-credential':
+        return 'An account already exists with the same email using a different sign-in method.';
+      default:
+        return UserMessageMapper.fromString(
+          e.message ?? '',
+          fallback: 'Authentication failed. Please try again.',
+        );
     }
   }
 
@@ -775,11 +758,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
             case 'missing-client-identifier':
             case 'captcha-check-failed':
               friendly = kDebugMode
-                  ? 'Phone verification blocked for this build. Add release SHA-256/SHA-1 to Firebase (Android app: com.matchvibe.app), then retry.'
-                  : 'Verification is temporarily unavailable. Please try again later.';
+                  ? 'Phone auth: add this APK SHA-1 in Firebase for com.matchvibe.app (upload or Play signing cert).'
+                  : 'Phone sign-in isn\'t available on this build. Please update the app or contact support.';
               break;
             default:
-              friendly = e.message ?? 'Verification failed. Please try again.';
+              friendly = UserMessageMapper.fromString(
+                e.message ?? '',
+                fallback: 'Verification failed. Please try again.',
+              );
           }
           
           state = state.copyWith(
@@ -822,7 +808,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
       debugPrint('❌ [PHONE AUTH] Unexpected error');
       debugPrint('───────────────────────────────────────────────────────');
       debugPrint('   Error: $e');
-      state = state.copyWith(isLoading: false, error: e.toString());
+      _phoneVerificationInProgress = false;
+      state = state.copyWith(
+        isLoading: false,
+        error: UserMessageMapper.userMessageFor(
+          e,
+          fallback: 'Phone verification failed. Please try again.',
+        ),
+      );
     }
   }
 
@@ -897,7 +890,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       _otpVerified = false;
       debugPrint('❌ [OTP] Verification error: $e');
       if (e is FirebaseAuthException) {
-        String errorMessage = e.message ?? 'Verification failed. Please try again.';
+        String errorMessage;
         switch (e.code) {
           case 'invalid-verification-code':
             errorMessage = 'Invalid verification code. Please check and try again.';
@@ -923,7 +916,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
             );
             return;
           default:
-            break;
+            errorMessage = UserMessageMapper.fromString(
+              e.message ?? '',
+              fallback: 'Verification failed. Please try again.',
+            );
         }
         state = state.copyWith(isLoading: false, error: errorMessage);
       } else {
@@ -945,6 +941,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       } catch (e) {
         debugPrint('⚠️  [AUTH] Availability socket disconnect error (non-critical): $e');
       }
+
+      await AppGoogleSignIn.signOut();
 
       if (_auth != null) {
         final currentUser = _auth!.currentUser;
@@ -971,7 +969,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
       debugPrint('✅ [AUTH] Sign out completed');
     } catch (e) {
       debugPrint('❌ [AUTH] Sign out error: $e');
-      state = state.copyWith(error: e.toString());
+      state = state.copyWith(
+        error: UserMessageMapper.userMessageFor(
+          e,
+          fallback: 'Couldn\'t sign out. Please try again.',
+        ),
+      );
     }
   }
 

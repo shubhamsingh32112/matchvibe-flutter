@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/withdrawal_provider.dart';
 import '../models/withdrawal_model.dart';
+import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/widgets/gem_icon.dart';
 import '../../../shared/styles/app_brand_styles.dart';
@@ -55,12 +56,7 @@ class _WithdrawalScreenState extends ConsumerState<WithdrawalScreen> {
     // Listen for success/error messages
     ref.listen<WithdrawalState>(withdrawalProvider, (prev, next) {
       if (next.successMessage != null && next.successMessage != prev?.successMessage) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(next.successMessage!),
-            backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-          ),
-        );
+        AppToast.showSuccess(context, next.successMessage!);
         // Clear all form fields
         _amountController.clear();
         _nameController.clear();
@@ -72,12 +68,7 @@ class _WithdrawalScreenState extends ConsumerState<WithdrawalScreen> {
         ref.read(authProvider.notifier).refreshUser();
       }
       if (next.error != null && next.error != prev?.error) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(next.error!),
-            backgroundColor: Theme.of(context).colorScheme.errorContainer,
-          ),
-        );
+        AppToast.showError(context, next.error!);
       }
     });
 

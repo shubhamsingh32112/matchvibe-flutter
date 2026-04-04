@@ -1,8 +1,13 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:flutter_animate/flutter_animate.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../../shared/widgets/app_toast.dart';
+import '../../../shared/widgets/loader_bg_wordmark_cover.dart';
 import '../providers/auth_provider.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
@@ -12,81 +17,248 @@ class SplashScreen extends ConsumerStatefulWidget {
   ConsumerState<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends ConsumerState<SplashScreen> {
+class _SplashScreenState extends ConsumerState<SplashScreen>
+    with SingleTickerProviderStateMixin {
+  double _progress = 0;
+  static const double _progressCap = 0.92;
+  Timer? _progressTimer;
+  late final AnimationController _barRevealController;
+
   @override
   void initState() {
     super.initState();
+    _barRevealController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    )..forward();
+    _startProgressTicker();
     _checkAuthState();
   }
 
-  Future<void> _checkAuthState() async {
-    // Wait a moment for initialization
-    await Future.delayed(const Duration(seconds: 2));
-    
+  void _startProgressTicker() {
+    _progressTimer = Timer.periodic(const Duration(milliseconds: 120), (_) {
+      if (!mounted) return;
+      if (_progress >= _progressCap) return;
+      setState(() {
+        _progress = (_progress + 0.018).clamp(0.0, _progressCap);
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _progressTimer?.cancel();
+    _barRevealController.dispose();
+    super.dispose();
+  }
+
+  void _goAfterAuth(AuthState authState) {
     if (!mounted) return;
-    
+    if (authState.user?.gender == null || authState.user!.gender!.isEmpty) {
+      context.go('/gender');
+    } else {
+      context.go('/home');
+    }
+  }
+
+  Future<void> _finishAndNavigate(Future<void> Function() navigate) async {
+    _progressTimer?.cancel();
+    if (!mounted) return;
+    setState(() => _progress = 1.0);
+    await Future.delayed(const Duration(milliseconds: 180));
+    if (!mounted) return;
+    await navigate();
+  }
+
+  /// Waits for Firebase restore + backend sync so we do not send users to /login
+  /// while [AuthState.isAuthenticated] is still false only because sync is in flight.
+  Future<void> _checkAuthState() async {
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (!mounted) return;
+
+    await Future.delayed(const Duration(milliseconds: 800));
+    if (!mounted) return;
+
+    const poll = Duration(milliseconds: 200);
+    final deadline = DateTime.now().add(const Duration(seconds: 20));
+
     try {
-      // Try to read auth state
-      final authState = ref.read(authProvider);
-      
-      // Check if there's a Firebase error
-      if (authState.error != null && authState.error!.contains('Firebase')) {
-        // Show error and navigate to login anyway
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Firebase not configured. Please run: flutterfire configure'),
+      while (mounted && DateTime.now().isBefore(deadline)) {
+        final s = ref.read(authProvider);
+        final firebaseUser = FirebaseAuth.instance.currentUser;
+
+        if (s.error != null &&
+            s.error!.contains('Firebase') &&
+            firebaseUser == null &&
+            !s.isLoading) {
+          if (mounted) {
+            AppToast.showInfo(
+              context,
+              kDebugMode
+                  ? 'Firebase not configured. Run flutterfire configure.'
+                  : 'The app couldn\'t start. Please reinstall or contact support.',
               duration: const Duration(seconds: 5),
-              backgroundColor: Colors.orange,
-            ),
-          );
-          // Navigate to login anyway
-          await Future.delayed(const Duration(seconds: 2));
-          if (mounted) context.go('/login');
+            );
+            await Future.delayed(const Duration(seconds: 1));
+            if (mounted) {
+              await _finishAndNavigate(() async => context.go('/login'));
+            }
+          }
+          return;
         }
-        return;
+
+        if (s.isAuthenticated) {
+          await _finishAndNavigate(() async => _goAfterAuth(s));
+          return;
+        }
+
+        if (firebaseUser != null) {
+          await ref.read(authProvider.notifier).refreshAuthToken();
+        }
+
+        if (firebaseUser != null &&
+            s.user == null &&
+            !s.isLoading &&
+            s.error != null) {
+          if (mounted) {
+            await _finishAndNavigate(() async => context.go('/login'));
+          }
+          return;
+        }
+
+        if (firebaseUser == null && !s.isLoading) {
+          if (mounted) {
+            await _finishAndNavigate(() async => context.go('/login'));
+          }
+          return;
+        }
+
+        await Future.delayed(poll);
       }
-      
-      if (authState.isAuthenticated) {
-        // Check if user has completed onboarding (has gender)
-        if (authState.user?.gender == null || authState.user!.gender!.isEmpty) {
-          if (mounted) context.go('/gender');
-        } else {
-          if (mounted) context.go('/home');
-        }
-      } else {
-        if (mounted) context.go('/login');
+
+      if (!mounted) return;
+
+      final s = ref.read(authProvider);
+      if (s.isAuthenticated) {
+        await _finishAndNavigate(() async => _goAfterAuth(s));
+      } else if (mounted) {
+        await _finishAndNavigate(() async => context.go('/login'));
       }
     } catch (e) {
-      // If there's an error, just go to login
       debugPrint('Auth check error: $e');
-      if (mounted) context.go('/login');
+      if (mounted) {
+        await _finishAndNavigate(() async => context.go('/login'));
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+    final scheme = Theme.of(context).colorScheme;
+
     return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              AppConstants.appName,
-              style: Theme.of(context).textTheme.displayMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.primary,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          DecoratedBox(
+            decoration: const BoxDecoration(
+              image: DecorationImage(
+                image: AssetImage(AppConstants.loaderBackgroundAsset),
+                fit: BoxFit.cover,
+              ),
+            ),
+            child: const SizedBox.expand(),
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withValues(alpha: 0.15),
+                  Colors.black.withValues(alpha: 0.35),
+                ],
+              ),
+            ),
+            child: const SizedBox.expand(),
+          ),
+          const Positioned.fill(
+            child: LoaderBgWordmarkCover(),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 24 + bottomInset,
+            child: FadeTransition(
+              opacity: CurvedAnimation(
+                parent: _barRevealController,
+                curve: Curves.easeOut,
+              ),
+              child: Center(
+                child: FractionallySizedBox(
+                  widthFactor: 0.78,
+                  child: _SplashProgressBar(
+                    progress: _progress,
+                    trackColor: Colors.white.withValues(alpha: 0.35),
+                    fillColor: scheme.primary,
                   ),
-            )
-                .animate()
-                .fadeIn(duration: 500.ms)
-                .scale(delay: 200.ms),
-            const SizedBox(height: 32),
-            const CircularProgressIndicator()
-                .animate(onPlay: (controller) => controller.repeat())
-                .shimmer(duration: 1000.ms),
-          ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SplashProgressBar extends StatelessWidget {
+  const _SplashProgressBar({
+    required this.progress,
+    required this.trackColor,
+    required this.fillColor,
+  });
+
+  final double progress;
+  final Color trackColor;
+  final Color fillColor;
+
+  @override
+  Widget build(BuildContext context) {
+    const height = 5.0;
+    const radius = Radius.circular(height / 2);
+
+    return Semantics(
+      label: 'Loading',
+      value: '${(progress * 100).round()}%',
+      child: ClipRRect(
+        borderRadius: const BorderRadius.all(radius),
+        child: SizedBox(
+          height: height,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              ColoredBox(color: trackColor),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final w = constraints.maxWidth * progress.clamp(0.0, 1.0);
+                  return Align(
+                    alignment: Alignment.centerLeft,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 100),
+                      width: w,
+                      height: height,
+                      decoration: BoxDecoration(
+                        color: fillColor,
+                        borderRadius: const BorderRadius.all(radius),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );

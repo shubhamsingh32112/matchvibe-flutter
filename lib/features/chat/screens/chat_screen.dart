@@ -3,9 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stream_chat_flutter/stream_chat_flutter.dart';
 import 'package:go_router/go_router.dart';
-import 'package:dio/dio.dart';
 import '../../../core/services/push_notification_service.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/utils/user_message_mapper.dart';
+import '../../../shared/widgets/app_toast.dart';
 import '../services/chat_service.dart';
 import '../utils/chat_utils.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -137,6 +138,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   int _userCoins = 0;
   bool _isCreator = false;
 
+  StreamSubscription? _channelPresentationSub;
+  StreamSubscription? _clientUserUpdatedSub;
+
   @override
   void initState() {
     super.initState();
@@ -148,11 +152,91 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   void dispose() {
+    _channelPresentationSub?.cancel();
+    _clientUserUpdatedSub?.cancel();
     // Clear active channel so notifications resume for this channel
     if (PushNotificationService.activeChannelId == widget.channelId) {
       PushNotificationService.activeChannelId = null;
     }
     super.dispose();
+  }
+
+  /// Refreshes AppBar name/avatar from live Stream channel member state (e.g. after creator renames).
+  void _syncOtherUserPresentationFromChannel(Channel channel) {
+    if (!mounted) return;
+    final client = StreamChat.of(context).client;
+    final currentUserId = client.state.currentUser?.id;
+    if (currentUserId == null) return;
+
+    final otherUser = getOtherUserFromChannel(channel, currentUserId);
+    if (otherUser == null) return;
+
+    final name = extractDisplayName(otherUser);
+    final image = otherUser.image;
+    String? otherUserFirebaseUid;
+    final channelState = channel.state;
+    if (channelState != null) {
+      List<Member> memberList;
+      try {
+        memberList = channelState.members.cast<Member>();
+      } catch (_) {
+        memberList = [];
+      }
+      if (memberList.isNotEmpty) {
+        try {
+          final otherMember = memberList.firstWhere(
+            (m) => m.userId != currentUserId,
+          );
+          otherUserFirebaseUid = otherMember.userId;
+        } catch (_) {}
+      }
+    }
+    final mongoId = otherUser.extraData['mongoId'] as String?;
+    final appRole = otherUser.extraData['appRole'] as String?;
+
+    final nameOk = name.trim().isNotEmpty ? name.trim() : 'User';
+    if (nameOk == (_otherUserName ?? '') &&
+        image == _otherUserImage &&
+        otherUserFirebaseUid == _otherUserFirebaseUid &&
+        mongoId == _otherUserMongoId &&
+        appRole == _otherUserAppRole) {
+      return;
+    }
+
+    setState(() {
+      _otherUserName = nameOk;
+      _otherUserImage = image;
+      if (otherUserFirebaseUid != null) {
+        _otherUserFirebaseUid = otherUserFirebaseUid;
+      }
+      if (mongoId != null) {
+        _otherUserMongoId = mongoId;
+      }
+      if (appRole != null) {
+        _otherUserAppRole = appRole;
+      }
+    });
+  }
+
+  void _attachOtherUserPresentationListeners(Channel channel) {
+    _channelPresentationSub?.cancel();
+    _channelPresentationSub = channel.on(
+      EventType.userUpdated,
+      EventType.memberUpdated,
+      EventType.memberAdded,
+      EventType.channelUpdated,
+    ).listen((_) {
+      if (mounted) _syncOtherUserPresentationFromChannel(channel);
+    });
+
+    final client = channel.client;
+    _clientUserUpdatedSub?.cancel();
+    _clientUserUpdatedSub =
+        client.on(EventType.userUpdated).listen((event) {
+      final id = event.user?.id;
+      if (!mounted || id == null || id != _otherUserFirebaseUid) return;
+      _syncOtherUserPresentationFromChannel(channel);
+    });
   }
 
   Future<void> _initializeChannel() async {
@@ -197,6 +281,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 _checkIfCreatorBlocked();
               }
             }
+            _attachOtherUserPresentationListeners(channel);
             return;
           }
         }
@@ -256,14 +341,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             _checkIfCreatorBlocked();
           }
         }
+        _attachOtherUserPresentationListeners(channel);
       }
     } catch (e) {
       debugPrint('❌ [CHAT] Failed to initialize channel: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to load chat: ${e.toString()}'),
-            backgroundColor: Colors.red,
+        AppToast.showError(
+          context,
+          UserMessageMapper.userMessageFor(
+            e,
+            fallback: 'Couldn\'t load chat. Please try again.',
           ),
         );
         context.pop();
@@ -516,10 +603,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final canSend = result['canSend'] as bool? ?? false;
 
       if (!canSend) {
-        // Show insufficient coins dialog
         if (mounted) {
           _showInsufficientCoinsDialog(
-            result['error'] as String? ?? 'Not enough coins',
+            UserMessageMapper.fromString(
+              result['error'] as String? ?? '',
+              fallback: 'Not enough coins to send this message.',
+            ),
           );
         }
         throw Exception('Cannot send message — insufficient coins');
@@ -634,14 +723,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             _isCreatorBlocked = isBlocked;
           });
 
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(isBlocked 
-                ? 'Creator blocked. You will no longer see them in your feed.'
-                : 'Creator unblocked.'),
-              backgroundColor: isBlocked ? Colors.orange : Colors.green,
-            ),
-          );
+          if (isBlocked) {
+            AppToast.showInfo(
+              context,
+              'Creator blocked. You will no longer see them in your feed.',
+            );
+          } else {
+            AppToast.showSuccess(context, 'Creator unblocked.');
+          }
 
           // If blocked, go back to previous screen
           if (isBlocked) {
@@ -662,26 +751,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     } catch (e) {
       debugPrint('❌ [CHAT] Failed to block/unblock creator: $e');
       if (mounted) {
-        String errorMessage = 'Failed to ${_isCreatorBlocked == true ? "unblock" : "block"} creator';
-        
-        // Try to extract error message from DioException
-        if (e is DioException) {
-          try {
-            if (e.response?.data != null) {
-              final errorData = e.response!.data;
-              if (errorData is Map && errorData['error'] != null) {
-                errorMessage = errorData['error'] as String;
-              }
-            }
-          } catch (_) {
-            // If extraction fails, use default message
-          }
-        }
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(errorMessage),
-            backgroundColor: Colors.red,
+        AppToast.showError(
+          context,
+          UserMessageMapper.userMessageFor(
+            e,
+            fallback:
+                'Couldn\'t ${_isCreatorBlocked == true ? "unblock" : "block"} this creator. Please try again.',
           ),
         );
       }
@@ -765,10 +840,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   : () async {
                       final message = controller.text.trim();
                       if (message.length < 10) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Please write at least 10 characters.'),
-                          ),
+                        AppToast.showInfo(
+                          context,
+                          'Please write at least 10 characters.',
                         );
                         return;
                       }
@@ -785,16 +859,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         );
                         if (!mounted || !ctx.mounted) return;
                         Navigator.of(ctx).pop();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Report submitted to admin team.'),
-                            backgroundColor: Colors.green,
-                          ),
+                        AppToast.showSuccess(
+                          context,
+                          'Report submitted to admin team.',
                         );
                       } catch (e) {
                         if (!mounted || !ctx.mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Failed to send report: $e')),
+                        AppToast.showError(
+                          context,
+                          UserMessageMapper.userMessageFor(
+                            e,
+                            fallback: 'Couldn\'t send report. Please try again.',
+                          ),
                         );
                         setDialogState(() => isSubmitting = false);
                       }
@@ -844,12 +920,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       }
       if (creatorMongoId == null) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Unable to start call. Please try again.'),
-              backgroundColor: Colors.orange,
-            ),
-          );
+          AppToast.showInfo(context, 'Unable to start call. Please try again.');
         }
         return;
       }
@@ -862,37 +933,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         CreatorAvailability.online;
 
     if (!isCreatorOnline) {
-      // Show toast that creator is busy
       if (mounted) {
-        final theme = Theme.of(context);
-        final colorScheme = theme.colorScheme;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                Icon(
-                  Icons.do_not_disturb_alt,
-                  color: colorScheme.onErrorContainer,
-                  size: 20,
-                ),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Text('Creator is busy'),
-                ),
-              ],
-            ),
-            duration: const Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
-            backgroundColor: colorScheme.errorContainer,
-            margin: EdgeInsets.only(
-              top: MediaQuery.of(context).padding.top + 8,
-              left: 16,
-              right: 16,
-            ),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
+        AppToast.showError(
+          context,
+          'Creator is busy',
+          duration: const Duration(seconds: 2),
         );
       }
       return;
@@ -917,6 +962,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             creatorFirebaseUid: creatorFirebaseUid,
             creatorMongoId: creatorMongoId,
             creatorImageUrl: _otherUserImage,
+            creatorName: _otherUserName,
           );
     } finally {
       if (mounted) setState(() => _isInitiatingCall = false);

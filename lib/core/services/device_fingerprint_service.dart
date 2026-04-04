@@ -2,14 +2,13 @@ import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 
-/// Provides a stable device fingerprint for Fast Login (one account per device).
+/// Stable device fingerprint for anti-abuse / welcome-bonus eligibility on login.
 /// Android: androidId. iOS: identifierForVendor.
 class DeviceFingerprintService {
   static final DeviceInfoPlugin _deviceInfo = DeviceInfoPlugin();
 
-  /// Returns true if Fast Login is allowed on this device.
-  /// Disables Fast Login on Android emulators to prevent emulator-farm abuse.
-  static Future<bool> isFastLoginAllowed() async {
+  /// Whether to send [deviceFingerprint] on POST /auth/login (skip emulators).
+  static Future<bool> shouldSendDeviceFingerprintForBonus() async {
     if (!Platform.isAndroid) return true; // iOS: no emulator check (simulators less abused)
     try {
       final android = await _deviceInfo.androidInfo;

@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/constants/app_constants.dart';
 import '../../core/services/push_notification_service.dart';
 import '../../features/auth/providers/auth_provider.dart';
 import '../../features/chat/providers/stream_chat_provider.dart';
 import '../../features/chat/services/chat_service.dart';
+import '../../features/home/providers/availability_provider.dart';
+import '../../features/home/providers/home_provider.dart';
 import '../../features/video/providers/stream_video_provider.dart';
 import '../../core/services/availability_socket_service.dart';
 
@@ -104,8 +108,62 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
       // Don't block app if Stream Video fails
     }
 
-    // 🔥 Initialize Socket.IO Availability Service happens in build()
-    // after we get the Firebase ID token
+    // 🔥 Presence + billing Socket.IO bootstrap happens in build() after getIdToken.
+  }
+
+  /// Connects [SocketService] as soon as the user is authenticated (not only on HomeScreen)
+  /// so creator/user presence and billing stay real-time on every tab.
+  void _bootstrapPresenceSockets(String? token) {
+    if (token == null || token.isEmpty) {
+      debugPrint('⚠️  [STREAM WRAPPER] Skipping SocketService bootstrap — no token');
+      return;
+    }
+    try {
+      ref.read(socketServiceProvider).connect(token);
+    } catch (e) {
+      debugPrint('⚠️  [STREAM WRAPPER] SocketService.connect failed: $e');
+    }
+
+    final user = ref.read(authProvider).user;
+    final role = user?.role;
+
+    // Fans / admins: hydrate creator Redis map via one batch (then live creator:status).
+    if (role != 'creator') {
+      Future<void>(() async {
+        try {
+          final creators = await ref.read(creatorsProvider.future);
+          if (!mounted) return;
+          final ids = creators
+              .where((c) => c.firebaseUid != null && c.firebaseUid!.isNotEmpty)
+              .map((c) => c.firebaseUid!)
+              .toList();
+          if (ids.isNotEmpty) {
+            ref.read(socketServiceProvider).requestAvailability(ids);
+          }
+        } catch (e) {
+          debugPrint('⚠️  [STREAM WRAPPER] Creator availability hydrate: $e');
+        }
+      });
+    }
+
+    // Creators / admins: hydrate fan Redis map (then live user:status on SocketService).
+    if (role == 'creator' || role == 'admin') {
+      Future<void>(() async {
+        try {
+          final users = await ref.read(usersProvider.future);
+          if (!mounted) return;
+          final ids = users
+              .where((u) => u.firebaseUid != null && u.firebaseUid!.isNotEmpty)
+              .map((u) => u.firebaseUid!)
+              .toList();
+          if (ids.isNotEmpty) {
+            ref.read(socketServiceProvider).requestUserAvailability(ids);
+          }
+        } catch (e) {
+          debugPrint('⚠️  [STREAM WRAPPER] User availability hydrate: $e');
+        }
+      });
+    }
   }
 
   @override
@@ -123,24 +181,30 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
       // Get Firebase ID token for socket authentication
       // This runs asynchronously but socket service handles pending auth gracefully
       authState.firebaseUser!.getIdToken().then((token) {
-        if (mounted) {
-          AvailabilitySocketService.instance.init(
-            context,
-            authToken: token, // 🔥 FIX 1: Pass auth token for socket authentication
-            creatorId: isCreator ? authState.firebaseUser!.uid : null,
-            isCreator: isCreator, // 🔥 FIX 3: Pass isCreator flag for reconnect logic
-          );
-        }
-      }).catchError((e) {
+        if (!context.mounted) return;
+        AvailabilitySocketService.instance.init(
+          context,
+          authToken: token,
+          creatorId: isCreator ? authState.firebaseUser!.uid : null,
+          isCreator: isCreator,
+        );
+        _bootstrapPresenceSockets(token);
+      }).catchError((e) async {
         debugPrint('⚠️ [STREAM WRAPPER] Failed to get Firebase token for socket: $e');
-        // Initialize without token - socket will connect as unauthenticated
-        if (mounted) {
+        if (!mounted) return;
+        final prefs = await SharedPreferences.getInstance();
+        if (!context.mounted) return;
+        final cached = prefs.getString(AppConstants.keyAuthToken);
+        if (cached != null && cached.isNotEmpty) {
           AvailabilitySocketService.instance.init(
             context,
-            authToken: null,
-            creatorId: null,
-            isCreator: false,
+            authToken: cached,
+            creatorId: isCreator ? authState.firebaseUser!.uid : null,
+            isCreator: isCreator,
           );
+          _bootstrapPresenceSockets(cached);
+        } else {
+          debugPrint('⚠️ [STREAM WRAPPER] No cached token — presence sockets require sign-in');
         }
       });
     }
@@ -177,8 +241,9 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
           ref.read(streamVideoProvider.notifier).disconnect();
         }
         
-        // 🔥 Disconnect Availability Socket
+        // 🔥 Disconnect Availability Socket + billing/presence SocketService
         AvailabilitySocketService.instance.dispose();
+        ref.read(socketServiceProvider).disconnect();
         _socketInitialized = false; // ⚠️ Reset so next login can re-init
       }
     });

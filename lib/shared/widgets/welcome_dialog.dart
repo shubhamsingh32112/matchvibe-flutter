@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'app_toast.dart';
 
 /// Welcome bottom sheet that appears on first app launch, first login, or after reinstall
 class WelcomeBottomSheet extends StatelessWidget {
@@ -73,20 +74,12 @@ class _WelcomeBottomSheetContentState extends State<_WelcomeBottomSheetContent> 
         });
         
         // Show user-friendly error message
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('An error occurred. Please try again.'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
-            action: SnackBarAction(
-              label: 'Retry',
-              textColor: Colors.white,
-              onPressed: () {
-                // Retry the operation
-                _handleAgree();
-              },
-            ),
-          ),
+        AppToast.showErrorWithAction(
+          context,
+          'Something went wrong. Please try again.',
+          actionLabel: 'Retry',
+          onAction: _handleAgree,
+          duration: const Duration(seconds: 3),
         );
       }
       return;

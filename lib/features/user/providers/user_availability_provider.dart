@@ -9,21 +9,15 @@ class UserAvailabilityNotifier
     extends StateNotifier<Map<String, UserAvailability>> {
   UserAvailabilityNotifier() : super({});
 
-  /// Guard: prevents API re-seeding from overwriting newer socket data.
-  /// Set to true after the first API seed; reset only on clear() (logout).
-  bool _hasSeeded = false;
-
-  /// Seed availability from an API response.
-  /// Only runs ONCE – subsequent calls (e.g. after usersProvider invalidation)
-  /// are no-ops so that fresher socket data is never overwritten.
+  /// Seed from REST (Redis-backed API). Never overwrites live socket map entries.
   void seedFromApi(Map<String, UserAvailability> apiData) {
-    if (_hasSeeded) {
-      debugPrint('📡 [USER AVAILABILITY] Skipping API re-seed (already seeded, socket is authoritative)');
-      return;
+    if (apiData.isEmpty) return;
+    final newState = Map<String, UserAvailability>.from(state);
+    for (final e in apiData.entries) {
+      newState.putIfAbsent(e.key, () => e.value);
     }
-    _hasSeeded = true;
-    state = {...state, ...apiData};
-    debugPrint('📡 [USER AVAILABILITY] Seeded from API: ${apiData.length} user(s)');
+    state = newState;
+    debugPrint('📡 [USER AVAILABILITY] Merged API seed: ${apiData.length} user(s) (socket wins on conflict)');
   }
 
   /// Update a single user's availability.
@@ -33,16 +27,18 @@ class UserAvailabilityNotifier
     debugPrint('📡 [USER AVAILABILITY] Updated: $firebaseUid → $status');
   }
 
-  /// Bulk update from user:availability:batch event
+  /// Bulk update from user:availability:batch (Redis snapshot over socket).
+  /// Socket-first: does not overwrite keys already set by live [user:status].
   void updateBatch(Map<String, String> data) {
     final newState = Map<String, UserAvailability>.from(state);
     for (final entry in data.entries) {
-      newState[entry.key] = entry.value == 'online'
+      final v = entry.value == 'online'
           ? UserAvailability.online
           : UserAvailability.offline;
+      newState.putIfAbsent(entry.key, () => v);
     }
     state = newState;
-    debugPrint('📡 [USER AVAILABILITY] Bulk update: ${data.length} user(s)');
+    debugPrint('📡 [USER AVAILABILITY] Batch merge: ${data.length} user(s) (socket wins on conflict)');
   }
 
   /// Get availability for a specific user
@@ -53,11 +49,9 @@ class UserAvailabilityNotifier
   }
 
   /// Clear all availability (e.g., on disconnect / logout).
-  /// Resets the hasSeeded flag so the next API fetch can seed again.
   void clear() {
-    _hasSeeded = false;
     state = {};
-    debugPrint('📡 [USER AVAILABILITY] Cleared all (hasSeeded reset)');
+    debugPrint('📡 [USER AVAILABILITY] Cleared all');
   }
 }
 

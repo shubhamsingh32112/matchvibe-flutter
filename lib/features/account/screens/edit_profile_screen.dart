@@ -8,10 +8,15 @@ import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:dio/dio.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/utils/user_message_mapper.dart';
+import '../../../shared/widgets/app_toast.dart';
 import '../../../core/services/avatar_upload_service.dart';
+import '../../../shared/models/creator_model.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../creator/services/creator_gallery_service.dart';
+import '../../home/providers/home_provider.dart';
 
 class EditProfileScreen extends ConsumerStatefulWidget {
   const EditProfileScreen({super.key});
@@ -26,6 +31,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   final TextEditingController _aboutController = TextEditingController(); // For creators
   final TextEditingController _ageController = TextEditingController(); // For creators
   final ApiClient _apiClient = ApiClient();
+  final CreatorGalleryService _creatorGalleryService = CreatorGalleryService();
   final ImagePicker _picker = ImagePicker();
   bool _isLoading = false;
   String? _selectedAvatar;
@@ -55,6 +61,10 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
   /// Whether the user is using a gallery image instead of a preset avatar.
   bool _usingGalleryImage = false;
+  bool _isGalleryLoading = false;
+  String? _galleryActionImageId;
+  List<CreatorGalleryImage> _creatorGalleryImages = const [];
+  Uint8List? _pendingGalleryPreviewBytes;
 
   @override
   void initState() {
@@ -77,6 +87,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         if (user.age != null) {
           _ageController.text = user.age.toString();
         }
+        _loadCreatorGalleryImages();
       }
 
       // If the stored avatar is a URL, distinguish preset URL vs gallery URL.
@@ -165,10 +176,11 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     } catch (e) {
       debugPrint('❌ [GALLERY] Error picking image: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to pick image: $e'),
-            backgroundColor: Theme.of(context).colorScheme.error,
+        AppToast.showError(
+          context,
+          UserMessageMapper.userMessageFor(
+            e,
+            fallback: 'Couldn\'t pick image. Please try again.',
           ),
         );
       }
@@ -245,39 +257,141 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     );
   }
 
+  Future<void> _loadCreatorGalleryImages() async {
+    setState(() => _isGalleryLoading = true);
+    try {
+      final images = await _creatorGalleryService.getMyGalleryImages();
+      if (!mounted) return;
+      setState(() {
+        _creatorGalleryImages = images;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      AppToast.showError(
+        context,
+        UserMessageMapper.userMessageFor(
+          e,
+          fallback: 'Couldn\'t load creator pictures. Please try again.',
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isGalleryLoading = false);
+      }
+    }
+  }
+
+  String _contentTypeForFileName(String fileName) {
+    final name = fileName.toLowerCase();
+    if (name.endsWith('.png')) return 'image/png';
+    if (name.endsWith('.webp')) return 'image/webp';
+    if (name.endsWith('.jpg') || name.endsWith('.jpeg')) return 'image/jpeg';
+    return 'image/jpeg';
+  }
+
+  Future<void> _addCreatorGalleryImage() async {
+    if (_isGalleryLoading || _creatorGalleryImages.length >= CreatorGalleryService.maxImages) {
+      return;
+    }
+
+    final hasPermission = await _requestGalleryPermission();
+    if (!hasPermission) return;
+
+    try {
+      final XFile? pickedFile = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1600,
+        maxHeight: 1600,
+        imageQuality: 85,
+      );
+      if (pickedFile == null) return;
+
+      final bytes = await pickedFile.readAsBytes();
+      if (!mounted) return;
+      setState(() {
+        _pendingGalleryPreviewBytes = bytes;
+        _isGalleryLoading = true;
+      });
+      final images = await _creatorGalleryService.uploadGalleryImage(
+        imageBytes: bytes,
+        fileName: pickedFile.name,
+        contentType: _contentTypeForFileName(pickedFile.name),
+      );
+      if (!mounted) return;
+      setState(() {
+        _creatorGalleryImages = images;
+        _pendingGalleryPreviewBytes = null;
+      });
+      ref.invalidate(creatorsProvider);
+    } catch (e) {
+      if (!mounted) return;
+      AppToast.showError(
+        context,
+        UserMessageMapper.userMessageFor(
+          e,
+          fallback: 'Couldn\'t upload image. Please try again.',
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isGalleryLoading = false;
+          _pendingGalleryPreviewBytes = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _removeCreatorGalleryImage(String imageId) async {
+    if (_galleryActionImageId != null) return;
+    setState(() => _galleryActionImageId = imageId);
+    try {
+      final images = await _creatorGalleryService.deleteGalleryImage(imageId);
+      if (!mounted) return;
+      setState(() {
+        _creatorGalleryImages = images;
+      });
+      ref.invalidate(creatorsProvider);
+    } catch (e) {
+      if (!mounted) return;
+      AppToast.showError(
+        context,
+        UserMessageMapper.userMessageFor(
+          e,
+          fallback: 'Couldn\'t delete image. Please try again.',
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _galleryActionImageId = null);
+      }
+    }
+  }
+
   // ── Save Profile ──────────────────────────────────────────────────
 
   Future<void> _saveProfile() async {
-    final scheme = Theme.of(context).colorScheme;
     final username = _usernameController.text.trim();
 
     if (username.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Please enter a username'),
-          backgroundColor: scheme.error,
-        ),
-      );
+      AppToast.showInfo(context, 'Please enter a username');
       return;
     }
 
     if (username.length < 4 || username.length > 10) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Username must be 4-10 characters'),
-          backgroundColor: scheme.error,
-        ),
-      );
+      AppToast.showInfo(context, 'Username must be 4-10 characters');
       return;
     }
 
     if (_selectedCategories.length > 4) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Please select maximum 4 categories'),
-          backgroundColor: scheme.error,
-        ),
-      );
+      AppToast.showInfo(context, 'Please select maximum 4 categories');
+      return;
+    }
+
+    final currentUser = ref.read(authProvider).user;
+    final isCreator = currentUser?.role == 'creator' || currentUser?.role == 'admin';
+    if (isCreator && _creatorGalleryImages.isEmpty) {
+      AppToast.showInfo(context, 'Please upload at least 1 creator picture');
       return;
     }
 
@@ -401,52 +515,28 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       debugPrint('✅ [EDIT PROFILE] Profile saved successfully');
 
       await ref.read(authProvider.notifier).refreshUser();
+      ref.invalidate(creatorsProvider);
+      ref.invalidate(usersProvider);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Profile updated successfully'),
-            backgroundColor: scheme.surfaceVariant,
-          ),
-        );
+        AppToast.showSuccess(context, 'Profile updated successfully');
         context.pop();
       }
     } catch (e) {
       debugPrint('❌ [EDIT PROFILE] Error saving profile: $e');
-      
-      // Extract actual error message from backend response
-      String errorMessage = 'Failed to save profile';
       if (e is DioException) {
         debugPrint('   📦 Response data: ${e.response?.data}');
         debugPrint('   🔢 Status code: ${e.response?.statusCode}');
-        
-        // Try to extract error message from response
-        if (e.response?.data != null) {
-          final responseData = e.response!.data;
-          if (responseData is Map<String, dynamic>) {
-            final error = responseData['error'] as String?;
-            if (error != null && error.isNotEmpty) {
-              errorMessage = error;
-            } else {
-              errorMessage = 'Failed to save profile: ${e.response?.statusCode}';
-            }
-          } else {
-            errorMessage = 'Failed to save profile: ${e.response?.statusCode}';
-          }
-        } else {
-          errorMessage = 'Network error. Please check your connection and try again.';
-        }
-      } else if (e is Exception) {
-        errorMessage = e.toString().replaceAll('Exception: ', '');
       }
-      
+
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(errorMessage),
-            backgroundColor: scheme.error,
-            duration: const Duration(seconds: 4),
+        AppToast.showError(
+          context,
+          UserMessageMapper.userMessageFor(
+            e,
+            fallback: 'Couldn\'t save profile. Please try again.',
           ),
+          duration: const Duration(seconds: 4),
         );
       }
     } finally {
@@ -1074,6 +1164,158 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                         ),
                       ),
                       const SizedBox(height: 24),
+
+                      Text(
+                        'Creator Pictures (1-6) *',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: scheme.onSurface,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                            ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (_isGalleryLoading && _pendingGalleryPreviewBytes == null)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          child: Center(child: CircularProgressIndicator()),
+                        ),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: [
+                          ..._creatorGalleryImages.map((image) {
+                            final isDeleting = _galleryActionImageId == image.id;
+                            final canRemove = _creatorGalleryImages.length >
+                                1; // must keep ≥1 (matches save + backend)
+                            return SizedBox(
+                              width: 96,
+                              height: 120,
+                              child: Stack(
+                                children: [
+                                  Positioned.fill(
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: Image.network(
+                                        image.url,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) => Container(
+                                          color: scheme.surfaceContainerHigh,
+                                          child: Icon(
+                                            Icons.broken_image_outlined,
+                                            color: scheme.onSurfaceVariant,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  if (canRemove)
+                                    Positioned(
+                                      right: 4,
+                                      top: 4,
+                                      child: InkWell(
+                                        onTap: isDeleting
+                                            ? null
+                                            : () =>
+                                                _removeCreatorGalleryImage(image.id),
+                                        child: Container(
+                                          width: 24,
+                                          height: 24,
+                                          decoration: BoxDecoration(
+                                            color: scheme.surface
+                                                .withValues(alpha: 0.9),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: isDeleting
+                                              ? const Padding(
+                                                  padding: EdgeInsets.all(4),
+                                                  child: CircularProgressIndicator(
+                                                    strokeWidth: 2,
+                                                  ),
+                                                )
+                                              : Icon(
+                                                  Icons.close,
+                                                  size: 16,
+                                                  color: scheme.error,
+                                                ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            );
+                          }),
+                          if (_pendingGalleryPreviewBytes != null)
+                            SizedBox(
+                              width: 96,
+                              height: 120,
+                              child: Stack(
+                                children: [
+                                  Positioned.fill(
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: Image.memory(
+                                        _pendingGalleryPreviewBytes!,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    ),
+                                  ),
+                                  Positioned.fill(
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: ColoredBox(
+                                        color: scheme.shadow.withValues(alpha: 0.35),
+                                        child: const Center(
+                                          child: SizedBox(
+                                            width: 28,
+                                            height: 28,
+                                            child: CircularProgressIndicator(strokeWidth: 2),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          if (_creatorGalleryImages.length < CreatorGalleryService.maxImages)
+                            InkWell(
+                              onTap: _isGalleryLoading ? null : _addCreatorGalleryImage,
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                width: 96,
+                                height: 120,
+                                decoration: BoxDecoration(
+                                  color: scheme.surfaceContainerHigh,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: scheme.outlineVariant),
+                                ),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.add_photo_alternate_outlined, color: scheme.primary),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Add',
+                                      style: TextStyle(
+                                        color: scheme.primary,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Upload at least 1 and up to 6 pictures.',
+                        style: TextStyle(
+                          color: scheme.onSurfaceVariant,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
                     ],
                   ],
 
@@ -1149,12 +1391,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                               if (_selectedCategories.length < 4) {
                                 _selectedCategories.add(category);
                               } else {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: const Text(
-                                        'Maximum 4 categories allowed'),
-                                    backgroundColor: scheme.error,
-                                  ),
+                                AppToast.showInfo(
+                                  context,
+                                  'Maximum 4 categories allowed',
                                 );
                               }
                             }

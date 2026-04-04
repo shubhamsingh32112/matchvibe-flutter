@@ -6,6 +6,8 @@ import '../../auth/providers/auth_provider.dart';
 import '../providers/creator_dashboard_provider.dart';
 import '../providers/creator_task_provider.dart';
 import '../models/creator_task_model.dart';
+import '../../../core/utils/user_message_mapper.dart';
+import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/widgets/gem_icon.dart';
 import '../../../shared/styles/app_brand_styles.dart';
@@ -87,7 +89,10 @@ class _CreatorTasksScreenState extends ConsumerState<CreatorTasksScreen> {
               },
               loading: () => const Center(child: LoadingIndicator()),
               error: (error, stack) => _ErrorView(
-                error: error.toString(),
+                error: UserMessageMapper.userMessageFor(
+                  error,
+                  fallback: 'Couldn\'t load tasks. Please try again.',
+                ),
                 onRetry: () => ref.invalidate(creatorDashboardProvider),
               ),
             ),
@@ -122,13 +127,7 @@ class _CreatorTasksScreenState extends ConsumerState<CreatorTasksScreen> {
       // This matches wallet & call billing behavior
       
       if (mounted) {
-        final scheme = Theme.of(context).colorScheme;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Reward claimed successfully!'),
-            backgroundColor: scheme.primaryContainer,
-          ),
-        );
+        AppToast.showSuccess(context, 'Reward claimed successfully!');
       }
     } catch (e) {
       // Remove from claiming set on error
@@ -136,12 +135,12 @@ class _CreatorTasksScreenState extends ConsumerState<CreatorTasksScreen> {
         setState(() {
           _claimingTaskKeys.remove(taskKey);
         });
-        
-        final scheme = Theme.of(context).colorScheme;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to claim reward: ${e.toString()}'),
-            backgroundColor: scheme.errorContainer,
+
+        AppToast.showError(
+          context,
+          UserMessageMapper.userMessageFor(
+            e,
+            fallback: 'Couldn\'t claim reward. Please try again.',
           ),
         );
       }

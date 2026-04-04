@@ -7,6 +7,8 @@ import '../styles/app_brand_styles.dart';
 import '../widgets/ui_primitives.dart';
 import '../widgets/gem_icon.dart';
 import '../widgets/loading_indicator.dart';
+import 'app_toast.dart';
+import '../../core/utils/user_message_mapper.dart';
 
 /// Bottom sheet wrapper for coin purchase popup
 class CoinPurchaseBottomSheet extends StatelessWidget {
@@ -78,13 +80,10 @@ class _CoinPurchasePopupState extends ConsumerState<CoinPurchasePopup> {
       }
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Complete payment on the website. App will reopen automatically.',
-            ),
-            duration: Duration(seconds: 3),
-          ),
+        AppToast.showInfo(
+          context,
+          'Complete payment on the website. App will reopen automatically.',
+          duration: const Duration(seconds: 3),
         );
         // Close the pop-up after opening checkout
         Navigator.of(context).pop();
@@ -98,12 +97,13 @@ class _CoinPurchasePopupState extends ConsumerState<CoinPurchasePopup> {
 
       // Show error message
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('❌ Failed to start checkout: ${e.toString()}'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-            duration: const Duration(seconds: 3),
+        AppToast.showError(
+          context,
+          UserMessageMapper.userMessageFor(
+            e,
+            fallback: 'Couldn\'t start checkout. Please try again.',
           ),
+          duration: const Duration(seconds: 3),
         );
       }
     } finally {
@@ -211,7 +211,10 @@ class _CoinPurchasePopupState extends ConsumerState<CoinPurchasePopup> {
                 loading: () => const Center(child: LoadingIndicator()),
                 error: (error, _) => ErrorState(
                   title: 'Failed to load coin packs',
-                  message: error.toString(),
+                  message: UserMessageMapper.userMessageFor(
+                    error,
+                    fallback: 'Couldn\'t load coin packs. Please try again.',
+                  ),
                   actionLabel: 'Retry',
                   onAction: () => ref.invalidate(walletPricingProvider),
                 ),

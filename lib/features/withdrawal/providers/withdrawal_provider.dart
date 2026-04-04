@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/utils/user_message_mapper.dart';
 import '../models/withdrawal_model.dart';
 import '../services/withdrawal_service.dart';
 
@@ -72,12 +73,13 @@ class WithdrawalNotifier extends StateNotifier<WithdrawalState> {
       );
       return true;
     } catch (e) {
-      String errorMsg = e.toString();
-      // Strip "Exception: " prefix if present
-      if (errorMsg.startsWith('Exception: ')) {
-        errorMsg = errorMsg.substring(11);
-      }
-      state = state.copyWith(isSubmitting: false, error: errorMsg);
+      state = state.copyWith(
+        isSubmitting: false,
+        error: UserMessageMapper.userMessageFor(
+          e,
+          fallback: 'Couldn\'t submit withdrawal. Please try again.',
+        ),
+      );
       return false;
     }
   }

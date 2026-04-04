@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import '../../../shared/widgets/app_toast.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/styles/app_brand_styles.dart';
@@ -100,16 +101,14 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     final becameCreator =
         previousRole != 'creator' && updatedRole == 'creator';
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          becameCreator
-              ? 'Promotion detected. Switched to creator home.'
-              : 'Profile refreshed.',
-        ),
-        backgroundColor: becameCreator ? Colors.green : null,
-      ),
-    );
+    if (becameCreator) {
+      AppToast.showSuccess(
+        context,
+        'Promotion detected. Switched to creator home.',
+      );
+    } else {
+      AppToast.showSuccess(context, 'Profile refreshed.');
+    }
 
     if (becameCreator) {
       context.go('/home');
@@ -241,9 +240,9 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                                           ClipboardData(text: user.referralCode!),
                                         );
                                         if (mounted) {
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            const SnackBar(
-                                                content: Text('Referral code copied')),
+                                          AppToast.showSuccess(
+                                            context,
+                                            'Referral code copied',
                                           );
                                         }
                                       },

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import '../../../core/utils/user_message_mapper.dart';
+import '../../../shared/widgets/app_toast.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../../shared/widgets/skeleton_list.dart';
 import '../../../shared/widgets/gem_icon.dart';
@@ -45,7 +47,13 @@ class _RecentScreenState extends ConsumerState<RecentScreen> {
                 Text('Failed to load recent calls',
                     style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
-                Text(err.toString(), textAlign: TextAlign.center),
+                Text(
+                  UserMessageMapper.userMessageFor(
+                    err,
+                    fallback: 'Couldn\'t load recent calls. Please try again.',
+                  ),
+                  textAlign: TextAlign.center,
+                ),
                 const SizedBox(height: 16),
                 ElevatedButton(
                   onPressed: _refresh,
@@ -191,6 +199,7 @@ class _CallHistoryTile extends ConsumerWidget {
               otherFirebaseUid: call.otherFirebaseUid,
               otherMongoId: call.otherMongoIdForCall,
               otherAvatar: call.otherAvatar,
+              otherName: call.otherName,
             ),
         ],
       ),
@@ -240,8 +249,12 @@ class _ChatButtonState extends State<_ChatButton> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to open chat: $e')),
+        AppToast.showError(
+          context,
+          UserMessageMapper.userMessageFor(
+            e,
+            fallback: 'Couldn\'t open chat. Please try again.',
+          ),
         );
       }
     } finally {
@@ -276,11 +289,13 @@ class _CallButton extends ConsumerStatefulWidget {
   final String otherFirebaseUid;
   final String otherMongoId;
   final String? otherAvatar;
+  final String otherName;
 
   const _CallButton({
     required this.otherFirebaseUid,
     required this.otherMongoId,
     this.otherAvatar,
+    required this.otherName,
   });
 
   @override
@@ -317,6 +332,7 @@ class _CallButtonState extends ConsumerState<_CallButton> {
             creatorFirebaseUid: widget.otherFirebaseUid,
             creatorMongoId: widget.otherMongoId,
             creatorImageUrl: widget.otherAvatar,
+            creatorName: widget.otherName,
           );
     } finally {
       if (mounted) setState(() => _loading = false);

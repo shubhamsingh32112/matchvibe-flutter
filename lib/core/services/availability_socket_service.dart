@@ -35,21 +35,15 @@ class CreatorAvailabilityNotifier
     extends StateNotifier<Map<String, CreatorAvailability>> {
   CreatorAvailabilityNotifier() : super({});
 
-  /// Guard: prevents API re-seeding from overwriting newer socket data.
-  /// Set to true after the first API seed; reset only on clear() (logout).
-  bool _hasSeeded = false;
-
-  /// Seed availability from an API response.
-  /// Only runs ONCE – subsequent calls (e.g. after creatorsProvider invalidation)
-  /// are no-ops so that fresher socket data is never overwritten.
+  /// Seed from REST. Never overwrites keys already set by live socket events.
   void seedFromApi(Map<String, CreatorAvailability> apiData) {
-    if (_hasSeeded) {
-      debugPrint('📡 [AVAILABILITY] Skipping API re-seed (already seeded, socket is authoritative)');
-      return;
+    if (apiData.isEmpty) return;
+    final newState = Map<String, CreatorAvailability>.from(state);
+    for (final e in apiData.entries) {
+      newState.putIfAbsent(e.key, () => e.value);
     }
-    _hasSeeded = true;
-    state = {...state, ...apiData};
-    debugPrint('📡 [AVAILABILITY] Seeded from API: ${apiData.length} creator(s)');
+    state = newState;
+    debugPrint('📡 [AVAILABILITY] Merged API seed: ${apiData.length} creator(s) (socket wins on conflict)');
   }
 
   /// Update a single creator's availability.
@@ -59,10 +53,14 @@ class CreatorAvailabilityNotifier
     debugPrint('📡 [AVAILABILITY] Updated: $creatorId → $status');
   }
 
-  /// Bulk update from availability:all event
-  void updateAll(Map<String, CreatorAvailability> newState) {
+  /// Merge Redis batch; live [creator:status] entries win over batch for same key.
+  void updateAll(Map<String, CreatorAvailability> batch) {
+    final newState = Map<String, CreatorAvailability>.from(state);
+    for (final e in batch.entries) {
+      newState.putIfAbsent(e.key, () => e.value);
+    }
     state = newState;
-    debugPrint('📡 [AVAILABILITY] Bulk update: ${newState.length} creator(s)');
+    debugPrint('📡 [AVAILABILITY] Batch merge: ${batch.length} creator(s) (socket wins on conflict)');
   }
 
   /// Get availability for a specific creator
@@ -72,11 +70,9 @@ class CreatorAvailabilityNotifier
   }
 
   /// Clear all availability (e.g., on disconnect / logout).
-  /// Resets the hasSeeded flag so the next API fetch can seed again.
   void clear() {
-    _hasSeeded = false;
     state = {};
-    debugPrint('📡 [AVAILABILITY] Cleared all (hasSeeded reset)');
+    debugPrint('📡 [AVAILABILITY] Cleared all');
   }
 }
 

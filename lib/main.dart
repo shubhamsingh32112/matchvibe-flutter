@@ -1,9 +1,11 @@
+import 'dart:developer' as developer;
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:stream_chat_flutter/stream_chat_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -16,6 +18,7 @@ import 'core/theme/app_theme.dart';
 import 'features/chat/providers/stream_chat_provider.dart';
 import 'features/video/services/security_service.dart';
 import 'features/video/widgets/incoming_call_listener.dart';
+import 'features/video/widgets/outgoing_call_overlay.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -35,7 +38,22 @@ void main() async {
   }
   
   await dotenv.load(fileName: envFile);
-  
+
+  // Release builds: debugPrint is stripped; use developer.log for adb logcat.
+  //   adb logcat | findstr MatchVibe
+  if (kReleaseMode) {
+    final api = (dotenv.env['API_BASE_URL'] ?? '').trim();
+    final socket = (dotenv.env['SOCKET_URL'] ?? '').trim();
+    final hasGoogleWeb = (dotenv.env['GOOGLE_WEB_CLIENT_ID'] ?? '').trim().isNotEmpty;
+    final apiHost = Uri.tryParse(api)?.host ?? '';
+    final socketHost = Uri.tryParse(socket)?.host ?? '';
+    developer.log(
+      'env=$envFile apiHost=$apiHost apiLen=${api.length} '
+      'socketHost=$socketHost GOOGLE_WEB_CLIENT_ID_set=$hasGoogleWeb',
+      name: 'MatchVibe',
+    );
+  }
+
   if (kDebugMode) {
     debugPrint('✅ [ENV] Environment loaded successfully');
     debugPrint('   🌐 API_BASE_URL: ${dotenv.env['API_BASE_URL'] ?? "NOT SET"}');
@@ -71,7 +89,7 @@ void main() async {
   // Note: You'll need to add your firebase_options.dart file
   // Run: flutterfire configure
   try {
-    await Firebase.initializeApp();
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
     debugPrint('✅ Firebase initialized successfully');
   } catch (e) {
     debugPrint('❌ Firebase initialization error: $e');
@@ -154,7 +172,13 @@ class MyApp extends StatelessWidget {
           return _StreamChatBuilder(
             child: AppLifecycleWrapper(
               child: IncomingCallListener(
-                child: child ?? const SizedBox.shrink(),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    child ?? const SizedBox.shrink(),
+                    const OutgoingCallOverlay(),
+                  ],
+                ),
               ),
             ),
           );

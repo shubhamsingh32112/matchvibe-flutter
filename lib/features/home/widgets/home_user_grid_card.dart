@@ -7,12 +7,12 @@ import '../../../shared/models/profile_model.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../auth/providers/auth_provider.dart';
-import '../../../core/api/api_client.dart';
 import '../../chat/services/chat_service.dart';
-import '../providers/home_provider.dart';
 import '../providers/availability_provider.dart';
 import '../../video/controllers/call_connection_controller.dart';
 import '../../../core/services/avatar_upload_service.dart';
+import '../../../core/utils/user_message_mapper.dart';
+import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/coin_purchase_popup.dart';
 
 class HomeUserGridCard extends ConsumerStatefulWidget {
@@ -33,47 +33,6 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
   bool _isInitiatingCall = false;
   bool _isOpeningChat = false;
 
-  /// Open a chat channel with the creator.
-  Future<void> _openChat() async {
-    if (widget.creator == null || _isOpeningChat) return;
-
-    final creatorFirebaseUid = widget.creator!.firebaseUid;
-    if (creatorFirebaseUid == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Creator information not available'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      return;
-    }
-
-    setState(() => _isOpeningChat = true);
-
-    try {
-      final chatService = ChatService();
-      final result = await chatService.createOrGetChannel(creatorFirebaseUid);
-      final channelId = result['channelId'] as String?;
-
-      if (channelId != null && mounted) {
-        context.push('/chat/$channelId');
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to open chat: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isOpeningChat = false);
-    }
-  }
-
   /// Initiate a video call to the creator via [CallConnectionController].
   ///
   /// All call logic (permissions, getOrCreate, join, navigation) is
@@ -84,12 +43,7 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
     final creatorFirebaseUid = widget.creator!.firebaseUid;
     if (creatorFirebaseUid == null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Creator information not available'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        AppToast.showError(context, 'Creator information not available');
       }
       return;
     }
@@ -115,6 +69,9 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
             creatorFirebaseUid: creatorFirebaseUid,
             creatorMongoId: widget.creator!.id,
             creatorImageUrl: widget.creator!.photo,
+            creatorName: widget.creator!.name,
+            creatorAge: _creatorAge(),
+            creatorCountry: _creatorCountry(),
           );
     } finally {
       if (mounted) {
@@ -135,6 +92,68 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
     );
   }
 
+  void _openCreatorProfileModal({required bool isCreatorOnline}) {
+    if (widget.creator == null) return;
+    showDialog(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (ctx) => Dialog.fullscreen(
+        child: _CreatorFullProfileModal(
+          creator: widget.creator!,
+          isOnline: isCreatorOnline,
+          onCallPressed: _isInitiatingCall
+              ? null
+              : () {
+                  Navigator.of(ctx).pop();
+                  _initiateVideoCall();
+                },
+          isCalling: _isInitiatingCall,
+          onChatPressed: _isOpeningChat
+              ? null
+              : () {
+                  Navigator.of(ctx).pop();
+                  _openCreatorChat();
+                },
+          isOpeningChat: _isOpeningChat,
+          country: _creatorCountry(),
+          age: _creatorAge(),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openCreatorChat() async {
+    final creator = widget.creator;
+    if (creator == null || _isOpeningChat) return;
+
+    setState(() => _isOpeningChat = true);
+    try {
+      final chatService = ChatService();
+      // Backend resolves User by Mongo id — use creator's User document id, not Creator profile id.
+      final result =
+          await chatService.createOrGetChannel(creator.userId);
+      final channelId = result['channelId'] as String?;
+
+      if (channelId != null && mounted) {
+        context.push('/chat/$channelId');
+      }
+    } catch (e) {
+      if (mounted) {
+        AppToast.showError(
+          context,
+          UserMessageMapper.userMessageFor(
+            e,
+            fallback: 'Couldn\'t open chat. Please try again.',
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isOpeningChat = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // Listen for call connection failures to show error SnackBars.
@@ -145,12 +164,7 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
           next.phase == CallConnectionPhase.failed &&
           next.error != null) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(next.error!),
-              backgroundColor: Colors.red,
-            ),
-          );
+          AppToast.showError(context, next.error!);
         }
       }
     });
@@ -159,9 +173,9 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
 
     final String title = widget.creator?.name ?? widget.user?.username ?? 'User';
     final age = _creatorAge();
+    final country = _creatorCountry();
     final authState = ref.watch(authProvider);
     final isRegularUser = authState.user?.role == 'user';
-    final showFavorite = isRegularUser && widget.creator != null;
     final showVideoCall = isRegularUser && widget.creator != null;
 
     // ── Availability (only relevant for creator cards) ────────────────────
@@ -174,77 +188,56 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
 
     return AppCard(
       padding: EdgeInsets.zero,
-      child: ClipRRect(
+      child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        clipBehavior: Clip.antiAlias,
-        child: Stack(
-          children: [
-            Positioned.fill(child: _CardImage(creator: widget.creator, user: widget.user)),
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: AppBrandGradients.userCardOverlay(scheme),
+        onTap: widget.creator != null
+            ? () => _openCreatorProfileModal(isCreatorOnline: isCreatorOnline)
+            : null,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                  child: _CardImage(creator: widget.creator, user: widget.user)),
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: AppBrandGradients.userCardOverlay(scheme),
+                  ),
                 ),
               ),
-            ),
-            // ── Availability tag (top-left) ────────────────────────────────
-            if (widget.creator != null)
-              Positioned(
-                top: AppSpacing.sm,
-                left: AppSpacing.sm,
-                child: _AvailabilityTag(isOnline: isCreatorOnline),
-              ),
-            if (showFavorite)
               Positioned(
                 top: AppSpacing.md,
-                right: AppSpacing.md,
-                child: _FavoriteButton(
-                  isFavorite: widget.creator!.isFavorite,
-                  onPressed: () async {
-                    try {
-                      final apiClient = ApiClient();
-                      await apiClient.post('/user/favorites/${widget.creator!.id}');
-                      // Refresh feed to get updated isFavorite flags
-                      ref.invalidate(creatorsProvider);
-                      ref.invalidate(homeFeedProvider);
-                    } catch (_) {
-                      // Non-blocking: if request fails, UI will resync on next refresh.
-                    }
-                  },
+                left: AppSpacing.md,
+                child: _CreatorInfoText(
+                  name: title,
+                  age: age,
+                  country: country,
+                  textColor: Colors.white,
                 ),
               ),
-            Positioned(
-              left: AppSpacing.lg,
-              right: AppSpacing.lg,
-              bottom: AppSpacing.lg,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: _CreatorInfoText(
-                      name: title,
-                      age: age,
-                      textColor: scheme.onSurface,
-                    ),
-                  ),
-                  if (showVideoCall) ...[
-                    const SizedBox(width: AppSpacing.md),
-                    _ChatActionButton(
-                      isLoading: _isOpeningChat,
-                      onPressed: _openChat,
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    _VideoCallButton(
+              if (widget.creator != null)
+                Positioned(
+                  top: AppSpacing.md,
+                  right: AppSpacing.md,
+                  child: _AvailabilityTag(isOnline: isCreatorOnline),
+                ),
+              if (showVideoCall)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: AppSpacing.lg,
+                  child: Center(
+                    child: _VideoCallButton(
                       isLoading: _isInitiatingCall,
-                      // Only allow calling if creator is online
                       onPressed: isCreatorOnline ? _initiateVideoCall : null,
                       disabled: !isCreatorOnline,
                     ),
-                  ],
-                ],
-              ),
-            ),
-          ],
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -265,51 +258,9 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
     if (match == null) return 24;
     return int.tryParse(match.group(0) ?? '') ?? 24;
   }
-}
 
-class _ChatActionButton extends StatelessWidget {
-  final bool isLoading;
-  final VoidCallback? onPressed;
-
-  const _ChatActionButton({
-    required this.isLoading,
-    this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    const double buttonSize = 38;
-    const double iconSize = 19;
-
-    return Material(
-      color: scheme.surfaceContainerHigh.withValues(alpha: 0.85),
-      borderRadius: BorderRadius.circular(999),
-      child: InkWell(
-        onTap: isLoading ? null : onPressed,
-        borderRadius: BorderRadius.circular(999),
-        child: SizedBox(
-          width: buttonSize,
-          height: buttonSize,
-          child: Center(
-            child: isLoading
-                ? SizedBox(
-                    width: iconSize,
-                    height: iconSize,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(scheme.primary),
-                    ),
-                  )
-                : Icon(
-                    Icons.chat_bubble_outline,
-                    color: scheme.primary,
-                    size: iconSize,
-                  ),
-          ),
-        ),
-      ),
-    );
+  String _creatorCountry() {
+    return 'India';
   }
 }
 
@@ -328,8 +279,8 @@ class _VideoCallButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final effectiveDisabled = disabled || onPressed == null;
-    const double buttonSize = 38;
-    const double iconSize = 19;
+    const double buttonSize = 56;
+    const double iconSize = 26;
 
     return Material(
       color: effectiveDisabled
@@ -408,42 +359,16 @@ class _AvailabilityTag extends StatelessWidget {
   }
 }
 
-class _FavoriteButton extends StatelessWidget {
-  final bool isFavorite;
-  final VoidCallback onPressed;
-
-  const _FavoriteButton({required this.isFavorite, required this.onPressed});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: scheme.surfaceContainerHigh.withValues(alpha: 0.75),
-      borderRadius: BorderRadius.circular(999),
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(999),
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.sm),
-          child: Icon(
-            isFavorite ? Icons.favorite : Icons.favorite_border,
-            color: isFavorite ? scheme.error : scheme.onSurface,
-            size: 20,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _CreatorInfoText extends StatelessWidget {
   final String name;
   final int age;
+  final String country;
   final Color textColor;
 
   const _CreatorInfoText({
     required this.name,
     required this.age,
+    required this.country,
     required this.textColor,
   });
 
@@ -463,7 +388,7 @@ class _CreatorInfoText extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          name,
+          '$name $age',
           maxLines: 1,
           softWrap: false,
           overflow: TextOverflow.visible,
@@ -471,12 +396,316 @@ class _CreatorInfoText extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.xs),
         Text(
-          age.toString(),
+          country,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: subtitleStyle,
         ),
       ],
+    );
+  }
+}
+
+class _CreatorFullProfileModal extends StatelessWidget {
+  final CreatorModel creator;
+  final bool isOnline;
+  final VoidCallback? onCallPressed;
+  final bool isCalling;
+  final VoidCallback? onChatPressed;
+  final bool isOpeningChat;
+  final String country;
+  final int age;
+
+  const _CreatorFullProfileModal({
+    required this.creator,
+    required this.isOnline,
+    required this.onCallPressed,
+    required this.isCalling,
+    required this.onChatPressed,
+    required this.isOpeningChat,
+    required this.country,
+    required this.age,
+  });
+
+  List<String> _orderedGalleryUrls() {
+    final sorted = List<CreatorGalleryImage>.from(creator.galleryImages)
+      ..sort((a, b) => a.position.compareTo(b.position));
+    return sorted
+        .map((e) => e.url.trim())
+        .where((u) => u.isNotEmpty)
+        .toList();
+  }
+
+  void _openGalleryImage(BuildContext context, String url) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (ctx) => _CreatorGalleryImageViewer(url: url),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final galleryUrls = _orderedGalleryUrls();
+
+    return Scaffold(
+      backgroundColor: scheme.surface,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              IconButton(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.arrow_back_ios_new),
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: AppSpacing.md),
+                      Center(
+                        child: ClipOval(
+                          child: SizedBox(
+                            width: 100,
+                            height: 100,
+                            child: Image.network(
+                              creator.photo,
+                              fit: BoxFit.cover,
+                              loadingBuilder: (context, child, loadingProgress) {
+                                if (loadingProgress == null) return child;
+                                return ColoredBox(
+                                  color: scheme.surfaceContainerHigh,
+                                  child: Center(
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: scheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                );
+                              },
+                              errorBuilder: (_, _, _) => ColoredBox(
+                                color: scheme.surfaceContainerHigh,
+                                child: Icon(
+                                  Icons.broken_image_outlined,
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Center(
+                        child: Text(
+                          isOnline ? '● Online' : '● Busy',
+                          style: TextStyle(
+                            color: isOnline ? Colors.green : Colors.orange,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Center(
+                        child: Text(
+                          '${creator.name} $age',
+                          style: Theme.of(context)
+                              .textTheme
+                              .headlineSmall
+                              ?.copyWith(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      Center(
+                        child: Text(
+                          country,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleMedium
+                              ?.copyWith(color: scheme.onSurfaceVariant),
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+                      Text(
+                        'About Me',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Text(
+                        creator.about.isNotEmpty
+                            ? creator.about
+                            : 'No bio available.',
+                        style: Theme.of(context).textTheme.bodyLarge,
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+                      Text(
+                        'Pictures',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      if (galleryUrls.isEmpty)
+                        Text(
+                          'no pictures added',
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodyLarge
+                              ?.copyWith(color: scheme.onSurfaceVariant),
+                        )
+                      else
+                        GridView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3,
+                            crossAxisSpacing: AppSpacing.sm,
+                            mainAxisSpacing: AppSpacing.sm,
+                            childAspectRatio: 0.85,
+                          ),
+                          itemCount: galleryUrls.length,
+                          itemBuilder: (context, index) {
+                            final url = galleryUrls[index];
+                            return Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () => _openGalleryImage(context, url),
+                                borderRadius: BorderRadius.circular(14),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(14),
+                                  child: Image.network(
+                                    url,
+                                    fit: BoxFit.cover,
+                                    loadingBuilder:
+                                        (context, child, loadingProgress) {
+                                      if (loadingProgress == null) {
+                                        return child;
+                                      }
+                                      return ColoredBox(
+                                        color: scheme.surfaceContainerHigh,
+                                        child: Center(
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: scheme.onSurfaceVariant,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                    errorBuilder: (_, _, _) => ColoredBox(
+                                      color: scheme.surfaceContainerHigh,
+                                      child: Icon(
+                                        Icons.broken_image_outlined,
+                                        color: scheme.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: isOpeningChat ? null : onChatPressed,
+                      icon: isOpeningChat
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.chat_bubble_outline),
+                      label: const Text('Chat'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(26),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: isOnline ? onCallPressed : null,
+                      icon: isCalling
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.videocam),
+                      label: const Text('Video Call'),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(26),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Full-screen gallery image with pinch-zoom.
+class _CreatorGalleryImageViewer extends StatelessWidget {
+  final String url;
+
+  const _CreatorGalleryImageViewer({required this.url});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+      body: Center(
+        child: InteractiveViewer(
+          minScale: 0.5,
+          maxScale: 4,
+          child: Image.network(
+            url,
+            fit: BoxFit.contain,
+            loadingBuilder: (context, child, loadingProgress) {
+              if (loadingProgress == null) return child;
+              return const SizedBox(
+                height: 120,
+                width: 120,
+                child: Center(
+                  child: CircularProgressIndicator(color: Colors.white70),
+                ),
+              );
+            },
+            errorBuilder: (_, _, _) => const Icon(
+              Icons.broken_image_outlined,
+              color: Colors.white54,
+              size: 64,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

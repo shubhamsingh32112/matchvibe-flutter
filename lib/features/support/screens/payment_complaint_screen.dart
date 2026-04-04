@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../wallet/models/transaction_model.dart';
 import '../services/support_service.dart';
+import '../../../core/utils/user_message_mapper.dart';
+import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 
@@ -89,16 +91,15 @@ class _PaymentComplaintScreenState extends State<PaymentComplaintScreen> {
       );
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Complaint submitted successfully')),
-      );
+      AppToast.showSuccess(context, 'Complaint submitted successfully');
       Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to submit complaint: $e'),
-          backgroundColor: Theme.of(context).colorScheme.error,
+      AppToast.showError(
+        context,
+        UserMessageMapper.userMessageFor(
+          e,
+          fallback: 'Couldn\'t submit complaint. Please try again.',
         ),
       );
     } finally {

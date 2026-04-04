@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/support_provider.dart';
 import '../models/support_ticket_model.dart';
+import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/styles/app_brand_styles.dart';
@@ -57,20 +58,10 @@ class _SupportScreenState extends ConsumerState<SupportScreen>
     ref.listen<SupportState>(supportProvider, (prev, next) {
       if (next.successMessage != null &&
           next.successMessage != prev?.successMessage) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(next.successMessage!),
-            backgroundColor: scheme.primaryContainer,
-          ),
-        );
+        AppToast.showSuccess(context, next.successMessage!);
       }
       if (next.error != null && next.error != prev?.error) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(next.error!),
-            backgroundColor: scheme.errorContainer,
-          ),
-        );
+        AppToast.showError(context, next.error!);
       }
     });
 

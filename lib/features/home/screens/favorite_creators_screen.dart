@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/widgets/skeleton_card.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../providers/home_provider.dart';
@@ -36,7 +37,10 @@ class FavoriteCreatorsScreen extends ConsumerWidget {
         ),
         error: (error, stack) => ErrorState(
           title: 'Unable to load favorites',
-          message: error.toString(),
+          message: UserMessageMapper.userMessageFor(
+            error,
+            fallback: 'Couldn\'t load favorites. Please try again.',
+          ),
           actionLabel: 'Retry',
           onAction: () => ref.invalidate(creatorsProvider),
         ),

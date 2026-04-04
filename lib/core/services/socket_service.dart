@@ -24,6 +24,8 @@ class SocketService {
   bool _isConnected = false;
   bool _isConnecting = false;
   List<String> _lastRequestedIds = [];
+  /// Fan UIDs last requested via [user:availability:get] (creators) — re-sent on reconnect.
+  List<String> _lastRequestedUserIds = [];
   Completer<bool>? _connectCompleter;
   // ── Pending billing events (queued when socket is disconnected) ─────────
   Map<String, dynamic>? _pendingCallStarted;
@@ -32,6 +34,11 @@ class SocketService {
   // ── Availability callbacks ──────────────────────────────────────────────
   void Function(Map<String, String>)? onAvailabilityBatch;
   void Function(String creatorId, String status)? onCreatorStatus;
+  /// Fan online/offline — server emits to `creators` room only.
+  void Function(String firebaseUid, String status)? onUserStatus;
+
+  /// Response to [user:availability:get] — Redis-backed batch for creators.
+  void Function(Map<String, String> batch)? onUserAvailabilityBatch;
 
   // ── Billing callbacks ──────────────────────────────────────────────────
   void Function(Map<String, dynamic>)? onBillingStarted;
@@ -39,6 +46,11 @@ class SocketService {
   void Function(Map<String, dynamic>)? onBillingSettled;
   void Function(Map<String, dynamic>)? onCallForceEnd;
   void Function(Map<String, dynamic>)? onBillingError;
+  /// Response to [requestBillingStateRecovery] — same shape as server recover payload.
+  void Function(Map<String, dynamic>)? onBillingRecoverState;
+
+  /// Fired after a successful Socket.IO reconnect (not the initial connect).
+  void Function()? onReconnected;
 
   // ── Creator data sync callback ──────────────────────────────────────────
   /// Fired when the backend emits `creator:data_updated` after:
@@ -117,6 +129,12 @@ class SocketService {
         );
         _socket!.emit('availability:get', {'creatorIds': _lastRequestedIds});
       }
+      if (_lastRequestedUserIds.isNotEmpty) {
+        debugPrint(
+          '📡 [SOCKET] Auto-requesting user availability for ${_lastRequestedUserIds.length} user(s)',
+        );
+        _socket!.emit('user:availability:get', _lastRequestedUserIds);
+      }
 
       // Flush any pending billing events that were queued while disconnected
       _flushPendingBillingEvents();
@@ -153,6 +171,25 @@ class SocketService {
       }
     });
 
+    _socket!.on('user:status', (data) {
+      if (data is Map) {
+        final uid = data['firebaseUid']?.toString();
+        final status = data['status']?.toString();
+        if (uid != null && status != null) {
+          onUserStatus?.call(uid, status);
+        }
+      }
+    });
+
+    _socket!.on('user:availability:batch', (data) {
+      if (data is Map) {
+        final map = Map<String, String>.from(
+          data.map((k, v) => MapEntry(k.toString(), v.toString())),
+        );
+        onUserAvailabilityBatch?.call(map);
+      }
+    });
+
     // ── Billing events ──────────────────────────────────────────────────
     _socket!.on('billing:started', (data) {
       debugPrint('💰 [SOCKET] billing:started: $data');
@@ -185,6 +222,13 @@ class SocketService {
       debugPrint('❌ [SOCKET] billing:error: $data');
       if (data is Map) {
         onBillingError?.call(Map<String, dynamic>.from(data));
+      }
+    });
+
+    _socket!.on('billing:recover-state:response', (data) {
+      debugPrint('💰 [SOCKET] billing:recover-state:response: $data');
+      if (data is Map) {
+        onBillingRecoverState?.call(Map<String, dynamic>.from(data));
       }
     });
 
@@ -225,9 +269,14 @@ class SocketService {
       if (_lastRequestedIds.isNotEmpty) {
         _socket!.emit('availability:get', {'creatorIds': _lastRequestedIds});
       }
+      if (_lastRequestedUserIds.isNotEmpty) {
+        _socket!.emit('user:availability:get', _lastRequestedUserIds);
+      }
 
       // Flush any pending billing events that were queued while disconnected
       _flushPendingBillingEvents();
+
+      onReconnected?.call();
     });
 
     _socket!.onConnectError((error) {
@@ -297,6 +346,25 @@ class SocketService {
     _socket!.emit('availability:get', {'creatorIds': creatorIds});
   }
 
+  /// Emit [user:availability:get] with fan Firebase UIDs (creators / admin in creator tools).
+  void requestUserAvailability(List<String> userFirebaseUids) {
+    if (userFirebaseUids.isEmpty) return;
+
+    _lastRequestedUserIds = userFirebaseUids;
+
+    if (!_isConnected || _socket == null) {
+      debugPrint(
+        '⏳ [SOCKET] Not connected — user availability request queued (${userFirebaseUids.length} IDs)',
+      );
+      return;
+    }
+
+    debugPrint(
+      '📡 [SOCKET] Emitting user:availability:get for ${userFirebaseUids.length} user(s)',
+    );
+    _socket!.emit('user:availability:get', userFirebaseUids);
+  }
+
   // ── Billing Emitters ────────────────────────────────────────────────────
 
   /// Notify the backend that a call has started (triggers billing loop).
@@ -312,11 +380,11 @@ class SocketService {
     required String creatorMongoId,
     String? userFirebaseUid,
   }) {
-    final data = {
+    final data = <String, dynamic>{
       'callId': callId,
       'creatorFirebaseUid': creatorFirebaseUid,
       'creatorMongoId': creatorMongoId,
-      if (userFirebaseUid != null) 'userFirebaseUid': userFirebaseUid,
+      'userFirebaseUid': ?userFirebaseUid,
     };
 
     if (_socket != null && _isConnected) {
@@ -337,6 +405,14 @@ class SocketService {
   ///
   /// 🔥 FIX: If the socket is not connected, we now call the REST API
   /// directly as a fallback so settlement is never silently dropped.
+  /// Ask the server for Redis-backed billing snapshot (mid-call reconnect).
+  void requestBillingStateRecovery() {
+    if (_socket != null && _isConnected) {
+      debugPrint('💰 [SOCKET] Emitting billing:recover-state');
+      _socket!.emit('billing:recover-state');
+    }
+  }
+
   void emitCallEnded({required String callId}) {
     final data = {'callId': callId};
 
@@ -400,6 +476,7 @@ class SocketService {
     _isConnected = false;
     _isConnecting = false;
     _lastRequestedIds = [];
+    _lastRequestedUserIds = [];
     _pendingCallStarted = null;
     _pendingCallEnded = null;
     if (_connectCompleter != null && !_connectCompleter!.isCompleted) {

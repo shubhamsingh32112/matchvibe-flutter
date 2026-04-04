@@ -14,6 +14,7 @@ import '../utils/call_remote_image_resolver.dart';
 import '../utils/remote_avatar_lookup.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../home/providers/availability_provider.dart';
+import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/providers/coin_purchase_popup_provider.dart';
 
 // ---------------------------------------------------------------------------
@@ -54,6 +55,14 @@ class CallConnectionState {
   /// `false` when the local user received the call (incoming / creator side).
   final bool isOutgoing;
 
+  /// Shown on the outgoing top-card overlay (from the caller before connect).
+  final String? outgoingCreatorName;
+  final int? outgoingCreatorAge;
+  final String? outgoingCreatorCountry;
+
+  /// After the callee accepts (Stream "Connecting"); drives "Connecting…" + bar.
+  final bool creatorAcceptedForOutgoing;
+
   const CallConnectionState({
     required this.phase,
     this.call,
@@ -61,6 +70,10 @@ class CallConnectionState {
     this.failureReason,
     this.remoteImageFallbackUrl,
     this.isOutgoing = false,
+    this.outgoingCreatorName,
+    this.outgoingCreatorAge,
+    this.outgoingCreatorCountry,
+    this.creatorAcceptedForOutgoing = false,
   });
 
   const CallConnectionState.idle()
@@ -69,7 +82,11 @@ class CallConnectionState {
         error = null,
         failureReason = null,
         remoteImageFallbackUrl = null,
-        isOutgoing = false;
+        isOutgoing = false,
+        outgoingCreatorName = null,
+        outgoingCreatorAge = null,
+        outgoingCreatorCountry = null,
+        creatorAcceptedForOutgoing = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -88,11 +105,12 @@ final callConnectionControllerProvider =
 /// Orchestrates both **user** and **creator** call flows.
 ///
 /// Owns the full lifecycle:
-///   preparing (→ navigate to /call) → joining → connected → disconnecting → idle (→ /home)
+///   Outgoing: preparing → joining (overlay on current route) → navigate `/call` on
+///   `connected` or `failed` → disconnecting → idle (→ /home).
+///   Creator accept: preparing → navigate `/call` → joining → connected → …
 ///
 /// Serialises every async step so that race conditions are impossible.
 ///
-/// ⚠️  Navigation to `/call` happens at `preparing` (outgoing / connecting screen).
 /// ⚠️  Navigation to `/home` happens when the call ends or disconnects.
 class CallConnectionController extends StateNotifier<CallConnectionState> {
   final Ref _ref;
@@ -120,13 +138,15 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
   /// User taps **Call** on a creator card.
   ///
   /// Sequence:
-  ///   preparing → navigate to /call (outgoing screen) → permissions
-  ///   → getOrCreate → joining → join() → wait for [CallStatusConnected]
-  ///   → connected.
+  ///   preparing → permissions → getOrCreate → joining (overlay) → join()
+  ///   → wait for [CallStatusConnected] → navigate `/call` when connected.
   Future<void> startUserCall({
     required String creatorFirebaseUid,
     required String creatorMongoId,
     String? creatorImageUrl,
+    String? creatorName,
+    int? creatorAge,
+    String? creatorCountry,
   }) async {
     // Allow retry from failed state
     if (state.phase != CallConnectionPhase.idle &&
@@ -149,7 +169,8 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
         failureReason: CallFailureReason.unknown,
         isOutgoing: true,
       );
-      return; // Stay on current screen — don't navigate to /call
+      CallNavigationService.navigateToCallScreen();
+      return;
     }
 
     // ── Reset billing state from any previous call ─────────────────
@@ -163,10 +184,10 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       phase: CallConnectionPhase.preparing,
       isOutgoing: true,
       remoteImageFallbackUrl: creatorImageUrl,
+      outgoingCreatorName: creatorName,
+      outgoingCreatorAge: creatorAge,
+      outgoingCreatorCountry: creatorCountry,
     );
-
-    // Navigate to /call immediately so user sees the outgoing call screen
-    CallNavigationService.navigateToCallScreen();
 
     try {
       // 1. Permissions
@@ -181,6 +202,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
           failureReason: CallFailureReason.permissionDenied,
           isOutgoing: true,
         );
+        CallNavigationService.navigateToCallScreen();
         return;
       }
 
@@ -194,6 +216,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
           failureReason: CallFailureReason.unknown,
           isOutgoing: true,
         );
+        CallNavigationService.navigateToCallScreen();
         return;
       }
 
@@ -208,6 +231,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
           failureReason: CallFailureReason.unknown,
           isOutgoing: true,
         );
+        CallNavigationService.navigateToCallScreen();
         return;
       }
 
@@ -242,12 +266,16 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       _activeCreatorFirebaseUid = creatorFirebaseUid;
       _activeCreatorMongoId = creatorMongoId;
 
-      // 5. Transition to joining (stay on /call screen — outgoing UI)
+      // 5. Transition to joining (outgoing overlay on current route)
       state = CallConnectionState(
         phase: CallConnectionPhase.joining,
         call: call,
         isOutgoing: true,
         remoteImageFallbackUrl: creatorImageUrl,
+        outgoingCreatorName: state.outgoingCreatorName,
+        outgoingCreatorAge: state.outgoingCreatorAge,
+        outgoingCreatorCountry: state.outgoingCreatorCountry,
+        creatorAcceptedForOutgoing: false,
       );
       _startWatchdog();
       _listenForConnected(call);
@@ -262,10 +290,11 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       if (mounted) {
         state = CallConnectionState(
           phase: CallConnectionPhase.failed,
-          error: e.toString(),
+          error: UserMessageMapper.forCallFailure(e),
           failureReason: CallFailureReason.sfuFailure,
           isOutgoing: true,
         );
+        CallNavigationService.navigateToCallScreen();
       }
     }
   }
@@ -364,6 +393,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
         phase: CallConnectionPhase.joining,
         call: call,
         remoteImageFallbackUrl: state.remoteImageFallbackUrl,
+        creatorAcceptedForOutgoing: false,
       );
       _startWatchdog();
       _listenForConnected(call);
@@ -379,7 +409,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       if (mounted) {
         state = CallConnectionState(
           phase: CallConnectionPhase.failed,
-          error: e.toString(),
+          error: UserMessageMapper.forCallFailure(e),
           failureReason: CallFailureReason.sfuFailure,
         );
       }
@@ -416,6 +446,10 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
         failureReason: state.failureReason,
         isOutgoing: state.isOutgoing,
         remoteImageFallbackUrl: lookedUp,
+        outgoingCreatorName: state.outgoingCreatorName,
+        outgoingCreatorAge: state.outgoingCreatorAge,
+        outgoingCreatorCountry: state.outgoingCreatorCountry,
+        creatorAcceptedForOutgoing: state.creatorAcceptedForOutgoing,
       );
     } catch (_) {
       // Best-effort fallback hydration only.
@@ -440,7 +474,15 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
 
     final call = state.call;
     state = CallConnectionState(
-        phase: CallConnectionPhase.disconnecting, call: call);
+      phase: CallConnectionPhase.disconnecting,
+      call: call,
+      isOutgoing: state.isOutgoing,
+      remoteImageFallbackUrl: state.remoteImageFallbackUrl,
+      outgoingCreatorName: state.outgoingCreatorName,
+      outgoingCreatorAge: state.outgoingCreatorAge,
+      outgoingCreatorCountry: state.outgoingCreatorCountry,
+      creatorAcceptedForOutgoing: state.creatorAcceptedForOutgoing,
+    );
 
     _cancelSubscriptions(); // stop status listener first
 
@@ -509,6 +551,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     }
     
     if (mounted) {
+      _creatorAccepted = false;
       state = const CallConnectionState.idle();
     }
   }
@@ -537,6 +580,20 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
         _creatorAccepted = true;
         debugPrint('📞 [CALL CTRL] Creator accepted — restarting join-phase watchdog (30s)');
         _startJoinPhaseWatchdog();
+        if (mounted) {
+          state = CallConnectionState(
+            phase: state.phase,
+            call: state.call,
+            error: state.error,
+            failureReason: state.failureReason,
+            isOutgoing: state.isOutgoing,
+            remoteImageFallbackUrl: state.remoteImageFallbackUrl,
+            outgoingCreatorName: state.outgoingCreatorName,
+            outgoingCreatorAge: state.outgoingCreatorAge,
+            outgoingCreatorCountry: state.outgoingCreatorCountry,
+            creatorAcceptedForOutgoing: true,
+          );
+        }
       }
 
       if (status is CallStatusConnected) {
@@ -545,15 +602,20 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
         if (state.phase == CallConnectionPhase.joining) {
           _wasConnected = true;
           state = CallConnectionState(
-              phase: CallConnectionPhase.connected,
-              call: call,
-              isOutgoing: state.isOutgoing,
-              remoteImageFallbackUrl: state.remoteImageFallbackUrl);
+            phase: CallConnectionPhase.connected,
+            call: call,
+            isOutgoing: state.isOutgoing,
+            remoteImageFallbackUrl: state.remoteImageFallbackUrl,
+            outgoingCreatorName: state.outgoingCreatorName,
+            outgoingCreatorAge: state.outgoingCreatorAge,
+            outgoingCreatorCountry: state.outgoingCreatorCountry,
+            creatorAcceptedForOutgoing: state.creatorAcceptedForOutgoing,
+          );
 
           // ── Start billing (both user-initiated and creator-initiated calls) ────────────
           _emitBillingStarted();
 
-          // Already on /call screen (navigated during preparing phase)
+          CallNavigationService.navigateToCallScreen();
           debugPrint(
               '✅ [CALL CTRL] phase → connected — call is live');
         }
@@ -593,13 +655,21 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
           if (isRejected) {
             debugPrint('📞 [CALL CTRL] Call was rejected by remote party');
             if (mounted) {
+              final wasOutgoing = state.isOutgoing;
               state = CallConnectionState(
                 phase: CallConnectionPhase.failed,
                 error: 'Call was declined',
                 failureReason: CallFailureReason.rejected,
-                isOutgoing: state.isOutgoing,
+                isOutgoing: wasOutgoing,
                 remoteImageFallbackUrl: state.remoteImageFallbackUrl,
+                outgoingCreatorName: state.outgoingCreatorName,
+                outgoingCreatorAge: state.outgoingCreatorAge,
+                outgoingCreatorCountry: state.outgoingCreatorCountry,
+                creatorAcceptedForOutgoing: state.creatorAcceptedForOutgoing,
               );
+              if (wasOutgoing) {
+                CallNavigationService.navigateToCallScreen();
+              }
             }
           } else {
             // Queue feedback prompt for the user who paid for the call
@@ -643,6 +713,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
             }
             
             if (mounted) {
+              _creatorAccepted = false;
               state = const CallConnectionState.idle();
             }
           }
@@ -700,6 +771,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
         debugPrint('⏱️ [CALL CTRL] Ring timeout (15s) — creator did not pick up');
         await _cleanupCall();
         if (mounted) {
+          _creatorAccepted = false;
           // Navigate to home and show toast instead of full-page failed view
           _ref.read(creatorBusyToastProvider.notifier).state = 'Creator is busy';
           CallNavigationService.navigateToHome();
@@ -732,12 +804,21 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
         debugPrint('⏱️ [CALL CTRL] Join-phase timeout (30s) — connection failed');
         await _cleanupCall();
         if (mounted) {
+          final wasOutgoing = state.isOutgoing;
           state = CallConnectionState(
             phase: CallConnectionPhase.failed,
             error: 'Connection timed out. Please try again.',
             failureReason: CallFailureReason.joinTimeout,
-            isOutgoing: state.isOutgoing,
+            isOutgoing: wasOutgoing,
+            remoteImageFallbackUrl: state.remoteImageFallbackUrl,
+            outgoingCreatorName: state.outgoingCreatorName,
+            outgoingCreatorAge: state.outgoingCreatorAge,
+            outgoingCreatorCountry: state.outgoingCreatorCountry,
+            creatorAcceptedForOutgoing: state.creatorAcceptedForOutgoing,
           );
+          if (wasOutgoing) {
+            CallNavigationService.navigateToCallScreen();
+          }
         }
       }
     });

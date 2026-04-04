@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../../core/utils/error_handler.dart';
+import '../../../core/utils/user_message_mapper.dart';
+import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../providers/auth_provider.dart';
 
@@ -131,12 +133,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
     
     if (otp.length != 6) {
       debugPrint('⚠️  [OTP] Invalid OTP length: ${otp.length}');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Please enter the complete 6-digit code'),
-          backgroundColor: Theme.of(context).colorScheme.errorContainer,
-        ),
-      );
+      AppToast.showInfo(context, 'Please enter the complete 6-digit code');
       return;
     }
 
@@ -160,11 +157,9 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
       if (authState.error != null && !authState.isAuthenticated) {
         debugPrint('❌ [OTP] Verification failed: ${authState.error}');
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(ErrorHandler.getHumanReadableError(authState.error!)),
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
+          AppToast.showError(
+            context,
+            ErrorHandler.getHumanReadableError(authState.error!),
           );
         }
         // Clear OTP fields on error
@@ -184,10 +179,11 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
     } catch (e) {
       debugPrint('❌ [OTP] Verification error: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Verification failed: ${e.toString()}'),
-            backgroundColor: Theme.of(context).colorScheme.error,
+        AppToast.showError(
+          context,
+          UserMessageMapper.userMessageFor(
+            e,
+            fallback: 'Verification failed. Please try again.',
           ),
         );
         // Clear OTP fields on error
@@ -225,11 +221,9 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
       
       final authState = ref.read(authProvider);
       if (authState.error != null && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(ErrorHandler.getHumanReadableError(authState.error!)),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
+        AppToast.showError(
+          context,
+          ErrorHandler.getHumanReadableError(authState.error!),
         );
       } else if (authState.verificationId != null && mounted) {
         // Update verification ID if we got a new one
@@ -237,21 +231,17 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
           _currentVerificationId = authState.verificationId!;
         });
         
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Verification code resent successfully'),
-            backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-          ),
-        );
+        AppToast.showSuccess(context, 'Verification code resent successfully');
         _startResendCountdown();
       }
     } catch (e) {
       debugPrint('❌ [OTP] Resend error: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to resend code: ${e.toString()}'),
-            backgroundColor: Theme.of(context).colorScheme.error,
+        AppToast.showError(
+          context,
+          UserMessageMapper.userMessageFor(
+            e,
+            fallback: 'Couldn\'t resend the code. Please try again.',
           ),
         );
       }

@@ -24,15 +24,20 @@ class ChatService {
     }
   }
 
-  /// Create or get channel for User-Creator pair.
+  /// Create or get channel for User–Creator pair.
+  ///
+  /// [otherPartyId] must be the **other user's MongoDB User `_id`** (string), or their
+  /// **Firebase UID**. Do **not** pass [CreatorModel.id] (that is the Creator profile id).
+  /// For a creator card, use [CreatorModel.userId].
+  ///
   /// Returns channelId, cid and quota info.
-  Future<Map<String, dynamic>> createOrGetChannel(String otherUserId) async {
+  Future<Map<String, dynamic>> createOrGetChannel(String otherPartyId) async {
     try {
-      debugPrint('📞 [CHAT] Creating/getting channel with user: $otherUserId');
+      debugPrint('📞 [CHAT] Creating/getting channel with user: $otherPartyId');
 
       final response = await _apiClient.post(
         '/chat/channel',
-        data: {'otherUserId': otherUserId},
+        data: {'otherUserId': otherPartyId},
       );
 
       if (response.data['success'] == true) {

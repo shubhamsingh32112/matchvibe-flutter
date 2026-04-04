@@ -1,5 +1,50 @@
 import 'package:equatable/equatable.dart';
 
+class CreatorGalleryImage extends Equatable {
+  final String id;
+  final String url;
+  final String storagePath;
+  final int position;
+  final DateTime? createdAt;
+
+  const CreatorGalleryImage({
+    required this.id,
+    required this.url,
+    required this.storagePath,
+    required this.position,
+    this.createdAt,
+  });
+
+  factory CreatorGalleryImage.fromJson(Map<String, dynamic> json) {
+    final createdRaw = json['createdAt'];
+    DateTime? createdAt;
+    if (createdRaw is String) {
+      createdAt = DateTime.tryParse(createdRaw);
+    }
+
+    return CreatorGalleryImage(
+      id: json['id'] as String,
+      url: json['url'] as String,
+      storagePath: json['storagePath'] as String? ?? '',
+      position: (json['position'] as num?)?.toInt() ?? 0,
+      createdAt: createdAt,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'url': url,
+      'storagePath': storagePath,
+      'position': position,
+      'createdAt': createdAt?.toIso8601String(),
+    };
+  }
+
+  @override
+  List<Object?> get props => [id, url, storagePath, position, createdAt];
+}
+
 class CreatorModel extends Equatable {
   final String id;
   final String userId; // MongoDB User ID (REQUIRED - creator always has a user)
@@ -7,6 +52,7 @@ class CreatorModel extends Equatable {
   final String name;
   final String about;
   final String photo;
+  final List<CreatorGalleryImage> galleryImages;
   final List<String>? categories;
   final double price;
   final int? age;
@@ -26,6 +72,7 @@ class CreatorModel extends Equatable {
     required this.name,
     required this.about,
     required this.photo,
+    this.galleryImages = const [],
     this.categories,
     required this.price,
     this.age,
@@ -44,6 +91,7 @@ class CreatorModel extends Equatable {
       name: json['name'] as String,
       about: json['about'] as String,
       photo: json['photo'] as String,
+      galleryImages: _parseGalleryImages(json['galleryImages']),
       categories: json['categories'] != null
           ? List<String>.from(json['categories'] as List)
           : null,
@@ -61,6 +109,23 @@ class CreatorModel extends Equatable {
     );
   }
 
+  static List<CreatorGalleryImage> _parseGalleryImages(dynamic raw) {
+    if (raw is! List) return const [];
+    final out = <CreatorGalleryImage>[];
+    for (final item in raw) {
+      if (item is! Map) continue;
+      try {
+        out.add(
+          CreatorGalleryImage.fromJson(Map<String, dynamic>.from(item)),
+        );
+      } catch (_) {
+        continue;
+      }
+    }
+    out.sort((a, b) => a.position.compareTo(b.position));
+    return out;
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -69,6 +134,7 @@ class CreatorModel extends Equatable {
       'name': name,
       'about': about,
       'photo': photo,
+      'galleryImages': galleryImages.map((e) => e.toJson()).toList(),
       'categories': categories,
       'price': price,
       'age': age,
@@ -88,6 +154,7 @@ class CreatorModel extends Equatable {
         name,
         about,
         photo,
+        galleryImages,
         categories,
         price,
         age,

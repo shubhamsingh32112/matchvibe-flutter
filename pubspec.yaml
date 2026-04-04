@@ -2,7 +2,7 @@ name: zztherapy
 description: "Match Vibe - Flutter mobile app"
 publish_to: 'none'
 
-version: 1.0.0+13
+version: 1.0.0+16
 
 
 
@@ -44,9 +44,7 @@ dependencies:
   # Local Storage
   shared_preferences: ^2.2.2
   flutter_secure_storage: ^9.2.2
-  # Fast Login: device fingerprint and install ID
   device_info_plus: ^11.0.0
-  uuid: ^4.5.1
   
   # Animations
   flutter_animate: ^4.5.0
@@ -106,15 +104,16 @@ flutter:
     - lib/assets/ringtone/
     - lib/assets/addpopup-bg.jpeg
     - lib/assets/gem.svg
-    - lib/assets/app_icon.png
+    - lib/assets/app_logo.png
+    - lib/assets/loader_bg.png
     - .env.development
     - .env.production
 
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "lib/assets/app_icon.png"
+  image_path: "lib/assets/app_logo.png"
   min_sdk_android: 21
   remove_alpha_ios: true
   adaptive_icon_background: "#ffffff"
-  adaptive_icon_foreground: "lib/assets/app_icon.png"
+  adaptive_icon_foreground: "lib/assets/app_logo.png"

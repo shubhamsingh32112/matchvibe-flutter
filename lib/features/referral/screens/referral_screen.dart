@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/utils/user_message_mapper.dart';
+import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/widgets/gem_icon.dart';
@@ -60,7 +62,10 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = e.toString();
+          _error = UserMessageMapper.userMessageFor(
+            e,
+            fallback: 'Couldn\'t load referrals. Please try again.',
+          );
           _isLoading = false;
         });
       }
@@ -71,8 +76,9 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
     if (code == null || code.isEmpty) return;
     await Clipboard.setData(ClipboardData(text: code));
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Referral code $code copied to clipboard')),
+      AppToast.showSuccess(
+        context,
+        'Referral code $code copied to clipboard',
       );
     }
   }

@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/utils/user_message_mapper.dart';
+import '../../../shared/widgets/app_toast.dart';
 import '../../../core/services/avatar_upload_service.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -43,35 +45,35 @@ class _GenderSelectionScreenState extends ConsumerState<GenderSelectionScreen> {
     // ── Validate name ───────────────────────────────────────────────────
     final name = _nameController.text.trim();
     if (name.isEmpty) {
-      _showError('Please enter your name');
+      _showValidationHint('Please enter your name');
       return;
     }
     if (name.length < 4 || name.length > 10) {
-      _showError('Name must be 4–10 characters');
+      _showValidationHint('Name must be 4–10 characters');
       return;
     }
 
     // ── Validate gender ─────────────────────────────────────────────────
     if (_selectedGender == null) {
-      _showError('Please select your gender');
+      _showValidationHint('Please select your gender');
       return;
     }
 
     // ── Validate age ────────────────────────────────────────────────────
     final ageText = _ageController.text.trim();
     if (ageText.isEmpty) {
-      _showError('Please enter your age');
+      _showValidationHint('Please enter your age');
       return;
     }
     final age = int.tryParse(ageText);
     if (age == null || age < 13 || age > 120) {
-      _showError('Please enter a valid age (13-120)');
+      _showValidationHint('Please enter a valid age (13-120)');
       return;
     }
 
     // ── Validate avatar ─────────────────────────────────────────────────
     if (_selectedAvatar == null) {
-      _showError('Please select an avatar');
+      _showValidationHint('Please select an avatar');
       return;
     }
 
@@ -116,16 +118,22 @@ class _GenderSelectionScreenState extends ConsumerState<GenderSelectionScreen> {
       }
     } catch (e) {
       debugPrint('❌ [ONBOARDING] Error: $e');
-      if (mounted) _showError('Failed to save profile: ${e.toString()}');
+      if (mounted) {
+        AppToast.showError(
+          context,
+          UserMessageMapper.userMessageFor(
+            e,
+            fallback: 'Couldn\'t save profile. Please try again.',
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.red),
-    );
+  void _showValidationHint(String message) {
+    AppToast.showInfo(context, message);
   }
 
   // ─────────────────────────────────────────────────────────────────────────

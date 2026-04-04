@@ -4,6 +4,7 @@ import '../../../core/services/socket_service.dart';
 import '../../creator/providers/creator_dashboard_provider.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../wallet/providers/wallet_pricing_provider.dart';
+import '../../user/providers/user_availability_provider.dart';
 // 🔥 CRITICAL FIX: Import socket service provider to update creator's own status
 import '../../../core/services/availability_socket_service.dart' as socket_service;
 
@@ -15,13 +16,15 @@ class CreatorAvailabilityNotifier
     extends StateNotifier<Map<String, CreatorAvailability>> {
   CreatorAvailabilityNotifier() : super({});
 
-  /// Bulk-update from an [availability:batch] socket event.
+  /// Bulk-update from an [availability:batch] socket event (Redis snapshot).
+  /// Socket-first: does not overwrite keys already set by live [creator:status].
   void updateBatch(Map<String, String> data) {
     final newState = Map<String, CreatorAvailability>.from(state);
     for (final entry in data.entries) {
-      newState[entry.key] = entry.value == 'online'
+      final v = entry.value == 'online'
           ? CreatorAvailability.online
           : CreatorAvailability.busy;
+      newState.putIfAbsent(entry.key, () => v);
     }
     state = newState;
   }
@@ -43,11 +46,14 @@ class CreatorAvailabilityNotifier
     }
   }
 
-  /// Seed initial availability from the REST API response.
-  /// Runs once on first load; after that socket events are authoritative.
+  /// Seed from REST (Redis-backed API). Never overwrites live socket map entries.
   void seedFromApi(Map<String, CreatorAvailability> data) {
-    if (state.isNotEmpty) return; // Already seeded by socket events
-    state = Map<String, CreatorAvailability>.from(data);
+    if (data.isEmpty) return;
+    final newState = Map<String, CreatorAvailability>.from(state);
+    for (final e in data.entries) {
+      newState.putIfAbsent(e.key, () => e.value);
+    }
+    state = newState;
   }
 
   /// Get availability for one creator. **Default = busy**.
@@ -117,6 +123,17 @@ final socketServiceProvider = Provider<SocketService>((ref) {
     } catch (e) {
       debugPrint('❌ [SOCKET→PROVIDER] Failed to update provider: $e');
     }
+  };
+
+  /// Fan presence — same payloads as [AvailabilitySocketService] (`user:status` / batch).
+  service.onUserStatus = (firebaseUid, status) {
+    final ua = status == 'online'
+        ? UserAvailability.online
+        : UserAvailability.offline;
+    ref.read(userAvailabilityProvider.notifier).update(firebaseUid, ua);
+  };
+  service.onUserAvailabilityBatch = (batch) {
+    ref.read(userAvailabilityProvider.notifier).updateBatch(batch);
   };
 
   // ── Creator data sync: invalidate dashboard + refresh user on data_updated ──

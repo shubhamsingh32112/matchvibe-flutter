@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stream_chat_flutter/stream_chat_flutter.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/utils/user_message_mapper.dart';
+import '../../../shared/widgets/app_toast.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../../shared/models/profile_model.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -318,10 +320,11 @@ class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to open chat: $e'),
-            backgroundColor: Colors.red,
+        AppToast.showError(
+          context,
+          UserMessageMapper.userMessageFor(
+            e,
+            fallback: 'Couldn\'t open chat. Please try again.',
           ),
         );
       }
@@ -339,20 +342,11 @@ class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
 
     return usersAsync.when(
       data: (users) {
-        // 🔥 NEW: Filter to show only online users
-        // Use real-time availability from Socket.IO (userAvailabilityProvider)
-        // Fallback to API availability if socket data not available
+        // Only users with explicit socket state "online" (Redis/API does not add rows here).
         final onlineUsers = users.where((user) {
           if (user.firebaseUid == null) return false;
-          
-          // Check real-time availability first (from Socket.IO)
-          final realTimeStatus = userAvailabilityMap[user.firebaseUid];
-          if (realTimeStatus != null) {
-            return realTimeStatus == UserAvailability.online;
-          }
-          
-          // Fallback to API availability
-          return user.availability == 'online';
+          return userAvailabilityMap[user.firebaseUid] ==
+              UserAvailability.online;
         }).toList();
 
         if (onlineUsers.isEmpty) {
@@ -386,13 +380,6 @@ class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
             itemBuilder: (context, index) {
               final user = onlineUsers[index];
               final isLoading = _loadingUserIds.contains(user.id);
-              
-              // Get real-time availability status
-              final isOnline = user.firebaseUid != null &&
-                  (userAvailabilityMap[user.firebaseUid] ?? 
-                   (user.availability == 'online' 
-                       ? UserAvailability.online 
-                       : UserAvailability.offline)) == UserAvailability.online;
 
               return ListTile(
                 leading: CircleAvatar(
@@ -424,14 +411,12 @@ class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
                       height: 8,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: isOnline 
-                            ? Colors.green 
-                            : Colors.grey,
+                        color: Colors.green,
                       ),
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      isOnline ? 'Online' : 'Offline',
+                      'Online',
                       style: TextStyle(
                         fontSize: 12,
                         color: scheme.onSurfaceVariant,

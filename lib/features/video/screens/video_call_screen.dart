@@ -7,12 +7,14 @@ import 'package:stream_video_flutter/stream_video_flutter.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../controllers/call_connection_controller.dart';
 import '../providers/call_billing_provider.dart';
+import '../widgets/live_billing_overlay.dart';
 import '../services/permission_service.dart';
 import '../services/security_service.dart';
 import '../utils/call_remote_image_resolver.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../../core/utils/user_message_mapper.dart';
+import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/coin_purchase_popup.dart';
-import '../../../shared/widgets/gem_icon.dart';
 
 /// Screen for active video call — **pure renderer**.
 ///
@@ -58,6 +60,11 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
       switch (callState.phase) {
         case CallConnectionPhase.preparing:
         case CallConnectionPhase.joining:
+          if (callState.isOutgoing) {
+            // Outgoing dial UI is the root [OutgoingCallOverlay]; this route is
+            // only used before first frame or in edge cases.
+            return const Scaffold(body: SizedBox.shrink());
+          }
           return _OutgoingCallView(
             isOutgoing: callState.isOutgoing,
             call: callState.call,
@@ -392,6 +399,12 @@ class _CallFailedView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final callState = ref.watch(callConnectionControllerProvider);
     final reason = callState.failureReason;
+    final safeDetail = error == null
+        ? null
+        : UserMessageMapper.fromString(
+            error!,
+            fallback: 'Please try again.',
+          );
 
     return Scaffold(
       body: Center(
@@ -412,10 +425,10 @@ class _CallFailedView extends ConsumerWidget {
                 _titleForReason(reason),
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
-              if (error != null) ...[
+              if (safeDetail != null) ...[
                 const SizedBox(height: 8),
                 Text(
-                  error!,
+                  safeDetail,
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -546,12 +559,10 @@ class _VideoCallScreenContentState
       ref.read(callConnectionControllerProvider.notifier).endCall();
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Call ended: Maximum participants exceeded'),
-            backgroundColor: Colors.red,
-            duration: Duration(seconds: 5),
-          ),
+        AppToast.showError(
+          context,
+          'Call ended: maximum participants exceeded',
+          duration: const Duration(seconds: 5),
         );
       }
     } catch (e) {
@@ -585,11 +596,9 @@ class _VideoCallScreenContentState
       ref.read(callConnectionControllerProvider.notifier).endCall();
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Call ended: Screen recording detected'),
-            backgroundColor: Colors.red,
-          ),
+        AppToast.showError(
+          context,
+          'Call ended: screen recording detected',
         );
       }
     } catch (e) {
@@ -623,18 +632,21 @@ class _VideoCallScreenContentState
     final isCreator =
         authState.user?.role == 'creator' || authState.user?.role == 'admin';
 
-    // ── Force-end handling ──────────────────────────────────────────
+    // ── Force-end handling (billing is server-driven; UI only reacts) ──
     ref.listen<CallBillingState>(callBillingProvider, (prev, next) {
       if (next.forceEnded && !_forceEndDialogShown) {
         _forceEndDialogShown = true;
-        // End the call first
         ref.read(callConnectionControllerProvider.notifier).endCall();
-        // Show buy-more dialog after a short delay
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            _showOutOfCoinsDialog(context);
-          }
-        });
+        final role = ref.read(authProvider).user?.role;
+        final showPurchase =
+            role != 'creator' && role != 'admin';
+        if (showPurchase) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              _showOutOfCoinsDialog(context);
+            }
+          });
+        }
       }
     });
 
@@ -704,17 +716,29 @@ class _VideoCallScreenContentState
             ),
           ),
 
-          // ── Billing overlay (top of screen, below call controls) ────
           if (billingState.isActive)
             Positioned(
-              top: MediaQuery.of(context).padding.top + 48,
-              left: 16,
-              right: 16,
-              child: _BillingOverlay(
-                billingState: billingState,
-                isCreator: isCreator,
+              top: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                minimum: const EdgeInsets.only(top: 8, left: 12, right: 12),
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: LiveBillingOverlay(
+                    billing: billingState,
+                    isCreator: isCreator,
+                  ),
+                ),
               ),
             ),
+
+          // Server `billing:update` coins — show when balance is 10 or below (still in call).
+          if (!isCreator &&
+              billingState.isActive &&
+              billingState.userCoins > 0 &&
+              billingState.userCoins <= 10)
+            _LowBalanceHeartbeatBorder(),
 
           // Show overlay if screen capture detected (iOS)
           if (_isScreenCaptured)
@@ -759,101 +783,55 @@ class _VideoCallScreenContentState
 }
 
 // ---------------------------------------------------------------------------
-// Billing overlay widget
+// Low balance — 8px red border with heartbeat (user only; parent gates visibility)
 // ---------------------------------------------------------------------------
 
-class _BillingOverlay extends StatelessWidget {
-  final CallBillingState billingState;
-  final bool isCreator;
+class _LowBalanceHeartbeatBorder extends StatefulWidget {
+  const _LowBalanceHeartbeatBorder();
 
-  const _BillingOverlay({
-    required this.billingState,
-    required this.isCreator,
-  });
+  @override
+  State<_LowBalanceHeartbeatBorder> createState() =>
+      _LowBalanceHeartbeatBorderState();
+}
 
-  String _formatDuration(int totalSeconds) {
-    final minutes = totalSeconds ~/ 60;
-    final seconds = totalSeconds % 60;
-    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+class _LowBalanceHeartbeatBorderState extends State<_LowBalanceHeartbeatBorder>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 850),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.7),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          // Timer
-          Row(
-            children: [
-              const Icon(Icons.timer, color: Colors.white, size: 18),
-              const SizedBox(width: 6),
-              Text(
-                _formatDuration(billingState.accurateElapsedSeconds),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'monospace',
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (context, child) {
+            final t = Curves.easeInOut.transform(_controller.value);
+            final alpha = 0.36 + t * 0.48;
+            return DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: Colors.red.withValues(alpha: alpha),
+                  width: 8,
                 ),
               ),
-            ],
-          ),
-          // Coins / Earnings
-          if (isCreator)
-            Row(
-              children: [
-                const Icon(Icons.trending_up, color: Colors.greenAccent, size: 18),
-                const SizedBox(width: 6),
-                Text(
-                  '${billingState.creatorEarnings.truncateToDouble() == billingState.creatorEarnings ? billingState.creatorEarnings.toInt() : billingState.creatorEarnings.toStringAsFixed(1)} coins',
-                  style: const TextStyle(
-                    color: Colors.greenAccent,
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            )
-          else
-            Row(
-              children: [
-                GemIcon(
-                  color: billingState.remainingSeconds < 30
-                      ? Colors.redAccent
-                      : Colors.amber,
-                  size: 18,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  '${billingState.userCoins}',
-                  style: TextStyle(
-                    color: billingState.remainingSeconds < 30
-                        ? Colors.redAccent
-                        : Colors.amber,
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                // Remaining time
-                Text(
-                  '(${_formatDuration(billingState.remainingSeconds)})',
-                  style: TextStyle(
-                    color: billingState.remainingSeconds < 30
-                        ? Colors.redAccent.withValues(alpha: 0.8)
-                        : Colors.white70,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-        ],
+            );
+          },
+        ),
       ),
     );
   }

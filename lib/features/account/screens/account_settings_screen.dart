@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/api/api_client.dart';
+import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 import 'blocked_buddies_screen.dart';
@@ -62,9 +63,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
     final uri = Uri.parse(url);
     final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!launched && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Unable to open Privacy Policy right now')),
-      );
+      AppToast.showInfo(context, 'Unable to open Privacy Policy right now');
     }
   }
 

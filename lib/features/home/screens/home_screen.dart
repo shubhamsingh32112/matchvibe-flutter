@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/utils/user_message_mapper.dart';
+import '../../../shared/widgets/app_toast.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../../shared/widgets/skeleton_card.dart';
 import '../../../shared/widgets/welcome_dialog.dart';
@@ -295,20 +297,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               }
               if (ctx.mounted) {
                 Navigator.of(ctx).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('🎉 You received 30 coins! Balance: $newCoins'),
-                    backgroundColor: Colors.green,
-                  ),
+                AppToast.showSuccess(
+                  context,
+                  '🎉 You received 30 coins! Balance: $newCoins',
                 );
               }
             } catch (e) {
               if (ctx.mounted) {
                 Navigator.of(ctx).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Failed to claim bonus: $e'),
-                    backgroundColor: Colors.red,
+                AppToast.showError(
+                  context,
+                  UserMessageMapper.userMessageFor(
+                    e,
+                    fallback: 'Couldn\'t claim bonus. Please try again.',
                   ),
                 );
               }
@@ -431,31 +432,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 
                 if (granted) {
                   if (mounted && context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text('Permissions granted! You can now make video calls.'),
-                        backgroundColor: scheme.primaryContainer,
-                        duration: const Duration(seconds: 2),
-                      ),
+                    AppToast.showSuccess(
+                      context,
+                      'Permissions granted! You can now make video calls.',
+                      duration: const Duration(seconds: 2),
                     );
                   }
                 } else {
                   if (mounted && context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text(
-                          'Permissions are required for video calls. Please enable them in app settings.',
-                        ),
-                        backgroundColor: scheme.errorContainer,
-                        duration: const Duration(seconds: 4),
-                        action: SnackBarAction(
-                          label: 'Settings',
-                          textColor: scheme.onErrorContainer,
-                          onPressed: () async {
-                            await PermissionService.openAppSettings();
-                          },
-                        ),
-                      ),
+                    AppToast.showErrorWithAction(
+                      context,
+                      'Permissions are required for video calls. Enable them in Settings.',
+                      actionLabel: 'Settings',
+                      onAction: () {
+                        unawaited(PermissionService.openAppSettings());
+                      },
+                      duration: const Duration(seconds: 4),
                     );
                   }
                 }
@@ -463,10 +455,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 if (!mounted) return;
                 
                 if (mounted && context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Error: ${e.toString()}'),
-                      backgroundColor: scheme.errorContainer,
+                  AppToast.showError(
+                    context,
+                    UserMessageMapper.userMessageFor(
+                      e,
+                      fallback: 'Couldn\'t update permissions. Please try again.',
                     ),
                   );
                 }
@@ -491,12 +484,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         final current = ref.read(creatorBusyToastProvider);
         if (current == null) return;
         ref.read(creatorBusyToastProvider.notifier).state = null;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(message),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        AppToast.showInfo(context, message);
       });
     }
 
@@ -618,16 +606,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         );
                         if (!mounted || !ctx.mounted) return;
                         Navigator.of(ctx).pop();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Thanks! Your rating was submitted.'),
-                            backgroundColor: Colors.green,
-                          ),
+                        AppToast.showSuccess(
+                          context,
+                          'Thanks! Your rating was submitted.',
                         );
                       } catch (e) {
                         if (!mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Failed to submit rating: $e')),
+                        AppToast.showError(
+                          context,
+                          UserMessageMapper.userMessageFor(
+                            e,
+                            fallback: 'Couldn\'t submit rating. Please try again.',
+                          ),
                         );
                         setDialogState(() => isSubmitting = false);
                       }
@@ -694,10 +684,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   : () async {
                       final message = controller.text.trim();
                       if (message.length < 10) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Please write at least 10 characters.'),
-                          ),
+                        AppToast.showInfo(
+                          context,
+                          'Please write at least 10 characters.',
                         );
                         return;
                       }
@@ -715,16 +704,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         );
                         if (!mounted || !ctx.mounted) return;
                         Navigator.of(ctx).pop();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Report submitted to admin team.'),
-                            backgroundColor: Colors.green,
-                          ),
+                        AppToast.showSuccess(
+                          context,
+                          'Report submitted to admin team.',
                         );
                       } catch (e) {
                         if (!mounted || !ctx.mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Failed to send report: $e')),
+                        AppToast.showError(
+                          context,
+                          UserMessageMapper.userMessageFor(
+                            e,
+                            fallback: 'Couldn\'t send report. Please try again.',
+                          ),
                         );
                         setDialogState(() => isSubmitting = false);
                       }
@@ -776,11 +767,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           if (mounted &&
               beforeRole != 'creator' &&
               afterRole == 'creator') {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('You are now a creator. Home has been updated.'),
-                backgroundColor: Colors.green,
-              ),
+            AppToast.showSuccess(
+              context,
+              'You are now a creator. Home has been updated.',
             );
           }
           ref.invalidate(creatorsProvider);
@@ -812,11 +801,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         if (mounted &&
             beforeRole != 'creator' &&
             afterRole == 'creator') {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('You are now a creator. Home has been updated.'),
-              backgroundColor: Colors.green,
-            ),
+          AppToast.showSuccess(
+            context,
+            'You are now a creator. Home has been updated.',
           );
         }
         ref.invalidate(creatorsProvider);
@@ -1056,21 +1043,15 @@ class _CreatorTasksViewState extends ConsumerState<_CreatorTasksView> {
       ref.invalidate(creatorDashboardProvider);
       
       if (mounted) {
-        final scheme = Theme.of(context).colorScheme;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Reward claimed successfully!'),
-            backgroundColor: scheme.primaryContainer,
-          ),
-        );
+        AppToast.showSuccess(context, 'Reward claimed successfully!');
       }
     } catch (e) {
       if (mounted) {
-        final scheme = Theme.of(context).colorScheme;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to claim reward: ${e.toString()}'),
-            backgroundColor: scheme.errorContainer,
+        AppToast.showError(
+          context,
+          UserMessageMapper.userMessageFor(
+            e,
+            fallback: 'Couldn\'t claim reward. Please try again.',
           ),
         );
       }
