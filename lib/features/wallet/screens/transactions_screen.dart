@@ -8,6 +8,7 @@ import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/widgets/gem_icon.dart';
 import '../../../shared/styles/app_brand_styles.dart';
+import '../../../shared/widgets/app_modal_bottom_sheet.dart';
 import '../../support/screens/payment_complaint_screen.dart';
 
 /// Bottom sheet wrapper for transactions screen
@@ -386,11 +387,10 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
   }
 
   void _showPaymentComplaintBottomSheet(TransactionModel transaction) {
-    showModalBottomSheet(
+    showAppModalBottomSheet(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => PaymentComplaintBottomSheet(transaction: transaction),
+      builder: (context) =>
+          PaymentComplaintBottomSheet(transaction: transaction),
     );
   }
 }

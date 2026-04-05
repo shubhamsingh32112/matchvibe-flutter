@@ -13,7 +13,9 @@ import '../../auth/providers/auth_provider.dart';
 import '../../home/providers/availability_provider.dart';
 import '../../video/controllers/call_connection_controller.dart';
 import '../../support/services/support_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/coin_purchase_popup.dart';
+import '../../../shared/widgets/app_modal_bottom_sheet.dart';
 import '../../../shared/widgets/gem_icon.dart';
 
 class _CreatorImageAttachmentBuilder extends StreamAttachmentWidgetBuilder {
@@ -519,7 +521,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        icon: const Icon(Icons.block, color: Colors.red, size: 48),
+        icon: Icon(Icons.block, color: Theme.of(ctx).colorScheme.error, size: 48),
         title: const Text('Not Allowed'),
         content: const Text('This action is not allowed.'),
         actions: [
@@ -536,7 +538,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        icon: const Icon(Icons.image_not_supported, color: Colors.red, size: 48),
+        icon: Icon(Icons.image_not_supported,
+            color: Theme.of(ctx).colorScheme.error, size: 48),
         title: const Text('Attachment Not Allowed'),
         content: const Text(
           'Only creators can send images or videos in chat.',
@@ -638,10 +641,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   void _showInsufficientCoinsDialog(String message) {
-    showModalBottomSheet(
+    showAppModalBottomSheet(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
       builder: (context) => const CoinPurchaseBottomSheet(),
     );
   }
@@ -789,7 +790,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               _toggleBlockCreator();
             },
             style: FilledButton.styleFrom(
-              backgroundColor: isBlocked ? Colors.green : Colors.red,
+              backgroundColor:
+                  isBlocked ? AppPalette.success : AppPalette.primaryRed,
             ),
             child: Text(isBlocked ? 'Unblock' : 'Block'),
           ),
@@ -1024,16 +1026,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      color: Colors.amber.withValues(alpha: 0.15),
+      color: AppPalette.warning.withValues(alpha: 0.12),
       child: Row(
         children: [
-          GemIcon(size: 14, color: Colors.amber[700]),
+          GemIcon(size: 14, color: AppPalette.warning),
           const SizedBox(width: 6),
           Text(
             '$_costPerMessage coins per message',
             style: TextStyle(
               fontSize: 12,
-              color: Colors.amber[800],
+              color: AppPalette.onSurface,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -1083,21 +1085,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     return StreamChatTheme(
       data: StreamChatThemeData(
-        colorTheme: StreamColorTheme.dark(
+        colorTheme: StreamColorTheme.light(
           accentPrimary: colorScheme.primary,
           accentError: colorScheme.error,
           accentInfo: colorScheme.primary,
-          textHighEmphasis: colorScheme.onSurface,
-          textLowEmphasis: colorScheme.onSurface.withValues(alpha: 0.6),
-          inputBg: colorScheme.surfaceContainerHigh,
+          textHighEmphasis: AppPalette.onSurface,
+          textLowEmphasis: AppPalette.subtitle,
+          inputBg: AppPalette.surface,
         ),
         ownMessageTheme: StreamMessageThemeData(
           messageBackgroundColor: colorScheme.primary,
           messageTextStyle: TextStyle(color: colorScheme.onPrimary),
         ),
         otherMessageTheme: StreamMessageThemeData(
-          messageBackgroundColor: colorScheme.surfaceContainerHigh,
-          messageTextStyle: TextStyle(color: colorScheme.onSurface),
+          messageBackgroundColor: AppPalette.beige,
+          messageTextStyle: TextStyle(color: AppPalette.onSurface),
         ),
       ),
       child: StreamChannel(
@@ -1139,7 +1141,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         )
                       : Icon(
                           _isCreatorBlocked == true ? Icons.block : Icons.block_outlined,
-                          color: _isCreatorBlocked == true ? Colors.red : null,
+                          color: _isCreatorBlocked == true
+                              ? colorScheme.error
+                              : null,
                         ),
                   tooltip: _isCreatorBlocked == true ? 'Unblock Creator' : 'Block Creator',
                 ),

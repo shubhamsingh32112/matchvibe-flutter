@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'dart:async';
+import 'dart:async' show StreamSubscription, unawaited;
 import 'package:app_links/app_links.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,6 +9,9 @@ import '../../features/creator/providers/creator_dashboard_provider.dart';
 import '../../features/video/controllers/call_connection_controller.dart';
 import '../../features/home/providers/home_provider.dart';
 import '../../shared/widgets/coin_purchase_popup.dart';
+import '../../shared/widgets/app_modal_bottom_sheet.dart';
+import '../../shared/widgets/app_toast.dart';
+import '../../core/constants/app_constants.dart';
 
 /// Widget that wraps the app and handles lifecycle events.
 ///
@@ -124,6 +127,38 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     }
   }
 
+  Future<void> _onCreatorOrAdminResumed() async {
+    await ref.read(authProvider.notifier).refreshUser();
+    await _maybeToastProfileUpdatedByAdmin();
+    ref.invalidate(creatorDashboardProvider);
+  }
+
+  /// When [UserModel.profileRevision] increases (admin edited profile), show a one-time toast.
+  Future<void> _maybeToastProfileUpdatedByAdmin() async {
+    final user = ref.read(authProvider).user;
+    if (user == null) return;
+    if (user.role != 'creator' && user.role != 'admin') return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final key = '${AppConstants.keyAckProfileRevisionPrefix}${user.id}';
+    final ack = prefs.getInt(key) ?? 0;
+    final current = user.profileRevision;
+    if (current <= ack) return;
+
+    await prefs.setInt(key, current);
+    ref.invalidate(homeFeedProvider);
+    ref.invalidate(creatorsProvider);
+
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      AppToast.showInfo(
+        context,
+        'Your profile was updated by our team. Check your profile if anything looks off.',
+      );
+    });
+  }
+
   Future<bool> _shouldHandlePaymentDeepLink(Uri uri, String paymentStatus) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -181,15 +216,12 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
         ref.invalidate(homeFeedProvider);
       }
 
-      // Only handle lifecycle for creators
+      // Creators / admins: refresh profile (profileRevision toast) + dashboard
       if (user != null &&
           (user.role == 'creator' || user.role == 'admin')) {
-        // 🔥 AUTOMATIC: Socket connection automatically sets creator online
-        // No manual status setting needed - socket handles it
-        // Refresh creator dashboard so earnings/tasks are up-to-date
         debugPrint(
-            '📱 [APP LIFECYCLE] App resumed — socket will auto-set creator online');
-        ref.invalidate(creatorDashboardProvider);
+            '📱 [APP LIFECYCLE] App resumed — refreshing user + creator dashboard');
+        unawaited(_onCreatorOrAdminResumed());
       }
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
@@ -254,10 +286,8 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       final context = this.context;
       if (!context.mounted) return;
       
-      showModalBottomSheet(
+      showAppModalBottomSheet(
         context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
         builder: (context) => const CoinPurchaseBottomSheet(),
       );
     });

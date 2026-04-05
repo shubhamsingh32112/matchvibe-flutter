@@ -46,6 +46,9 @@ dependencies:
   flutter_secure_storage: ^9.2.2
   device_info_plus: ^11.0.0
   
+  # Video (login background)
+  video_player: ^2.9.2
+
   # Animations
   flutter_animate: ^4.5.0
   
@@ -106,6 +109,7 @@ flutter:
     - lib/assets/gem.svg
     - lib/assets/app_logo.png
     - lib/assets/loader_bg.png
+    - lib/assets/loginpage_video.mp4
     - .env.development
     - .env.production
 

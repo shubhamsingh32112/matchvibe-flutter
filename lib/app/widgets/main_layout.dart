@@ -9,18 +9,25 @@ import '../../features/creator/providers/creator_status_provider.dart';
 import '../../features/recent/providers/recent_provider.dart';
 import '../../features/video/providers/call_billing_provider.dart';
 import '../../features/wallet/screens/wallet_screen.dart';
+import '../../core/theme/app_theme.dart';
 import '../../shared/styles/app_brand_styles.dart';
 import '../../shared/widgets/loading_indicator.dart';
 import '../../shared/widgets/gem_icon.dart';
+import '../../shared/widgets/app_modal_bottom_sheet.dart';
 
 class MainLayout extends ConsumerStatefulWidget {
   final Widget child;
   final int selectedIndex;
 
+  /// When true (Account tab only), hides the app bar and full-width gradient
+  /// wrapper so the child can paint the menu-style header and body.
+  final bool accountMenuStyle;
+
   const MainLayout({
     super.key,
     required this.child,
     required this.selectedIndex,
+    this.accountMenuStyle = false,
   });
 
   @override
@@ -46,10 +53,8 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
   }
 
   void _showWalletBottomSheet(BuildContext context) {
-    showModalBottomSheet(
+    showAppModalBottomSheet(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
       builder: (context) => const WalletBottomSheet(),
     );
   }
@@ -94,9 +99,13 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
     // Show online/offline toggle only for creators on homepage
     final showStatusToggle = isCreator && isHomePage;
 
+    final scheme = Theme.of(context).colorScheme;
+
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
+      backgroundColor: scheme.surface,
+      appBar: widget.accountMenuStyle
+          ? null
+          : AppBar(
           title: Text(
             AppConstants.appName,
             style: const TextStyle(fontWeight: FontWeight.bold),
@@ -119,9 +128,10 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                           height: 10,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: isOnline ? Colors.green : Colors.grey,
+                            color:
+                                isOnline ? AppPalette.success : scheme.outline,
                             border: Border.all(
-                              color: Colors.white,
+                              color: scheme.surface,
                               width: 2,
                             ),
                           ),
@@ -131,7 +141,9 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                         Text(
                           isOnline ? 'Online' : 'Offline',
                           style: TextStyle(
-                            color: isOnline ? Colors.green : Colors.grey,
+                            color: isOnline
+                                ? AppPalette.success
+                                : AppPalette.subtitle,
                             fontWeight: FontWeight.w500,
                             fontSize: 14,
                           ),
@@ -179,13 +191,17 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
             ),
           ],
         ),
-      body: Container(
-          decoration: const BoxDecoration(
-            gradient: AppBrandGradients.appBackground,
-          ),
-          child: widget.child,
-        ),
+      body: widget.accountMenuStyle
+          ? widget.child
+          : Container(
+              decoration: const BoxDecoration(
+                gradient: AppBrandGradients.appBackground,
+              ),
+              child: widget.child,
+            ),
       bottomNavigationBar: NavigationBar(
+          backgroundColor: scheme.surface,
+          surfaceTintColor: Colors.transparent,
           selectedIndex: widget.selectedIndex,
           onDestinationSelected: _onItemTapped,
           destinations: [

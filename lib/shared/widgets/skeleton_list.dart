@@ -13,6 +13,8 @@ class SkeletonList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final bone = scheme.outlineVariant;
     return Skeletonizer(
       child: ListView.builder(
         itemCount: itemCount,
@@ -21,7 +23,7 @@ class SkeletonList extends StatelessWidget {
             height: itemHeight,
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.grey[300],
+              color: scheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Padding(
@@ -32,7 +34,7 @@ class SkeletonList extends StatelessWidget {
                     width: 48,
                     height: 48,
                     decoration: BoxDecoration(
-                      color: Colors.grey[400],
+                      color: bone,
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -46,7 +48,7 @@ class SkeletonList extends StatelessWidget {
                           height: 16,
                           width: double.infinity,
                           decoration: BoxDecoration(
-                            color: Colors.grey[400],
+                            color: bone,
                             borderRadius: BorderRadius.circular(4),
                           ),
                         ),
@@ -55,7 +57,7 @@ class SkeletonList extends StatelessWidget {
                           height: 12,
                           width: 150,
                           decoration: BoxDecoration(
-                            color: Colors.grey[400],
+                            color: bone,
                             borderRadius: BorderRadius.circular(4),
                           ),
                         ),

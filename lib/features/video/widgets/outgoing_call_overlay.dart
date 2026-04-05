@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import '../../../core/theme/app_theme.dart';
 import '../controllers/call_connection_controller.dart';
 
 /// Half-screen card while a **user** is dialing / connecting; bottom half passes
@@ -17,11 +18,6 @@ class _OutgoingCallOverlayState extends ConsumerState<OutgoingCallOverlay>
     with SingleTickerProviderStateMixin {
   late final AnimationController _barController;
   bool? _wakelockHeld;
-
-  static const _purpleTop = Color(0xFF8E76E8);
-  static const _purpleLight = Color(0xFFF8F6FF);
-  static const _pillPurple = Color(0xFF6B4DC4);
-  static const _barFill = Color(0xFF7C5CE6);
 
   @override
   void initState() {
@@ -91,9 +87,12 @@ class _OutgoingCallOverlayState extends ConsumerState<OutgoingCallOverlay>
                 width: double.infinity,
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [_purpleTop, _purpleLight],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Color(0xFFFFFFFF),
+                      AppPalette.beige,
+                    ],
                   ),
                 ),
                 child: SafeArea(
@@ -119,7 +118,7 @@ class _OutgoingCallOverlayState extends ConsumerState<OutgoingCallOverlay>
                                         .titleLarge
                                         ?.copyWith(
                                           fontWeight: FontWeight.w800,
-                                          color: const Color(0xFF2D2640),
+                                          color: AppPalette.onSurface,
                                           letterSpacing: 0.3,
                                         ),
                                   ),
@@ -132,7 +131,7 @@ class _OutgoingCallOverlayState extends ConsumerState<OutgoingCallOverlay>
                                           .textTheme
                                           .bodyMedium
                                           ?.copyWith(
-                                            color: const Color(0xFF6B6280),
+                                            color: AppPalette.subtitle,
                                             fontWeight: FontWeight.w500,
                                           ),
                                     ),
@@ -153,7 +152,7 @@ class _OutgoingCallOverlayState extends ConsumerState<OutgoingCallOverlay>
                               vertical: 10,
                             ),
                             decoration: BoxDecoration(
-                              color: _pillPurple,
+                              color: AppPalette.primaryRed,
                               borderRadius: BorderRadius.circular(999),
                             ),
                             child: Text(
@@ -162,7 +161,7 @@ class _OutgoingCallOverlayState extends ConsumerState<OutgoingCallOverlay>
                                   .textTheme
                                   .bodyMedium
                                   ?.copyWith(
-                                    color: Colors.white,
+                                    color: AppPalette.onPrimary,
                                     fontWeight: FontWeight.w600,
                                   ),
                             ),
@@ -178,7 +177,7 @@ class _OutgoingCallOverlayState extends ConsumerState<OutgoingCallOverlay>
                               .textTheme
                               .titleMedium
                               ?.copyWith(
-                                color: const Color(0xFF4A4458),
+                                color: AppPalette.onSurface,
                                 fontWeight: FontWeight.w600,
                               ),
                         ),
@@ -186,8 +185,9 @@ class _OutgoingCallOverlayState extends ConsumerState<OutgoingCallOverlay>
                           const SizedBox(height: 14),
                           _ConnectingBar(
                             animation: _barController,
-                            trackColor: _purpleTop.withValues(alpha: 0.22),
-                            fillColor: _barFill,
+                            trackColor:
+                                AppPalette.outline.withValues(alpha: 0.35),
+                            fillColor: AppPalette.primaryRed,
                           ),
                         ],
                         const Spacer(),
@@ -202,12 +202,13 @@ class _OutgoingCallOverlayState extends ConsumerState<OutgoingCallOverlay>
                             child: Container(
                               width: 72,
                               height: 72,
-                              decoration: const BoxDecoration(
-                                color: Colors.red,
+                              decoration: BoxDecoration(
+                                color: AppPalette.primaryRed,
                                 shape: BoxShape.circle,
                                 boxShadow: [
                                   BoxShadow(
-                                    color: Colors.red,
+                                    color: AppPalette.primaryRed
+                                        .withValues(alpha: 0.45),
                                     blurRadius: 16,
                                     spreadRadius: 1,
                                   ),
@@ -264,7 +265,7 @@ class _ProfilePhoto extends StatelessWidget {
               width: size - 6,
               height: size - 6,
               decoration: BoxDecoration(
-                color: const Color(0xFFC4B5F5).withValues(alpha: 0.55),
+                color: AppPalette.beige,
                 borderRadius: BorderRadius.circular(20),
               ),
             ),
@@ -277,9 +278,10 @@ class _ProfilePhoto extends StatelessWidget {
               height: size,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: AppPalette.outlineSoft),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.12),
+                    color: Colors.black.withValues(alpha: 0.06),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                   ),
@@ -290,14 +292,16 @@ class _ProfilePhoto extends StatelessWidget {
                   ? Image.network(
                       imageUrl!,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => const ColoredBox(
-                        color: Color(0xFFE8E4F5),
-                        child: Icon(Icons.person, size: 40, color: Color(0xFF8E76E8)),
+                      errorBuilder: (_, _, _) => ColoredBox(
+                        color: AppPalette.beige,
+                        child: Icon(Icons.person,
+                            size: 40, color: AppPalette.subtitle),
                       ),
                     )
-                  : const ColoredBox(
-                      color: Color(0xFFE8E4F5),
-                      child: Icon(Icons.person, size: 40, color: Color(0xFF8E76E8)),
+                  : ColoredBox(
+                      color: AppPalette.beige,
+                      child: Icon(Icons.person,
+                          size: 40, color: AppPalette.subtitle),
                     ),
             ),
           ),
@@ -336,7 +340,7 @@ class _ConnectingBar extends StatelessWidget {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(999),
                 border: Border.all(
-                  color: const Color(0xFF8E76E8).withValues(alpha: 0.45),
+                  color: AppPalette.primaryRed.withValues(alpha: 0.35),
                   width: 1.2,
                 ),
                 color: trackColor,

@@ -353,6 +353,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
             coins: creatorData['coins'] as int? ?? 0,
             welcomeBonusClaimed: creatorData['welcomeBonusClaimed'] as bool? ?? false,
             role: creatorData['role'] as String? ?? 'creator',
+            creatorApplicationPending:
+                creatorData['creatorApplicationPending'] == true,
+            creatorApplicationRejected:
+                creatorData['creatorApplicationRejected'] == true,
+            creatorApplicationRejectionReason:
+                creatorData['creatorApplicationRejectionReason'] as String?,
             name: creatorData['name'] as String?, // Creator name
             about: creatorData['about'] as String?, // Creator about
             age: creatorData['age'] != null ? creatorData['age'] as int? : null, // Creator age
@@ -363,6 +369,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
             updatedAt: creatorData['updatedAt'] != null
                 ? DateTime.parse(creatorData['updatedAt'] as String)
                 : null,
+            profileRevision:
+                (creatorData['profileRevision'] as num?)?.toInt() ?? 0,
           );
           debugPrint('🎭 [AUTH] Creator login detected');
           debugPrint('   👤 Creator Name: ${creatorData['name']}');
@@ -1068,6 +1076,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
             coins: responseData['coins'] as int? ?? 0,
             welcomeBonusClaimed: responseData['welcomeBonusClaimed'] as bool? ?? false,
             role: responseData['role'] as String? ?? 'creator',
+            creatorApplicationPending:
+                responseData['creatorApplicationPending'] == true,
+            creatorApplicationRejected:
+                responseData['creatorApplicationRejected'] == true,
+            creatorApplicationRejectionReason:
+                responseData['creatorApplicationRejectionReason'] as String?,
             name: responseData['name'] as String?, // Creator name
             about: responseData['about'] as String?, // Creator about
             age: responseData['age'] != null ? responseData['age'] as int? : null, // Creator age
@@ -1078,6 +1092,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
             updatedAt: responseData['updatedAt'] != null
                 ? DateTime.parse(responseData['updatedAt'] as String)
                 : null,
+            profileRevision:
+                (responseData['profileRevision'] as num?)?.toInt() ?? 0,
           );
           debugPrint('✅ [AUTH] User data refreshed (creator)');
         }

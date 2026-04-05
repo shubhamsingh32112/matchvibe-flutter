@@ -12,7 +12,7 @@ String formatBillingMmSs(int seconds) {
   return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
 }
 
-/// Server-driven billing strip: not tied to Stream/WebRTC.
+/// Server-driven billing strip: frosted light card readable on video.
 class LiveBillingOverlay extends StatefulWidget {
   final CallBillingState billing;
   final bool isCreator;
@@ -53,26 +53,30 @@ class _LiveBillingOverlayState extends State<LiveBillingOverlay> {
     final stale = b.lastServerTimestampMs != null &&
         nowMs - b.lastServerTimestampMs! > 3500;
 
-    const onVideo = Colors.white;
     final accent = scheme.primary;
+    final fg = scheme.onSurface;
 
     final child = Material(
       color: Colors.transparent,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.55),
+          color: scheme.surface.withValues(alpha: 0.94),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white24),
+          border: Border.all(color: scheme.outlineVariant),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.08),
+              blurRadius: 12,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: DefaultTextStyle(
-          style: const TextStyle(
-            color: onVideo,
+          style: TextStyle(
+            color: fg,
             fontSize: 14,
             fontWeight: FontWeight.w600,
-            shadows: [
-              Shadow(blurRadius: 4, color: Colors.black54),
-            ],
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -96,7 +100,7 @@ class _LiveBillingOverlayState extends State<LiveBillingOverlay> {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
-                      color: onVideo.withValues(alpha: 0.9),
+                      color: scheme.onSurfaceVariant,
                     ),
                   ),
                 ],

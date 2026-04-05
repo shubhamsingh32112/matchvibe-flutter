@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/utils/user_message_mapper.dart';
 import '../../features/auth/screens/splash_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
+import '../../features/auth/screens/agent_verification_screen.dart';
 import '../../features/auth/screens/otp_screen.dart';
 import '../../features/onboarding/screens/gender_selection_screen.dart';
 import '../../features/home/screens/home_screen.dart';
@@ -60,6 +61,10 @@ final appRouter = GoRouter(
                 verificationId: extra['verificationId']!,
               );
             },
+          ),
+          GoRoute(
+            path: '/agent-verification',
+            builder: (context, state) => const AgentVerificationScreen(),
           ),
           GoRoute(
             path: '/gender',

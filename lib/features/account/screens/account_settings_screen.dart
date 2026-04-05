@@ -4,6 +4,7 @@ import '../../../core/api/api_client.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/styles/app_brand_styles.dart';
+import '../../../shared/widgets/app_modal_bottom_sheet.dart';
 import 'blocked_buddies_screen.dart';
 import 'delete_account_screen.dart';
 
@@ -131,10 +132,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                         onTap: () {
                           Navigator.of(context).pop(); // Close account settings bottom sheet
                           // Show blocked buddies bottom sheet
-                          showModalBottomSheet(
+                          showAppModalBottomSheet(
                             context: context,
-                            isScrollControlled: true,
-                            backgroundColor: Colors.transparent,
                             builder: (context) => const BlockedBuddiesBottomSheet(),
                           );
                         },
@@ -147,10 +146,8 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                         onTap: () {
                           Navigator.of(context).pop(); // Close account settings bottom sheet
                           // Show delete account bottom sheet
-                          showModalBottomSheet(
+                          showAppModalBottomSheet(
                             context: context,
-                            isScrollControlled: true,
-                            backgroundColor: Colors.transparent,
                             builder: (context) => const DeleteAccountBottomSheet(),
                           );
                         },

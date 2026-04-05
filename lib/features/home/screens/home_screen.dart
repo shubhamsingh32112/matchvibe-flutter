@@ -30,6 +30,7 @@ import '../../video/providers/call_feedback_prompt_provider.dart';
 import '../../video/providers/creator_busy_toast_provider.dart';
 import '../../withdrawal/screens/withdrawal_screen.dart';
 import '../../../shared/widgets/coin_purchase_popup.dart';
+import '../../../shared/widgets/app_modal_bottom_sheet.dart';
 import '../../../shared/providers/coin_purchase_popup_provider.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -203,12 +204,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void _showWelcomeDialog() {
     if (!mounted) return; // ✅ Guard: Never show bottom sheet if widget is disposed
     
-    showModalBottomSheet(
+    showAppModalBottomSheet(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      isDismissible: false, // User must click "I agree"
-      enableDrag: false, // Prevent dismissing by dragging
+      isDismissible: false,
+      enableDrag: false,
       builder: (context) => WelcomeBottomSheet(
         onAgree: () async {
           // ✅ TASK 2: Improved error handling with retry mechanism
@@ -277,12 +276,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _isBonusClaiming = false;
 
   void _showBonusDialog() {
-    showModalBottomSheet(
+    showAppModalBottomSheet(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
       isDismissible: false,
-      enableDrag: false, // Prevent dismissing by dragging
+      enableDrag: false,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setBottomSheetState) => WelcomeBonusBottomSheet(
           isLoading: _isBonusClaiming,
@@ -510,10 +507,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           hideCoinPurchasePopup(ref);
-          showModalBottomSheet(
+          showAppModalBottomSheet(
             context: context,
-            isScrollControlled: true,
-            backgroundColor: Colors.transparent,
             builder: (context) => const CoinPurchaseBottomSheet(),
           );
         }
@@ -1062,10 +1057,8 @@ class _CreatorTasksViewState extends ConsumerState<_CreatorTasksView> {
     BuildContext context,
     CreatorTasksResponse tasksResponse,
   ) {
-    showModalBottomSheet(
+    showAppModalBottomSheet(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
       builder: (context) => TaskProgressBottomSheet(
         tasksResponse: tasksResponse,
         onClaim: (taskKey) => _claimTask(taskKey),

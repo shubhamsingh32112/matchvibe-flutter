@@ -8,7 +8,15 @@ class AppConstants {
 
   /// Full-screen splash / login background.
   static const String loaderBackgroundAsset = 'lib/assets/loader_bg.png';
-  
+
+  /// Login screen looping background video (muted in code). Add file under lib/assets/.
+  static const String loginBackgroundVideoAsset = 'lib/assets/loginpage_video.mp4';
+
+  static const String privacyPolicyUrl =
+      'https://matchvibes.vercel.app/privacy-policy';
+  static const String termsOfUseUrl =
+      'https://matchvibes.vercel.app/terms-of-use';
+
   // Get from environment variables
   static String get baseUrl => dotenv.env['API_BASE_URL'] ?? 'http://localhost:3000/api/v1';
   static String get socketUrl => dotenv.env['SOCKET_URL'] ?? 'http://localhost:3000';
@@ -29,5 +37,8 @@ class AppConstants {
   static const String keyUserEmail = 'user_email';
   static const String keyUserPhone = 'user_phone';
   static const String keyUserCoins = 'user_coins';
+
+  /// Per-user key suffix: `ack_profile_revision_$userId` — last seen [UserModel.profileRevision].
+  static const String keyAckProfileRevisionPrefix = 'ack_profile_revision_';
 }
 

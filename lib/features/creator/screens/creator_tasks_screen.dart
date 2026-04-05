@@ -28,7 +28,14 @@ class _CreatorTasksScreenState extends ConsumerState<CreatorTasksScreen> {
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
     final user = authState.user;
-    
+
+    if (user?.creatorApplicationPending == true) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) context.go('/agent-verification');
+      });
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     // 🔒 PHASE T2: Role guard at route level
     if (user?.role != 'creator' && user?.role != 'admin') {
       WidgetsBinding.instance.addPostFrameCallback((_) {

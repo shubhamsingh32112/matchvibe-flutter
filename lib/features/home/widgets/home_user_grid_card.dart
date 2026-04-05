@@ -10,10 +10,12 @@ import '../../auth/providers/auth_provider.dart';
 import '../../chat/services/chat_service.dart';
 import '../providers/availability_provider.dart';
 import '../../video/controllers/call_connection_controller.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/services/avatar_upload_service.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/coin_purchase_popup.dart';
+import '../../../shared/widgets/app_modal_bottom_sheet.dart';
 
 class HomeUserGridCard extends ConsumerStatefulWidget {
   final CreatorModel? creator;
@@ -84,10 +86,8 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
 
   /// PHASE 2: Show modal for insufficient coins
   void _showInsufficientCoinsModal() {
-    showModalBottomSheet(
+    showAppModalBottomSheet(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
       builder: (context) => const CoinPurchaseBottomSheet(),
     );
   }
@@ -96,7 +96,7 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
     if (widget.creator == null) return;
     showDialog(
       context: context,
-      barrierColor: Colors.black87,
+      barrierColor: Colors.black54,
       builder: (ctx) => Dialog.fullscreen(
         child: _CreatorFullProfileModal(
           creator: widget.creator!,
@@ -277,15 +277,15 @@ class _VideoCallButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final effectiveDisabled = disabled || onPressed == null;
     const double buttonSize = 56;
     const double iconSize = 26;
+    final brand = AppPalette.primaryRed;
 
     return Material(
       color: effectiveDisabled
-          ? scheme.surfaceContainerHigh.withValues(alpha: 0.6)
-          : scheme.primary.withValues(alpha: 0.9),
+          ? brand.withValues(alpha: 0.42)
+          : brand.withValues(alpha: 0.95),
       borderRadius: BorderRadius.circular(999),
       child: InkWell(
         onTap: isLoading || effectiveDisabled ? null : onPressed,
@@ -300,14 +300,15 @@ class _VideoCallButton extends StatelessWidget {
                     height: iconSize,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(scheme.onPrimary),
+                      valueColor:
+                          const AlwaysStoppedAnimation<Color>(Colors.white),
                     ),
                   )
                 : Icon(
                     Icons.videocam,
                     color: effectiveDisabled
-                        ? scheme.onSurface.withValues(alpha: 0.4)
-                        : scheme.onPrimary,
+                        ? Colors.white.withValues(alpha: 0.72)
+                        : Colors.white,
                     size: iconSize,
                   ),
           ),
@@ -329,8 +330,8 @@ class _AvailabilityTag extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: isOnline
-            ? Colors.green.withValues(alpha: 0.9)
-            : Colors.orange.withValues(alpha: 0.9),
+            ? AppPalette.success.withValues(alpha: 0.92)
+            : AppPalette.warning.withValues(alpha: 0.92),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -503,7 +504,9 @@ class _CreatorFullProfileModal extends StatelessWidget {
                         child: Text(
                           isOnline ? '● Online' : '● Busy',
                           style: TextStyle(
-                            color: isOnline ? Colors.green : Colors.orange,
+                            color: isOnline
+                                ? AppPalette.success
+                                : AppPalette.warning,
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
                           ),
