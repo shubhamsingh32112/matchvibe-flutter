@@ -21,7 +21,7 @@ class UserModel extends Equatable {
   final String? name; // Creator name
   final String? about; // Creator about/bio
   final int? age; // Creator age
-  final String? referralCode; // User's unique 6-char referral code (e.g. JO4832)
+  final String? referralCode; // Unique code: legacy 6-char (JO4832) or 8-char (JOE48392)
   final DateTime? createdAt;
   final DateTime? updatedAt;
   /// Incremented when admin updates profile; app shows a one-time toast when this increases.

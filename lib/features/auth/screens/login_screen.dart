@@ -12,6 +12,7 @@ import '../../../core/utils/error_handler.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/app_modal_bottom_sheet.dart';
+import '../../../core/utils/referral_code_format.dart';
 import '../providers/auth_provider.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -112,11 +113,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
           controller: _referralController,
           focusNode: _referralFocusNode,
           decoration: const InputDecoration(
-            hintText: 'e.g. JO4832',
+            hintText: 'e.g. JOE48392 or JO4832',
             counterText: '',
           ),
           textCapitalization: TextCapitalization.characters,
-          maxLength: 6,
+          maxLength: 8,
         ),
         actions: [
           TextButton(
@@ -132,10 +133,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     debugPrint('🖱️  [UI] Google Sign-In button pressed');
 
     final refCode = _referralController.text.trim();
-    if (refCode.isNotEmpty && refCode.length != 6) {
+    if (refCode.isNotEmpty && !ReferralCodeFormat.isValid(refCode)) {
       AppToast.showInfo(
         context,
-        'Referral code must be 6 characters (e.g. JO4832)',
+        'Referral code must be 6 or 8 characters (e.g. JO4832 or JOE48392)',
       );
       return;
     }
@@ -279,10 +280,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                     final refCode =
                                         _referralController.text.trim();
                                     if (refCode.isNotEmpty &&
-                                        refCode.length != 6) {
+                                        !ReferralCodeFormat.isValid(refCode)) {
                                       AppToast.showInfo(
                                         sheetContext,
-                                        'Referral code must be 6 characters',
+                                        'Referral code must be 6 or 8 characters',
                                       );
                                       return;
                                     }

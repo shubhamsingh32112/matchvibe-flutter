@@ -13,6 +13,7 @@ import '../../../core/services/availability_socket_service.dart';
 import '../../../core/services/device_fingerprint_service.dart';
 import '../../../core/services/google_sign_in_service.dart';
 import '../../../shared/models/user_model.dart';
+import '../../../core/utils/referral_code_format.dart';
 
 
 final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
@@ -219,7 +220,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
     
     _isSyncingToBackend = true;
-    
+    String? pendingReferralForLogin;
+    var referralDispositionFinalized = false;
+
     try {
       // Determine auth method for logging context
       final authMethod = firebaseUser.providerData
@@ -313,10 +316,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
       } catch (_) {
         // Emulator or unsupported platform — omit deviceFingerprint
       }
-      if (_pendingReferralCode != null &&
-          _pendingReferralCode!.trim().length == 6) {
-        loginBody['referralCode'] = _pendingReferralCode!.trim().toUpperCase();
-        _pendingReferralCode = null; // Clear after use
+      pendingReferralForLogin = (_pendingReferralCode != null &&
+              ReferralCodeFormat.isValid(_pendingReferralCode!))
+          ? _pendingReferralCode!.trim().toUpperCase()
+          : null;
+      if (pendingReferralForLogin != null) {
+        loginBody['referralCode'] = pendingReferralForLogin;
       }
       final apiStartTime = DateTime.now();
       final response = await _apiClient.post('/auth/login', data: loginBody.isNotEmpty ? loginBody : null);
@@ -327,7 +332,34 @@ class AuthNotifier extends StateNotifier<AuthState> {
       
       if (response.statusCode == 200) {
         final responseData = response.data['data'] as Map<String, dynamic>;
-        
+
+        final ra = responseData['referralApply'];
+        if (ra is Map<String, dynamic> && ra['ok'] == false) {
+          debugPrint(
+            '⚠️ [AUTH] Referral code not applied at signup: ${ra['code']}',
+          );
+        }
+
+        if (pendingReferralForLogin != null) {
+          if (ra is Map<String, dynamic>) {
+            if (ra['ok'] == true) {
+              _pendingReferralCode = null;
+            } else {
+              final code = ra['code'] as String?;
+              if (code == 'INVALID_FORMAT' ||
+                  code == 'NOT_FOUND' ||
+                  code == 'AGENT_DISABLED') {
+                _pendingReferralCode = pendingReferralForLogin;
+              } else {
+                _pendingReferralCode = null;
+              }
+            }
+          } else {
+            _pendingReferralCode = null;
+          }
+        }
+        referralDispositionFinalized = true;
+
         // Check if this is a creator login (flat structure) or regular user (nested structure)
         UserModel user;
         if (responseData.containsKey('user')) {
@@ -482,13 +514,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
         error: errorMessage,
       );
       debugPrint('   💾 Error state updated with message: $errorMessage');
+      if (pendingReferralForLogin != null && !referralDispositionFinalized) {
+        _pendingReferralCode = pendingReferralForLogin;
+      }
     } finally {
       // 🔥 FIX: Always reset sync guard
       _isSyncingToBackend = false;
     }
   }
 
-  /// Set pending referral code to apply on next signup (first successful login).
+  /// Set pending referral code to send on the next [POST /auth/login] sync.
   void setPendingReferralCode(String? code) {
     _pendingReferralCode = code?.trim().isNotEmpty == true ? code!.trim().toUpperCase() : null;
   }
