@@ -117,6 +117,9 @@ class AppBrandGradients {
 
   static const Color accountMenuPageBackground = Color(0xFFF3F0F7);
 
+  /// Video call FAB on user home creator cards.
+  static const Color userHomeVideoCall = Color(0xFF6C4EF3);
+
   static const LinearGradient accountMenuHeaderGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,

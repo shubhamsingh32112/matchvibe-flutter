@@ -7,6 +7,7 @@ import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/widgets/gem_icon.dart';
 import '../../../shared/styles/app_brand_styles.dart';
+import '../../../shared/widgets/brand_app_chrome.dart';
 import '../../../core/utils/referral_code_format.dart';
 import '../services/referral_service.dart';
 import '../models/referral_model.dart';
@@ -137,42 +138,16 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
     final user = ref.watch(authProvider).user;
     final codeFromUser = user?.referralCode ?? _data?.referralCode;
 
-    return Container(
-      decoration: BoxDecoration(
-        gradient: AppBrandGradients.appBackground,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          children: [
-            Container(
-              margin: const EdgeInsets.only(top: 12, bottom: 8),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: scheme.onSurfaceVariant.withOpacity(0.4),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Referral',
-                      style: TextStyle(
-                        color: scheme.onSurface,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      child: ColoredBox(
+        color: AppBrandGradients.accountMenuPageBackground,
+        child: SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              const BrandSheetHeader(title: 'Referral'),
+              Expanded(
               child: _isLoading
                   ? const Center(child: LoadingIndicator())
                   : _error != null
@@ -343,6 +318,7 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
             ),
           ],
         ),
+        ),
       ),
     );
   }
@@ -412,7 +388,7 @@ class _ReferralListTile extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (entry.rewardGranted) ...[
-                  GemIcon(size: 14, color: scheme.primary),
+                  const GemIcon(size: 14),
                   const SizedBox(width: 4),
                 ],
                 Text(

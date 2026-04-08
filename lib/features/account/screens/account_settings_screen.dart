@@ -4,6 +4,7 @@ import '../../../core/api/api_client.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/styles/app_brand_styles.dart';
+import '../../../shared/widgets/brand_app_chrome.dart';
 import '../../../shared/widgets/app_modal_bottom_sheet.dart';
 import 'blocked_buddies_screen.dart';
 import 'delete_account_screen.dart';
@@ -72,43 +73,15 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
-    return Container(
-      decoration: BoxDecoration(
-        gradient: AppBrandGradients.appBackground,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          children: [
-            // Drag handle
-            Container(
-              margin: const EdgeInsets.only(top: 12, bottom: 8),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: scheme.onSurfaceVariant.withOpacity(0.4),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            // Header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Account Settings',
-                      style: TextStyle(
-                        color: scheme.onSurface,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      child: ColoredBox(
+        color: AppBrandGradients.accountMenuPageBackground,
+        child: SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              const BrandSheetHeader(title: 'Account Settings'),
             // Content
             Expanded(
               child: SingleChildScrollView(
@@ -158,6 +131,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
               ),
             ),
           ],
+        ),
         ),
       ),
     );

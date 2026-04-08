@@ -1,35 +1,23 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
+import '../styles/app_brand_styles.dart';
 
-/// Reusable gem icon widget that displays the coin/gem SVG.
-/// 
-/// This widget is used throughout the app to display coins consistently.
-/// The gem icon always displays in golden color to match the brand.
+/// Coin / balance icon: same outlined diamond and tint as Account → Explore → Coins.
 class GemIcon extends StatelessWidget {
   final double size;
-  final Color? color; // Deprecated: kept for API compatibility but ignored
-  
+  final Color? color;
+
   const GemIcon({
     super.key,
     this.size = 20,
-    this.color, // Ignored - always uses golden color
+    this.color,
   });
-
-  /// Golden color matching the wallet coin gold gradient
-  static const Color _goldenColor = Color(0xFFFFD65A);
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: size,
-      height: size,
-      child: SvgPicture.asset(
-        'lib/assets/gem.svg',
-        width: size,
-        height: size,
-        // Always apply golden color filter to ensure consistent golden appearance
-        colorFilter: const ColorFilter.mode(_goldenColor, BlendMode.srcIn),
-      ),
+    return Icon(
+      Icons.diamond_outlined,
+      size: size,
+      color: color ?? AppBrandGradients.accountMenuIconTint,
     );
   }
 }

@@ -6,8 +6,8 @@ import '../models/transaction_model.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/widgets/ui_primitives.dart';
-import '../../../shared/widgets/gem_icon.dart';
 import '../../../shared/styles/app_brand_styles.dart';
+import '../../../shared/widgets/brand_app_chrome.dart';
 import '../../../shared/widgets/app_modal_bottom_sheet.dart';
 import '../../support/screens/payment_complaint_screen.dart';
 
@@ -99,69 +99,21 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
     final user = authState.user;
     final isCreator = user?.role == 'creator' || user?.role == 'admin';
     final coins = user?.coins ?? 0;
-    final scheme = Theme.of(context).colorScheme;
 
-    return Container(
-      decoration: BoxDecoration(
-        gradient: AppBrandGradients.appBackground,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          children: [
-            // Drag handle
-            Container(
-              margin: const EdgeInsets.only(top: 12, bottom: 8),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: scheme.onSurfaceVariant.withOpacity(0.4),
-                borderRadius: BorderRadius.circular(2),
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      child: ColoredBox(
+        color: AppBrandGradients.accountMenuPageBackground,
+        child: SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              BrandSheetHeader(
+                title: 'Transactions',
+                trailing: !isCreator
+                    ? [BrandHeaderCoinsChip(coins: coins)]
+                    : null,
               ),
-            ),
-            // Header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Transactions',
-                      style: TextStyle(
-                        color: scheme.onSurface,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  if (!isCreator)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: scheme.primaryContainer.withOpacity(0.35),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: scheme.outlineVariant),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          GemIcon(color: scheme.primary, size: 18),
-                          const SizedBox(width: 6),
-                          Text(
-                            '$coins',
-                            style: TextStyle(
-                              color: scheme.primary,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
-            ),
 
             // Summary Card (for users)
             if (!isCreator && _transactionData?.summary != null)
@@ -182,6 +134,7 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                           : _buildTransactionsList(isCreator),
             ),
           ],
+        ),
         ),
       ),
     );

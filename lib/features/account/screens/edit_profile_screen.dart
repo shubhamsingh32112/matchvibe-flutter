@@ -14,6 +14,7 @@ import '../../../core/services/avatar_upload_service.dart';
 import '../../../shared/models/creator_model.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/styles/app_brand_styles.dart';
+import '../../../shared/widgets/brand_app_chrome.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../creator/services/creator_gallery_service.dart';
 import '../../home/providers/home_provider.dart';
@@ -566,38 +567,14 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       });
     }
 
-    return AppScaffold(
-      padded: false,
-      child: Column(
-        children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Row(
-              children: [
-                IconButton(
-                  onPressed: () => context.pop(),
-                  icon: Icon(Icons.arrow_back, color: scheme.onSurface),
-                ),
-                Expanded(
-                  child: Text(
-                    'Edit Profile',
-                    style: TextStyle(
-                      color: scheme.onSurface,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-                const SizedBox(width: 48),
-              ],
-            ),
-          ),
-
-          // Content
-          Expanded(
-            child: SingleChildScrollView(
+    return Scaffold(
+      backgroundColor: AppBrandGradients.accountMenuPageBackground,
+      appBar: buildBrandAppBar(
+        context,
+        title: 'Edit Profile',
+        centerTitle: true,
+      ),
+      body: SingleChildScrollView(
               padding: const EdgeInsets.all(24.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1455,9 +1432,6 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                 ],
               ),
             ),
-          ),
-        ],
-      ),
     );
   }
 

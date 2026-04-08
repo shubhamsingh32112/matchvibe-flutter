@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../features/wallet/providers/wallet_pricing_provider.dart';
 import '../../features/wallet/services/payment_service.dart';
 import '../styles/app_brand_styles.dart';
+import 'brand_app_chrome.dart';
 import '../widgets/ui_primitives.dart';
 import '../widgets/gem_icon.dart';
 import '../widgets/loading_indicator.dart';
@@ -28,7 +29,7 @@ class CoinPurchaseBottomSheet extends StatelessWidget {
 /// Bottom sheet-style pop-up for purchasing coins.
 /// 
 /// Shows coin packs in horizontal tiles similar to wallet screen.
-/// Uses the same gem icon and styling as wallet.
+/// Uses the same outlined diamond (Explore Coins) as wallet.
 class CoinPurchasePopup extends ConsumerStatefulWidget {
   const CoinPurchasePopup({super.key});
 
@@ -120,45 +121,16 @@ class _CoinPurchasePopupState extends ConsumerState<CoinPurchasePopup> {
     final walletPricingAsync = ref.watch(walletPricingProvider);
     final scheme = Theme.of(context).colorScheme;
 
-    return Container(
-      decoration: BoxDecoration(
-        gradient: AppBrandGradients.appBackground,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          children: [
-            // Drag handle
-            Container(
-              margin: const EdgeInsets.only(top: 12, bottom: 8),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: scheme.onSurfaceVariant.withOpacity(0.4),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            // Header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Buy Coins',
-                      style: TextStyle(
-                        color: scheme.onSurface,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            // Content
-            Expanded(
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      child: ColoredBox(
+        color: AppBrandGradients.accountMenuPageBackground,
+        child: SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              const BrandSheetHeader(title: 'Buy Coins'),
+              Expanded(
               child: walletPricingAsync.when(
                 data: (pricingData) => RefreshIndicator(
                   onRefresh: () async {
@@ -222,6 +194,7 @@ class _CoinPurchasePopupState extends ConsumerState<CoinPurchasePopup> {
             ),
           ],
         ),
+        ),
       ),
     );
   }
@@ -278,9 +251,8 @@ class _CoinPackCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: GemIcon(
+                child: const GemIcon(
                   size: 24,
-                  color: scheme.primary,
                 ),
               ),
               const SizedBox(width: 16),

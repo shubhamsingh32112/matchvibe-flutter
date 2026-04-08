@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/widgets/skeleton_card.dart';
 import '../../../shared/widgets/ui_primitives.dart';
+import '../../../shared/widgets/brand_app_chrome.dart';
 import '../providers/home_provider.dart';
 import '../widgets/home_user_grid_card.dart';
 
@@ -16,12 +16,9 @@ class FavoriteCreatorsScreen extends ConsumerWidget {
     final creatorsAsync = ref.watch(creatorsProvider);
 
     return AppScaffold(
-      appBar: AppBar(
-        title: const Text('Favorite Creators'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.pop(),
-        ),
+      appBar: buildBrandAppBar(
+        context,
+        title: 'Favorite Creators',
       ),
       child: creatorsAsync.when(
         loading: () => GridView.builder(

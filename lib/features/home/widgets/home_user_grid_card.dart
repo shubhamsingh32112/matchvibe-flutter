@@ -16,6 +16,7 @@ import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/coin_purchase_popup.dart';
 import '../../../shared/widgets/app_modal_bottom_sheet.dart';
+import '../../../shared/widgets/brand_app_chrome.dart';
 
 class HomeUserGridCard extends ConsumerStatefulWidget {
   final CreatorModel? creator;
@@ -94,24 +95,27 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
 
   void _openCreatorProfileModal({required bool isCreatorOnline}) {
     if (widget.creator == null) return;
-    showDialog(
+    showAppModalBottomSheet<void>(
       context: context,
-      barrierColor: Colors.black54,
-      builder: (ctx) => Dialog.fullscreen(
-        child: _CreatorFullProfileModal(
+      builder: (sheetContext) => DraggableScrollableSheet(
+        initialChildSize: 0.68,
+        minChildSize: 0.45,
+        maxChildSize: 0.95,
+        builder: (context, scrollController) => _CreatorProfileBottomSheet(
           creator: widget.creator!,
           isOnline: isCreatorOnline,
+          scrollController: scrollController,
           onCallPressed: _isInitiatingCall
               ? null
               : () {
-                  Navigator.of(ctx).pop();
+                  Navigator.of(sheetContext).pop();
                   _initiateVideoCall();
                 },
           isCalling: _isInitiatingCall,
           onChatPressed: _isOpeningChat
               ? null
               : () {
-                  Navigator.of(ctx).pop();
+                  Navigator.of(sheetContext).pop();
                   _openCreatorChat();
                 },
           isOpeningChat: _isOpeningChat,
@@ -280,7 +284,7 @@ class _VideoCallButton extends StatelessWidget {
     final effectiveDisabled = disabled || onPressed == null;
     const double buttonSize = 56;
     const double iconSize = 26;
-    final brand = AppPalette.primaryRed;
+    final brand = AppBrandGradients.userHomeVideoCall;
 
     return Material(
       color: effectiveDisabled
@@ -407,9 +411,10 @@ class _CreatorInfoText extends StatelessWidget {
   }
 }
 
-class _CreatorFullProfileModal extends StatelessWidget {
+class _CreatorProfileBottomSheet extends StatelessWidget {
   final CreatorModel creator;
   final bool isOnline;
+  final ScrollController scrollController;
   final VoidCallback? onCallPressed;
   final bool isCalling;
   final VoidCallback? onChatPressed;
@@ -417,9 +422,10 @@ class _CreatorFullProfileModal extends StatelessWidget {
   final String country;
   final int age;
 
-  const _CreatorFullProfileModal({
+  const _CreatorProfileBottomSheet({
     required this.creator,
     required this.isOnline,
+    required this.scrollController,
     required this.onCallPressed,
     required this.isCalling,
     required this.onChatPressed,
@@ -450,24 +456,34 @@ class _CreatorFullProfileModal extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final galleryUrls = _orderedGalleryUrls();
 
-    return Scaffold(
-      backgroundColor: scheme.surface,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              IconButton(
-                onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.arrow_back_ios_new),
-              ),
-              Expanded(
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: AppSpacing.md),
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      child: ColoredBox(
+        color: AppBrandGradients.accountMenuPageBackground,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            BrandSheetHeader(
+              title: creator.name,
+              trailing: [
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, color: Colors.white),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                controller: scrollController,
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.lg,
+                  AppSpacing.sm,
+                  AppSpacing.lg,
+                  AppSpacing.md,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                       Center(
                         child: ClipOval(
                           child: SizedBox(
@@ -616,53 +632,67 @@ class _CreatorFullProfileModal extends StatelessWidget {
                     ],
                   ),
                 ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                AppSpacing.sm,
+                AppSpacing.lg,
+                AppSpacing.lg,
               ),
-              const SizedBox(height: AppSpacing.md),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: isOpeningChat ? null : onChatPressed,
-                      icon: isOpeningChat
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.chat_bubble_outline),
-                      label: const Text('Chat'),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(26),
+              child: SafeArea(
+                top: false,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: isOpeningChat ? null : onChatPressed,
+                        icon: isOpeningChat
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.chat_bubble_outline),
+                        label: const Text('Chat'),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(26),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: isOnline ? onCallPressed : null,
-                      icon: isCalling
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.videocam),
-                      label: const Text('Video Call'),
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(26),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: isOnline ? onCallPressed : null,
+                        icon: isCalling
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.videocam),
+                        label: const Text('Video Call'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppBrandGradients.userHomeVideoCall,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(26),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

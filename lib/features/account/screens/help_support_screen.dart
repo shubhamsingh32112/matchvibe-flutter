@@ -4,6 +4,7 @@ import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/widgets/app_modal_bottom_sheet.dart';
 import '../../../shared/widgets/gem_icon.dart';
 import '../../../shared/styles/app_brand_styles.dart';
+import '../../../shared/widgets/brand_app_chrome.dart';
 import '../../wallet/screens/transactions_screen.dart';
 import '../../wallet/services/transaction_service.dart';
 import '../../wallet/models/transaction_model.dart';
@@ -77,44 +78,16 @@ class _HelpSupportScreenState extends ConsumerState<HelpSupportScreen> {
     final user = ref.watch(authProvider).user;
     final isCreator = user?.role == 'creator' || user?.role == 'admin';
 
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: AppBrandGradients.appBackground,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          children: [
-            // Drag handle
-            Container(
-              margin: const EdgeInsets.only(top: 12, bottom: 8),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: scheme.onSurfaceVariant.withOpacity(0.4),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            // Header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Help & Support',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            color: scheme.onSurface,
-                            fontWeight: FontWeight.bold,
-                          ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            // Content
-            Expanded(
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      child: ColoredBox(
+        color: AppBrandGradients.accountMenuPageBackground,
+        child: SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              const BrandSheetHeader(title: 'Help & Support'),
+              Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
                 child: Column(
@@ -165,6 +138,7 @@ class _HelpSupportScreenState extends ConsumerState<HelpSupportScreen> {
               ),
             ),
           ],
+        ),
         ),
       ),
     );
@@ -262,8 +236,7 @@ class _HelpSupportScreenState extends ConsumerState<HelpSupportScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (label == 'Balance')
-              GemIcon(
-                color: color,
+              const GemIcon(
                 size: 16,
               )
             else

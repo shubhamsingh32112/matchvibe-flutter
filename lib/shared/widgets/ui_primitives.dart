@@ -24,10 +24,8 @@ class AppScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget body = Container(
-      decoration: const BoxDecoration(
-        gradient: AppBrandGradients.appBackground,
-      ),
+    Widget body = ColoredBox(
+      color: AppBrandGradients.accountMenuPageBackground,
       child: SafeArea(
         child: padded
             ? Padding(

@@ -12,6 +12,7 @@ import '../../../shared/widgets/ui_primitives.dart';
 import '../../wallet/services/wallet_service.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/styles/app_brand_styles.dart';
+import '../../../shared/widgets/brand_app_chrome.dart';
 import '../../../shared/models/creator_model.dart';
 import '../../../shared/models/profile_model.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -1629,52 +1630,25 @@ class TaskProgressBottomSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
     return DraggableScrollableSheet(
       initialChildSize: 0.75,
       minChildSize: 0.5,
       maxChildSize: 0.95,
-      builder: (context, scrollController) => Container(
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: Column(
-          children: [
-            // Drag handle
-            Container(
-              margin: const EdgeInsets.only(top: 12, bottom: 8),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: scheme.onSurfaceVariant.withOpacity(0.4),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            // Header
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                children: [
-                  Text(
-                    'Tasks & Rewards',
-                    style: TextStyle(
-                      color: scheme.onSurface,
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const Spacer(),
+      builder: (context, scrollController) => ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        child: ColoredBox(
+          color: AppBrandGradients.accountMenuPageBackground,
+          child: Column(
+            children: [
+              BrandSheetHeader(
+                title: 'Tasks & Rewards',
+                trailing: [
                   IconButton(
-                    icon: Icon(Icons.close, color: scheme.onSurfaceVariant),
+                    icon: const Icon(Icons.close_rounded, color: Colors.white),
                     onPressed: () => Navigator.of(context).pop(),
                   ),
                 ],
               ),
-            ),
-            const Divider(height: 1),
-            // Scrollable content
             Expanded(
               child: SingleChildScrollView(
                 controller: scrollController,
@@ -1686,6 +1660,7 @@ class TaskProgressBottomSheet extends StatelessWidget {
               ),
             ),
           ],
+        ),
         ),
       ),
     );

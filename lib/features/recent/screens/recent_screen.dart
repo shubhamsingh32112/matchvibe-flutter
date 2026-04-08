@@ -169,7 +169,7 @@ class _CallHistoryTile extends ConsumerWidget {
           ),
           const SizedBox(width: 8),
           // Coin info
-          GemIcon(size: 12, color: AppPalette.warning),
+          const GemIcon(size: 12),
           const SizedBox(width: 2),
           Text(
             isOutgoing ? '-${call.coinsDeducted}' : '+${call.coinsEarned}',

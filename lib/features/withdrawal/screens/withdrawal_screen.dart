@@ -9,6 +9,7 @@ import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/widgets/gem_icon.dart';
 import '../../../shared/styles/app_brand_styles.dart';
+import '../../../shared/widgets/brand_app_chrome.dart';
 
 class WithdrawalScreen extends ConsumerStatefulWidget {
   const WithdrawalScreen({super.key});
@@ -80,41 +81,14 @@ class _WithdrawalScreenState extends ConsumerState<WithdrawalScreen> {
       }
     });
 
-    return AppScaffold(
-      padded: false,
-      child: Column(
-        children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-            child: Row(
-              children: [
-                IconButton(
-                  onPressed: () => Navigator.of(context).maybePop(),
-                  icon: Icon(
-                    Icons.arrow_back_ios_new,
-                    color: Theme.of(context).colorScheme.onSurface,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    'Withdraw',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurface,
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                _CoinsPill(coins: coins),
-              ],
-            ),
-          ),
-
-          // Content
-          Expanded(
-            child: SingleChildScrollView(
+    return Scaffold(
+      backgroundColor: AppBrandGradients.accountMenuPageBackground,
+      appBar: buildBrandAppBar(
+        context,
+        title: 'Withdraw',
+        actions: [BrandHeaderCoinsChip(coins: coins)],
+      ),
+      body: SingleChildScrollView(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -162,9 +136,6 @@ class _WithdrawalScreenState extends ConsumerState<WithdrawalScreen> {
                 ],
               ),
             ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -301,7 +272,7 @@ class _WithdrawalForm extends StatelessWidget {
                 labelStyle: TextStyle(color: scheme.onSurfaceVariant),
                 hintText: 'Min 100 coins',
                 hintStyle: TextStyle(color: scheme.onSurfaceVariant.withOpacity(0.5)),
-                prefixIcon: GemIcon(size: 24, color: scheme.primary),
+                prefixIcon: const GemIcon(size: 24),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(color: scheme.outlineVariant),
@@ -697,40 +668,6 @@ class _InfoRow extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _CoinsPill extends StatelessWidget {
-  final int coins;
-  const _CoinsPill({required this.coins});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        gradient: AppBrandGradients.walletCoinGold,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const GemIcon(
-            size: 16,
-            color: AppBrandGradients.walletOnGold,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            '$coins',
-            style: const TextStyle(
-              color: AppBrandGradients.walletOnGold,
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

@@ -9,8 +9,8 @@ import '../models/creator_task_model.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/ui_primitives.dart';
-import '../../../shared/widgets/gem_icon.dart';
 import '../../../shared/styles/app_brand_styles.dart';
+import '../../../shared/widgets/brand_app_chrome.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 
 class CreatorTasksScreen extends ConsumerStatefulWidget {
@@ -48,63 +48,32 @@ class _CreatorTasksScreenState extends ConsumerState<CreatorTasksScreen> {
     // Use dashboard-derived tasks provider (auto-synced via socket)
     final tasksAsync = ref.watch(dashboardTasksProvider);
 
-    return AppScaffold(
-      padded: false,
-      child: Column(
-        children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-            child: Row(
-              children: [
-                IconButton(
-                  onPressed: () => Navigator.of(context).maybePop(),
-                  icon: Icon(
-                    Icons.arrow_back_ios_new,
-                    color: Theme.of(context).colorScheme.onSurface,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    'Tasks & Rewards',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurface,
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                _CoinsPill(coins: coins),
-              ],
-            ),
+    return Scaffold(
+      backgroundColor: AppBrandGradients.accountMenuPageBackground,
+      appBar: buildBrandAppBar(
+        context,
+        title: 'Tasks & Rewards',
+        actions: [BrandHeaderCoinsChip(coins: coins)],
+      ),
+      body: tasksAsync.when(
+        data: (tasksResponse) {
+          if (tasksResponse.totalMinutes == 0) {
+            return _EmptyState();
+          }
+          return _TasksContent(
+            tasksResponse: tasksResponse,
+            claimingTaskKeys: _claimingTaskKeys,
+            onClaim: (taskKey) => _claimTask(taskKey),
+          );
+        },
+        loading: () => const Center(child: LoadingIndicator()),
+        error: (error, stack) => _ErrorView(
+          error: UserMessageMapper.userMessageFor(
+            error,
+            fallback: 'Couldn\'t load tasks. Please try again.',
           ),
-
-          // Content
-          Expanded(
-            child: tasksAsync.when(
-              data: (tasksResponse) {
-                // 🔒 PHASE T2: Empty state - "No completed calls yet" (not "No tasks")
-                if (tasksResponse.totalMinutes == 0) {
-                  return _EmptyState();
-                }
-                return _TasksContent(
-                  tasksResponse: tasksResponse,
-                  claimingTaskKeys: _claimingTaskKeys,
-                  onClaim: (taskKey) => _claimTask(taskKey),
-                );
-              },
-              loading: () => const Center(child: LoadingIndicator()),
-              error: (error, stack) => _ErrorView(
-                error: UserMessageMapper.userMessageFor(
-                  error,
-                  fallback: 'Couldn\'t load tasks. Please try again.',
-                ),
-                onRetry: () => ref.invalidate(creatorDashboardProvider),
-              ),
-            ),
-          ),
-        ],
+          onRetry: () => ref.invalidate(creatorDashboardProvider),
+        ),
       ),
     );
   }
@@ -813,41 +782,6 @@ class _DailyResetCountdownState extends State<_DailyResetCountdown> {
                 fontWeight: FontWeight.bold,
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CoinsPill extends StatelessWidget {
-  final int coins;
-
-  const _CoinsPill({required this.coins});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        gradient: AppBrandGradients.walletCoinGold,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const GemIcon(
-            size: 16,
-            color: AppBrandGradients.walletOnGold,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            '$coins',
-            style: const TextStyle(
-              color: AppBrandGradients.walletOnGold,
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
             ),
           ),
         ],

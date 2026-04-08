@@ -1029,7 +1029,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       color: AppPalette.warning.withValues(alpha: 0.12),
       child: Row(
         children: [
-          GemIcon(size: 14, color: AppPalette.warning),
+          const GemIcon(size: 14),
           const SizedBox(width: 6),
           Text(
             '$_costPerMessage coins per message',

@@ -23,6 +23,7 @@ import '../../support/screens/support_screen.dart';
 import '../../video/providers/call_billing_provider.dart';
 import '../../wallet/screens/transactions_screen.dart';
 import '../../wallet/screens/wallet_screen.dart';
+import '../widgets/become_creator_bottom_sheet.dart';
 import 'account_settings_screen.dart';
 import 'help_support_screen.dart';
 
@@ -164,6 +165,13 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     showAppModalBottomSheet(
       context: context,
       builder: (context) => const ReferralBottomSheet(),
+    );
+  }
+
+  void _showBecomeCreatorBottomSheet(BuildContext context) {
+    showAppModalBottomSheet(
+      context: context,
+      builder: (context) => const BecomeCreatorBottomSheet(),
     );
   }
 
@@ -589,7 +597,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
       ),
       _exploreTile(
         context: context,
-        icon: Icons.diamond_outlined,
+        leading: const GemIcon(size: 24),
         title: 'Coins',
         subtitle: '$coins',
         onTap: () => _showWalletBottomSheet(context),
@@ -622,8 +630,8 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
           context: context,
           icon: Icons.auto_awesome_outlined,
           title: 'Become a Creator',
-          subtitle: 'Contact us',
-          onTap: () => _showSupportBottomSheet(context),
+          subtitle: 'We\'ll contact you',
+          onTap: () => _showBecomeCreatorBottomSheet(context),
         ),
       );
     }
@@ -647,11 +655,13 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
 
   Widget _exploreTile({
     required BuildContext context,
-    required IconData icon,
+    IconData? icon,
+    Widget? leading,
     required String title,
     required String subtitle,
     required VoidCallback onTap,
   }) {
+    assert(leading != null || icon != null);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -667,11 +677,12 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Icon(
-                icon,
-                color: AppBrandGradients.accountMenuIconTint,
-                size: 24,
-              ),
+              leading ??
+                  Icon(
+                    icon!,
+                    color: AppBrandGradients.accountMenuIconTint,
+                    size: 24,
+                  ),
               const SizedBox(width: 8),
               Expanded(
                 child: Column(
