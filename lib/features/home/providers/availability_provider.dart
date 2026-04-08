@@ -142,7 +142,11 @@ final socketServiceProvider = Provider<SocketService>((ref) {
     // Invalidate the central dashboard provider so all watchers get fresh data
     // This updates earnings, tasks, and stats (but NOT coins - handled separately)
     ref.invalidate(creatorDashboardProvider);
-    
+
+    if (data['reason'] == 'profile_updated') {
+      ref.read(authProvider.notifier).refreshUser();
+    }
+
     // 🔥 FIX: Only refresh auth user if coins are provided in the event
     // Otherwise, coins_updated event will handle coin updates instantly
     if (data['coins'] != null) {

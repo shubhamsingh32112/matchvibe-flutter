@@ -282,159 +282,221 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
       }
     });
     
-    return AppScaffold(
-      appBar: AppBar(
-        title: const Text('Verify Phone Number'),
-      ),
-      padded: false,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Icon(
-              Icons.sms_outlined,
-              size: 64,
-              color: Theme.of(context).colorScheme.primary,
-            )
-                .animate()
-                .fadeIn(duration: 500.ms)
-                .scale(delay: 200.ms),
-            const SizedBox(height: 24),
-            Text(
-              'Enter Verification Code',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-              textAlign: TextAlign.center,
-            )
-                .animate()
-                .fadeIn(delay: 300.ms),
-            const SizedBox(height: 8),
-            Text(
-              'We sent a 6-digit code to\n${widget.phoneNumber}',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-              textAlign: TextAlign.center,
-            )
-                .animate()
-                .fadeIn(delay: 400.ms),
-            const SizedBox(height: 48),
+    const otpOnDark = Color(0xFF1A1A1A);
 
-            // OTP Input Fields
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: List.generate(6, (index) {
-                return SizedBox(
-                  width: 45,
-                  height: 60,
-                  child: TextField(
-                    controller: _controllers[index],
-                    focusNode: _focusNodes[index],
-                    textAlign: TextAlign.center,
-                    keyboardType: TextInputType.number,
-                    maxLength: 1,
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light.copyWith(
+        statusBarColor: Colors.transparent,
+      ),
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        extendBodyBehindAppBar: true,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          iconTheme: const IconThemeData(color: Colors.white),
+          title: const Text(
+            'Verify Phone Number',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        body: Container(
+          width: double.infinity,
+          height: double.infinity,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.black.withValues(alpha: 0.92),
+                const Color(0xFF1C1024),
+                Colors.black.withValues(alpha: 0.98),
+              ],
+            ),
+          ),
+          child: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Icon(
+                    Icons.sms_outlined,
+                    size: 64,
+                    color: Colors.white.withValues(alpha: 0.9),
+                  )
+                      .animate()
+                      .fadeIn(duration: 500.ms)
+                      .scale(delay: 200.ms),
+                  const SizedBox(height: 24),
+                  Text(
+                    'Enter Verification Code',
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.bold,
+                          color: Colors.white,
                         ),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                    ],
-                    decoration: InputDecoration(
-                      counterText: '',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
+                    textAlign: TextAlign.center,
+                  )
+                      .animate()
+                      .fadeIn(delay: 300.ms),
+                  const SizedBox(height: 8),
+                  Text(
+                    'We sent a 6-digit code to\n${widget.phoneNumber}',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Colors.white.withValues(alpha: 0.72),
+                        ),
+                    textAlign: TextAlign.center,
+                  )
+                      .animate()
+                      .fadeIn(delay: 400.ms),
+                  const SizedBox(height: 48),
+
+                  // OTP Input Fields
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: List.generate(6, (index) {
+                      return SizedBox(
+                        width: 45,
+                        height: 60,
+                        child: TextField(
+                          controller: _controllers[index],
+                          focusNode: _focusNodes[index],
+                          textAlign: TextAlign.center,
+                          keyboardType: TextInputType.number,
+                          maxLength: 1,
+                          style:
+                              Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    color: otpOnDark,
+                                  ),
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                          ],
+                          decoration: InputDecoration(
+                            counterText: '',
+                            filled: true,
+                            fillColor: Colors.white.withValues(alpha: 0.94),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide.none,
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(
+                                color: Color(0xFF7C4DFF),
+                                width: 2,
+                              ),
+                            ),
+                          ),
+                          onChanged: (value) {
+                            if (value.length > 1) {
+                              _onPaste(value);
+                              return;
+                            }
+                            _onCodeChanged(index, value);
+                          },
+                          onTap: () {
+                            _controllers[index].selection = TextSelection(
+                              baseOffset: 0,
+                              extentOffset: _controllers[index].text.length,
+                            );
+                          },
+                        ),
+                      )
+                          .animate(delay: (index * 50).ms)
+                          .fadeIn()
+                          .scale(begin: const Offset(0.8, 0.8));
+                    }),
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  Theme(
+                    data: Theme.of(context).copyWith(
+                      colorScheme: Theme.of(context).colorScheme.copyWith(
+                        primary: Colors.white.withValues(alpha: 0.94),
+                        onPrimary: otpOnDark,
                       ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(
-                          color: Theme.of(context).colorScheme.primary,
-                          width: 2,
+                      elevatedButtonTheme: ElevatedButtonThemeData(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white.withValues(alpha: 0.94),
+                          foregroundColor: otpOnDark,
+                          disabledBackgroundColor:
+                              Colors.white.withValues(alpha: 0.4),
                         ),
                       ),
                     ),
-                    onChanged: (value) {
-                      // If user pastes the whole OTP into any field, spread it across fields.
-                      if (value.length > 1) {
-                        _onPaste(value);
-                        return;
-                      }
-                      _onCodeChanged(index, value);
-                    },
-                    onTap: () {
-                      // Select all text when tapped
-                      _controllers[index].selection = TextSelection(
-                        baseOffset: 0,
-                        extentOffset: _controllers[index].text.length,
-                      );
-                    },
-                  ),
-                )
-                    .animate(delay: (index * 50).ms)
-                    .fadeIn()
-                    .scale(begin: const Offset(0.8, 0.8));
-              }),
-            ),
-
-            const SizedBox(height: 32),
-
-            // Verify Button
-            PrimaryButton(
-              label: 'Verify',
-              onPressed: _isLoading ? null : _verifyOtp,
-              isLoading: _isLoading,
-            )
-                .animate()
-                .fadeIn(delay: 600.ms),
-
-            const SizedBox(height: 24),
-
-            // Resend Code
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  "Didn't receive the code? ",
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                if (_canResend)
-                  TextButton(
-                    onPressed: _isLoading ? null : _resendCode,
-                    child: const Text('Resend'),
+                    child: PrimaryButton(
+                      label: 'Verify',
+                      onPressed: _isLoading ? null : _verifyOtp,
+                      isLoading: _isLoading,
+                    ),
                   )
-                else
-                  Text(
-                    'Resend in ${_resendCountdown}s',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      .animate()
+                      .fadeIn(delay: 600.ms),
+
+                  const SizedBox(height: 24),
+
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        "Didn't receive the code? ",
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: Colors.white.withValues(alpha: 0.75),
+                            ),
+                      ),
+                      if (_canResend)
+                        TextButton(
+                          onPressed: _isLoading ? null : _resendCode,
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white,
+                          ),
+                          child: const Text('Resend'),
+                        )
+                      else
+                        Text(
+                          'Resend in ${_resendCountdown}s',
+                          style:
+                              Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: Colors.white.withValues(alpha: 0.5),
+                                  ),
                         ),
-                  ),
-              ],
-            )
-                .animate()
-                .fadeIn(delay: 700.ms),
+                    ],
+                  )
+                      .animate()
+                      .fadeIn(delay: 700.ms),
 
-            const SizedBox(height: 16),
+                  const SizedBox(height: 16),
 
-            // Change Phone Number
-            TextButton(
-              onPressed: _isLoading
-                  ? null
-                  : () {
-                      debugPrint('🔄 [OTP] User wants to change phone number');
-                      // Clear verification state
-                      ref.read(authProvider.notifier).clearVerificationState();
-                      context.pop();
-                    },
-              child: const Text('Change Phone Number'),
-            )
-                .animate()
-                .fadeIn(delay: 800.ms),
-            const SizedBox(height: 24), // Extra bottom padding for keyboard
-          ],
+                  TextButton(
+                    onPressed: _isLoading
+                        ? null
+                        : () {
+                            debugPrint(
+                                '🔄 [OTP] User wants to change phone number');
+                            ref
+                                .read(authProvider.notifier)
+                                .clearVerificationState();
+                            context.pop();
+                          },
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white.withValues(alpha: 0.85),
+                    ),
+                    child: const Text('Change Phone Number'),
+                  )
+                      .animate()
+                      .fadeIn(delay: 800.ms),
+                  const SizedBox(height: 24),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );

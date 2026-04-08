@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/constants/app_constants.dart';
@@ -9,18 +10,26 @@ import '../../features/creator/providers/creator_status_provider.dart';
 import '../../features/recent/providers/recent_provider.dart';
 import '../../features/video/providers/call_billing_provider.dart';
 import '../../features/wallet/screens/wallet_screen.dart';
+import '../../core/theme/app_theme.dart';
 import '../../shared/styles/app_brand_styles.dart';
 import '../../shared/widgets/loading_indicator.dart';
 import '../../shared/widgets/gem_icon.dart';
+import '../../shared/widgets/app_modal_bottom_sheet.dart';
+import '../../shared/widgets/brand_app_chrome.dart';
 
 class MainLayout extends ConsumerStatefulWidget {
   final Widget child;
   final int selectedIndex;
 
+  /// When true (Account tab only), hides the app bar and full-width gradient
+  /// wrapper so the child can paint the menu-style header and body.
+  final bool accountMenuStyle;
+
   const MainLayout({
     super.key,
     required this.child,
     required this.selectedIndex,
+    this.accountMenuStyle = false,
   });
 
   @override
@@ -46,10 +55,8 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
   }
 
   void _showWalletBottomSheet(BuildContext context) {
-    showModalBottomSheet(
+    showAppModalBottomSheet(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
       builder: (context) => const WalletBottomSheet(),
     );
   }
@@ -94,98 +101,105 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
     // Show online/offline toggle only for creators on homepage
     final showStatusToggle = isCreator && isHomePage;
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-          title: Text(
-            AppConstants.appName,
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-          actions: [
-            // Online/Offline toggle for creators on homepage
-            if (showStatusToggle) ...[
-              Consumer(
-                builder: (context, ref, child) {
-                  final status = ref.watch(creatorStatusProvider);
-                  final isOnline = status == CreatorStatus.online;
-                  
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
+    final scheme = Theme.of(context).colorScheme;
+
+    final scaffold = Scaffold(
+      backgroundColor: widget.accountMenuStyle
+          ? scheme.surface
+          : AppBrandGradients.accountMenuPageBackground,
+      appBar: widget.accountMenuStyle
+          ? null
+          : buildBrandAppBar(
+              context,
+              title: AppConstants.appName,
+              actions: [
+                if (showStatusToggle) ...[
+                  Consumer(
+                    builder: (context, ref, child) {
+                      final status = ref.watch(creatorStatusProvider);
+                      final isOnline = status == CreatorStatus.online;
+
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 10,
+                              height: 10,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: isOnline
+                                    ? AppPalette.success
+                                    : Colors.white.withValues(alpha: 0.55),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.9),
+                                  width: 2,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              isOnline ? 'Online' : 'Offline',
+                              style: TextStyle(
+                                color: isOnline
+                                    ? const Color(0xFFB9F6CA)
+                                    : Colors.white.withValues(alpha: 0.85),
+                                fontWeight: FontWeight.w500,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ],
+                if (isHomePage && isRegularUser)
+                  IconButton(
+                    tooltip: 'Favorite creators',
+                    icon: const Icon(Icons.favorite_border),
+                    onPressed: () => context.push('/home/favorites'),
+                  ),
+                InkWell(
+                  onTap: () => _showWalletBottomSheet(context),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     child: Row(
                       children: [
-                        // Status indicator (read-only, no toggle)
-                        Container(
-                          width: 10,
-                          height: 10,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: isOnline ? Colors.green : Colors.grey,
-                            border: Border.all(
+                        const GemIcon(size: 20),
+                        const SizedBox(width: 4),
+                        if (authState.isLoading)
+                          const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: LoadingIndicator(size: 16, color: Colors.white),
+                          )
+                        else
+                          Text(
+                            coins.toString(),
+                            style: const TextStyle(
                               color: Colors.white,
-                              width: 2,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 6),
-                        // Status text (read-only)
-                        Text(
-                          isOnline ? 'Online' : 'Offline',
-                          style: TextStyle(
-                            color: isOnline ? Colors.green : Colors.grey,
-                            fontWeight: FontWeight.w500,
-                            fontSize: 14,
-                          ),
-                        ),
                       ],
                     ),
-                  );
-                },
-              ),
-            ],
-            // Favorites shortcut for users on homepage only
-            if (isHomePage && isRegularUser)
-              IconButton(
-                tooltip: 'Favorite creators',
-                icon: const Icon(Icons.favorite_border),
-                onPressed: () => context.push('/home/favorites'),
-              ),
-            // Coins display - Clickable to open wallet bottom sheet
-            InkWell(
-              onTap: () => _showWalletBottomSheet(context),
-              borderRadius: BorderRadius.circular(8),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Row(
-                  children: [
-                    const GemIcon(size: 20),
-                    const SizedBox(width: 4),
-                    if (authState.isLoading)
-                      const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: LoadingIndicator(size: 16),
-                      )
-                    else
-                      Text(
-                        coins.toString(),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
-          ],
-        ),
-      body: Container(
-          decoration: const BoxDecoration(
-            gradient: AppBrandGradients.appBackground,
-          ),
-          child: widget.child,
-        ),
+      body: widget.accountMenuStyle
+          ? widget.child
+          : ColoredBox(
+              color: AppBrandGradients.accountMenuPageBackground,
+              child: widget.child,
+            ),
       bottomNavigationBar: NavigationBar(
+          backgroundColor: scheme.surface,
+          surfaceTintColor: Colors.transparent,
           selectedIndex: widget.selectedIndex,
           onDestinationSelected: _onItemTapped,
           destinations: [
@@ -219,6 +233,14 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
             ),
           ],
         ),
+    );
+
+    if (widget.accountMenuStyle) {
+      return scaffold;
+    }
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: scaffold,
     );
   }
 }

@@ -71,7 +71,6 @@ class WelcomeBonusBottomSheet extends StatelessWidget {
                       child: const Center(
                         child: GemIcon(
                           size: 48,
-                          color: Colors.white,
                         ),
                       ),
                     ),
@@ -111,8 +110,7 @@ class WelcomeBonusBottomSheet extends StatelessWidget {
                       child: const Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          GemIcon(
-                              color: Colors.white, size: 28),
+                          GemIcon(size: 28),
                           SizedBox(width: 8),
                           Text(
                             '30 Coins',

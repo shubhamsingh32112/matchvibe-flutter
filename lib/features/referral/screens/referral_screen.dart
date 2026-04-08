@@ -7,6 +7,8 @@ import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/widgets/gem_icon.dart';
 import '../../../shared/styles/app_brand_styles.dart';
+import '../../../shared/widgets/brand_app_chrome.dart';
+import '../../../core/utils/referral_code_format.dart';
 import '../services/referral_service.dart';
 import '../models/referral_model.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -35,14 +37,61 @@ class ReferralScreen extends ConsumerStatefulWidget {
 
 class _ReferralScreenState extends ConsumerState<ReferralScreen> {
   final ReferralService _referralService = ReferralService();
+  final TextEditingController _applyCodeController = TextEditingController();
   ReferralData? _data;
   bool _isLoading = true;
+  bool _applySubmitting = false;
   String? _error;
 
   @override
   void initState() {
     super.initState();
     _loadReferrals();
+  }
+
+  @override
+  void dispose() {
+    _applyCodeController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _applyLateReferral() async {
+    final code = _applyCodeController.text;
+    if (!ReferralCodeFormat.isValid(code)) {
+      AppToast.showInfo(
+        context,
+        'Enter a valid code: 6 characters (e.g. JO4832) or 8 (e.g. JOE48392).',
+      );
+      return;
+    }
+    setState(() => _applySubmitting = true);
+    try {
+      await _referralService.applyLateReferralCode(code);
+      await ref.read(authProvider.notifier).refreshUser();
+      _applyCodeController.clear();
+      if (mounted) {
+        AppToast.showSuccess(context, 'Referral code applied');
+        await _loadReferrals();
+      }
+    } on ApplyReferralException catch (e) {
+      if (mounted) {
+        AppToast.showInfo(context, e.message);
+      }
+    } catch (e) {
+      if (mounted) {
+        AppToast.showInfo(
+          context,
+          UserMessageMapper.userMessageFor(
+            e,
+            fallback: 'Could not apply code. Try again.',
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _applySubmitting = false);
+      }
+    }
   }
 
   Future<void> _loadReferrals() async {
@@ -89,42 +138,16 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
     final user = ref.watch(authProvider).user;
     final codeFromUser = user?.referralCode ?? _data?.referralCode;
 
-    return Container(
-      decoration: BoxDecoration(
-        gradient: AppBrandGradients.appBackground,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          children: [
-            Container(
-              margin: const EdgeInsets.only(top: 12, bottom: 8),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: scheme.onSurfaceVariant.withOpacity(0.4),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Referral',
-                      style: TextStyle(
-                        color: scheme.onSurface,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      child: ColoredBox(
+        color: AppBrandGradients.accountMenuPageBackground,
+        child: SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              const BrandSheetHeader(title: 'Referral'),
+              Expanded(
               child: _isLoading
                   ? const Center(child: LoadingIndicator())
                   : _error != null
@@ -212,6 +235,61 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
                                     ],
                                   ),
                                 ),
+                                const SizedBox(height: 16),
+                                AppCard(
+                                  padding: const EdgeInsets.all(20),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                                    children: [
+                                      Text(
+                                        'Have a code you skipped at sign-up?',
+                                        style: TextStyle(
+                                          color: scheme.onSurfaceVariant,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        'You can apply it once within 24 hours of creating your account and before your first coin purchase.',
+                                        style: TextStyle(
+                                          color: scheme.onSurfaceVariant,
+                                          fontSize: 12,
+                                          height: 1.4,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      TextField(
+                                        controller: _applyCodeController,
+                                        textCapitalization:
+                                            TextCapitalization.characters,
+                                        maxLength: 8,
+                                        decoration: InputDecoration(
+                                          hintText: 'e.g. JOE48392 or JO4832',
+                                          counterText: '',
+                                          border: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      FilledButton(
+                                        onPressed:
+                                            _applySubmitting ? null : _applyLateReferral,
+                                        child: _applySubmitting
+                                            ? const SizedBox(
+                                                width: 22,
+                                                height: 22,
+                                                child: CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                  color: Colors.white,
+                                                ),
+                                              )
+                                            : const Text('Apply referral code'),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                                 const SizedBox(height: 24),
                                 Text(
                                   'Referred Users',
@@ -239,6 +317,7 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
                         ),
             ),
           ],
+        ),
         ),
       ),
     );
@@ -309,7 +388,7 @@ class _ReferralListTile extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (entry.rewardGranted) ...[
-                  GemIcon(size: 14, color: scheme.primary),
+                  const GemIcon(size: 14),
                   const SizedBox(width: 4),
                 ],
                 Text(

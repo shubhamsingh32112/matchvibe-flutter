@@ -13,8 +13,11 @@ import '../services/security_service.dart';
 import '../utils/call_remote_image_resolver.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../../core/utils/user_message_mapper.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/coin_purchase_popup.dart';
+import '../../../shared/widgets/app_modal_bottom_sheet.dart';
+import '../../../shared/styles/app_brand_styles.dart';
 
 /// Screen for active video call — **pure renderer**.
 ///
@@ -160,13 +163,16 @@ class _OutgoingCallViewState extends ConsumerState<_OutgoingCallView>
     final statusText = widget.isOutgoing ? 'Calling…' : 'Connecting…';
     final currentUserId = ref.watch(authProvider).firebaseUser?.uid;
     final callConnectionState = ref.watch(callConnectionControllerProvider);
-    final remoteImageUrl = resolveRemoteImageUrl(
+    final remoteUrl = resolveRemoteImageUrl(
       call: widget.call,
       currentUserId: currentUserId,
       fallbackImageUrl: callConnectionState.remoteImageFallbackUrl,
       enableDebugLogs: true,
       debugSourceTag: 'outgoing',
     );
+    final String? photoUrl = remoteUrl != null && remoteUrl.trim().isNotEmpty
+        ? remoteUrl.trim()
+        : null;
 
     // 🔥 BACK BUTTON HANDLER: End call when back button pressed during preparing/joining
     return PopScope(
@@ -187,25 +193,32 @@ class _OutgoingCallViewState extends ConsumerState<_OutgoingCallView>
       body: Stack(
         fit: StackFit.expand,
         children: [
-          if (remoteImageUrl != null)
+          if (photoUrl != null)
             Image.network(
-              remoteImageUrl,
+              photoUrl,
               fit: BoxFit.cover,
               errorBuilder: (context, error, stackTrace) =>
                   Container(color: scheme.surface),
-            ),
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.black.withValues(alpha: 0.35),
-                  Colors.black.withValues(alpha: 0.6),
-                ],
+            )
+          else
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: AppBrandGradients.appBackground,
               ),
             ),
-          ),
+          if (photoUrl != null)
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.2),
+                    Colors.black.withValues(alpha: 0.48),
+                  ],
+                ),
+              ),
+            ),
           SafeArea(
             child: Column(
               children: [
@@ -225,19 +238,21 @@ class _OutgoingCallViewState extends ConsumerState<_OutgoingCallView>
                     height: 120,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.2),
+                      color: photoUrl != null
+                          ? Colors.white.withValues(alpha: 0.2)
+                          : AppPalette.surface,
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.25),
-                          blurRadius: 30,
-                          spreadRadius: 5,
+                          color: Colors.black.withValues(alpha: 0.12),
+                          blurRadius: 24,
+                          spreadRadius: 2,
                         ),
                       ],
                     ),
                     child: ClipOval(
-                      child: remoteImageUrl != null
+                      child: photoUrl != null
                           ? Image.network(
-                              remoteImageUrl,
+                              photoUrl,
                               fit: BoxFit.cover,
                               errorBuilder: (context, error, stackTrace) =>
                                   const Icon(
@@ -246,10 +261,10 @@ class _OutgoingCallViewState extends ConsumerState<_OutgoingCallView>
                                 color: Colors.white,
                               ),
                             )
-                          : const Icon(
+                          : Icon(
                               Icons.person,
                               size: 60,
-                              color: Colors.white,
+                              color: AppPalette.subtitle,
                             ),
                     ),
                   ),
@@ -262,20 +277,26 @@ class _OutgoingCallViewState extends ConsumerState<_OutgoingCallView>
                   statusText,
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                         fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                        color: photoUrl != null
+                            ? Colors.white
+                            : AppPalette.onSurface,
                       ),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   'Video Call',
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: Colors.white70,
+                        color: photoUrl != null
+                            ? Colors.white.withValues(alpha: 0.85)
+                            : AppPalette.subtitle,
                       ),
                 ),
                 const SizedBox(height: 16),
 
                 // ── Animated dots ────────────────────────────────────────
-                const _AnimatedDots(color: Colors.white),
+                _AnimatedDots(
+                  color: photoUrl != null ? Colors.white : AppPalette.primaryRed,
+                ),
 
                 const Spacer(flex: 3),
 
@@ -289,12 +310,12 @@ class _OutgoingCallViewState extends ConsumerState<_OutgoingCallView>
                   child: Container(
                     width: 72,
                     height: 72,
-                    decoration: const BoxDecoration(
-                      color: Colors.red,
+                    decoration: BoxDecoration(
+                      color: AppPalette.primaryRed,
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.red,
+                          color: AppPalette.primaryRed.withValues(alpha: 0.45),
                           blurRadius: 16,
                           spreadRadius: 1,
                         ),
@@ -311,7 +332,9 @@ class _OutgoingCallViewState extends ConsumerState<_OutgoingCallView>
                 Text(
                   widget.isOutgoing ? 'Cancel' : 'End',
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: Colors.white70,
+                        color: photoUrl != null
+                            ? Colors.white.withValues(alpha: 0.85)
+                            : AppPalette.subtitle,
                       ),
                 ),
 
@@ -407,6 +430,7 @@ class _CallFailedView extends ConsumerWidget {
           );
 
     return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.surface,
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
@@ -418,7 +442,7 @@ class _CallFailedView extends ConsumerWidget {
                     ? Icons.no_photography_outlined
                     : Icons.error_outline,
                 size: 64,
-                color: Colors.red,
+                color: Theme.of(context).colorScheme.error,
               ),
               const SizedBox(height: 16),
               Text(
@@ -742,22 +766,30 @@ class _VideoCallScreenContentState
 
           // Show overlay if screen capture detected (iOS)
           if (_isScreenCaptured)
-            Container(
-              color: Colors.black,
-              child: const Center(
+            ColoredBox(
+              color: materialTheme.colorScheme.surface.withValues(alpha: 0.97),
+              child: Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.security, size: 64, color: Colors.white),
-                    SizedBox(height: 16),
+                    Icon(Icons.security,
+                        size: 64, color: materialTheme.colorScheme.primary),
+                    const SizedBox(height: 16),
                     Text(
                       'Screen recording detected',
-                      style: TextStyle(color: Colors.white, fontSize: 18),
+                      style: TextStyle(
+                        color: materialTheme.colorScheme.onSurface,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                    SizedBox(height: 8),
+                    const SizedBox(height: 8),
                     Text(
                       'Call will be disconnected',
-                      style: TextStyle(color: Colors.white70, fontSize: 14),
+                      style: TextStyle(
+                        color: materialTheme.colorScheme.onSurfaceVariant,
+                        fontSize: 14,
+                      ),
                     ),
                   ],
                 ),
@@ -773,10 +805,8 @@ class _VideoCallScreenContentState
     ref.read(callBillingProvider.notifier).reset();
     ref.read(authProvider.notifier).refreshUser();
     // Show coin purchase pop-up as bottom sheet
-    showModalBottomSheet(
+    showAppModalBottomSheet(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
       builder: (context) => const CoinPurchaseBottomSheet(),
     );
   }
@@ -825,7 +855,7 @@ class _LowBalanceHeartbeatBorderState extends State<_LowBalanceHeartbeatBorder>
             return DecoratedBox(
               decoration: BoxDecoration(
                 border: Border.all(
-                  color: Colors.red.withValues(alpha: alpha),
+                  color: AppPalette.primaryRed.withValues(alpha: alpha),
                   width: 8,
                 ),
               ),

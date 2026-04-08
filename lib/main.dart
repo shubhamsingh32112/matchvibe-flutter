@@ -155,7 +155,7 @@ class MyApp extends StatelessWidget {
     return StreamChatWrapper(
       child: MaterialApp.router(
         title: 'Match Vibe',
-        theme: AppTheme.darkTheme,
+        theme: AppTheme.lightTheme,
         routerConfig: appRouter,
         debugShowCheckedModeBanner: false,
         // Localizations configuration (required by StreamChat)

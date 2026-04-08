@@ -15,8 +15,8 @@ class LoaderBgWordmarkCover extends StatelessWidget {
             center: Alignment(0, 0.52),
             radius: 0.34,
             colors: [
-              Color(0xEB5E35B1),
-              Color(0x005E35B1),
+              Color(0x66D32F2F),
+              Color(0x00FFFFFF),
             ],
             stops: [0.0, 1.0],
           ),

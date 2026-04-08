@@ -1,13 +1,18 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl_phone_field/intl_phone_field.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:video_player/video_player.dart';
 import '../../../core/utils/error_handler.dart';
 import '../../../core/constants/app_constants.dart';
-import '../../../core/constants/app_spacing.dart';
 import '../../../shared/widgets/app_toast.dart';
-import '../../../shared/widgets/loader_bg_wordmark_cover.dart';
+import '../../../shared/widgets/app_modal_bottom_sheet.dart';
+import '../../../core/utils/referral_code_format.dart';
 import '../providers/auth_provider.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -17,158 +22,342 @@ class LoginScreen extends ConsumerStatefulWidget {
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends ConsumerState<LoginScreen> {
-  bool _acceptTerms = true;
+class _LoginScreenState extends ConsumerState<LoginScreen>
+    with WidgetsBindingObserver {
   final _referralController = TextEditingController();
   final _referralFocusNode = FocusNode();
 
+  VideoPlayerController? _videoController;
+  bool _videoReady = false;
+  bool _videoFailed = false;
+
+  /// Tracks that the user started Google sign-in (for in-pill spinner).
+  bool _googlePressed = false;
+
+  /// Phone sheet is sending OTP (for in-pill spinner on main screen).
+  bool _phoneSending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _initVideo();
+  }
+
+  Future<void> _initVideo() async {
+    VideoPlayerController? c;
+    try {
+      c = VideoPlayerController.asset(AppConstants.loginBackgroundVideoAsset);
+      await c.initialize();
+      await c.setLooping(true);
+      await c.setVolume(0);
+      await c.play();
+      if (!mounted) {
+        await c.dispose();
+        return;
+      }
+      setState(() {
+        _videoController = c;
+        _videoReady = true;
+        _videoFailed = false;
+      });
+      c = null;
+    } catch (e, st) {
+      debugPrint('Login video init failed: $e\n$st');
+      await c?.dispose();
+      if (mounted) {
+        setState(() {
+          _videoFailed = true;
+          _videoReady = false;
+          _videoController = null;
+        });
+      }
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final c = _videoController;
+    if (c == null || !_videoReady) return;
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      c.pause();
+    } else if (state == AppLifecycleState.resumed) {
+      c.play();
+    }
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _referralController.dispose();
     _referralFocusNode.dispose();
+    _videoController?.dispose();
     super.dispose();
   }
 
+  Future<void> _openUrl(String url) async {
+    final uri = Uri.parse(url);
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      AppToast.showInfo(context, 'Could not open link');
+    }
+  }
+
+  void _showReferralDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Referral code (optional)'),
+        content: TextField(
+          controller: _referralController,
+          focusNode: _referralFocusNode,
+          decoration: const InputDecoration(
+            hintText: 'e.g. JOE48392 or JO4832',
+            counterText: '',
+          ),
+          textCapitalization: TextCapitalization.characters,
+          maxLength: 8,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Done'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleGoogleLogin() async {
+    debugPrint('🖱️  [UI] Google Sign-In button pressed');
+
+    final refCode = _referralController.text.trim();
+    if (refCode.isNotEmpty && !ReferralCodeFormat.isValid(refCode)) {
+      AppToast.showInfo(
+        context,
+        'Referral code must be 6 or 8 characters (e.g. JO4832 or JOE48392)',
+      );
+      return;
+    }
+
+    setState(() => _googlePressed = true);
+    ref.read(authProvider.notifier).setPendingReferralCode(
+          refCode.isEmpty ? null : refCode,
+        );
+    await ref.read(authProvider.notifier).signInWithGoogle();
+    if (mounted && !ref.read(authProvider).isLoading) {
+      setState(() => _googlePressed = false);
+    }
+  }
+
   void _showPhoneLoginSheet() {
-    final scheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
+    final rootContext = context;
     String? phoneValue;
     var isSending = false;
 
-    showModalBottomSheet<void>(
+    showAppModalBottomSheet<void>(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
+      barrierOpacity: 0.54,
       builder: (sheetContext) {
         return Padding(
           padding: EdgeInsets.only(
             bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
           ),
-          child: StatefulBuilder(
-            builder: (context, setModalState) {
-              return Container(
-                padding: const EdgeInsets.all(24),
+          child: ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+              child: Container(
+                width: double.infinity,
                 decoration: BoxDecoration(
-                  color: scheme.surface,
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                  color: Colors.black.withValues(alpha: 0.72),
+                  border: Border(
+                    top: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.12),
+                    ),
+                  ),
                 ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      'Continue with Phone Number',
-                      style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Enter your phone number. We\'ll send you a verification code.',
-                      style: textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
-                    ),
-                    const SizedBox(height: 20),
-                    IntlPhoneField(
-                      decoration: InputDecoration(
-                        labelText: 'Phone Number',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
+                padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
+                child: StatefulBuilder(
+                  builder: (context, setModalState) {
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Center(
+                          child: Container(
+                            width: 40,
+                            height: 4,
+                            margin: const EdgeInsets.only(bottom: 16),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.35),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
                         ),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                      ),
-                      initialCountryCode: 'IN',
-                      enabled: !isSending,
-                      onChanged: (phone) {
-                        phoneValue = phone.completeNumber;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: isSending
-                          ? null
-                          : () async {
-                              final phone = phoneValue?.trim();
-                              if (phone == null || phone.isEmpty) {
-                                AppToast.showInfo(
-                                  sheetContext,
-                                  'Please enter your phone number',
-                                );
-                                return;
-                              }
-                              if (!_acceptTerms) {
-                                AppToast.showInfo(
-                                  sheetContext,
-                                  'Please accept the terms and conditions',
-                                );
-                                return;
-                              }
-                              final refCode = _referralController.text.trim();
-                              if (refCode.isNotEmpty && refCode.length != 6) {
-                                AppToast.showInfo(
-                                  sheetContext,
-                                  'Referral code must be 6 characters (e.g. JO4832)',
-                                );
-                                return;
-                              }
-
-                              setModalState(() => isSending = true);
-                              ref.read(authProvider.notifier).setPendingReferralCode(
-                                    refCode.isEmpty ? null : refCode,
-                                  );
-                              await ref.read(authProvider.notifier).signInWithPhone(phone);
-
-                              if (!sheetContext.mounted) return;
-                              final s = ref.read(authProvider);
-                              if (s.error != null) {
-                                setModalState(() => isSending = false);
-                              }
+                        const Text(
+                          'Continue with Phone',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'We\'ll send you a verification code.',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.75),
+                            fontSize: 15,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        Theme(
+                          data: Theme.of(context).copyWith(
+                            colorScheme: const ColorScheme.dark(
+                              primary: Color(0xFF90CAF9),
+                              onPrimary: Colors.black,
+                              surface: Color(0xFF2A2A2A),
+                              onSurface: Colors.white,
+                            ),
+                          ),
+                          child: IntlPhoneField(
+                            decoration: InputDecoration(
+                              labelText: 'Phone number',
+                              labelStyle: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.7),
+                              ),
+                              filled: true,
+                              fillColor: Colors.white.withValues(alpha: 0.12),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide.none,
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide(
+                                  color: Colors.white.withValues(alpha: 0.2),
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFF90CAF9),
+                                  width: 2,
+                                ),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 14,
+                              ),
+                            ),
+                            style: const TextStyle(color: Colors.white),
+                            dropdownTextStyle: const TextStyle(color: Colors.white),
+                            flagsButtonPadding: const EdgeInsets.only(left: 8),
+                            initialCountryCode: 'IN',
+                            enabled: !isSending,
+                            onChanged: (phone) {
+                              phoneValue = phone.completeNumber;
                             },
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          ),
                         ),
-                      ),
-                      child: isSending
-                          ? const SizedBox(
-                              height: 22,
-                              width: 22,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('Send Code'),
-                    ),
-                  ],
+                        const SizedBox(height: 20),
+                        Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: isSending
+                                ? null
+                                : () async {
+                                    final phone = phoneValue?.trim();
+                                    if (phone == null || phone.isEmpty) {
+                                      AppToast.showInfo(
+                                        sheetContext,
+                                        'Please enter your phone number',
+                                      );
+                                      return;
+                                    }
+                                    final refCode =
+                                        _referralController.text.trim();
+                                    if (refCode.isNotEmpty &&
+                                        !ReferralCodeFormat.isValid(refCode)) {
+                                      AppToast.showInfo(
+                                        sheetContext,
+                                        'Referral code must be 6 or 8 characters',
+                                      );
+                                      return;
+                                    }
+
+                                    setModalState(() => isSending = true);
+                                    if (rootContext.mounted) {
+                                      setState(() => _phoneSending = true);
+                                    }
+                                    ref
+                                        .read(authProvider.notifier)
+                                        .setPendingReferralCode(
+                                          refCode.isEmpty ? null : refCode,
+                                        );
+                                    await ref
+                                        .read(authProvider.notifier)
+                                        .signInWithPhone(phone);
+
+                                    if (!sheetContext.mounted) return;
+                                    final s = ref.read(authProvider);
+                                    if (s.error != null) {
+                                      setModalState(() => isSending = false);
+                                      if (rootContext.mounted) {
+                                        setState(() => _phoneSending = false);
+                                      }
+                                    }
+                                  },
+                            borderRadius: BorderRadius.circular(28),
+                            child: Ink(
+                              height: 54,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.94),
+                                borderRadius: BorderRadius.circular(28),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.2),
+                                    blurRadius: 12,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: Center(
+                                child: isSending
+                                    ? const SizedBox(
+                                        width: 24,
+                                        height: 24,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Color(0xFF1A1A1A),
+                                        ),
+                                      )
+                                    : const Text(
+                                        'Send code',
+                                        style: TextStyle(
+                                          color: Color(0xFF1A1A1A),
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 16,
+                                        ),
+                                      ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
-              );
-            },
+              ),
+            ),
           ),
         );
       },
     );
   }
 
-  Future<void> _handleGoogleLogin() async {
-    debugPrint('═══════════════════════════════════════════════════════');
-    debugPrint('🖱️  [UI] Google Sign-In button pressed');
-    debugPrint('═══════════════════════════════════════════════════════');
-
-    if (!_acceptTerms) {
-      AppToast.showInfo(context, 'Please accept the terms and conditions');
-      return;
-    }
-
-    final refCode = _referralController.text.trim();
-    if (refCode.isNotEmpty && refCode.length != 6) {
-      AppToast.showInfo(
-        context,
-        'Referral code must be 6 characters (e.g. JO4832)',
-      );
-      return;
-    }
-
-    ref.read(authProvider.notifier).setPendingReferralCode(refCode.isEmpty ? null : refCode);
-    await ref.read(authProvider.notifier).signInWithGoogle();
-  }
-
-  /// Show network error dialog with retry option
   void _showNetworkErrorDialog(BuildContext context, String errorMessage) {
     final scheme = Theme.of(context).colorScheme;
     final isNoRouteToHost = errorMessage.toLowerCase().contains('no route to host') ||
@@ -200,7 +389,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 const SizedBox(height: 16),
               ],
               Text(
-                kDebugMode ? 'Check backend connectivity and try again.' : 'Please check your connection and try again.',
+                kDebugMode
+                    ? 'Check backend connectivity and try again.'
+                    : 'Please check your connection and try again.',
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
             ],
@@ -242,21 +433,101 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             authState.error == null);
   }
 
+  Widget _pillButton({
+    required VoidCallback? onPressed,
+    required Widget leading,
+    required String label,
+    required String busyLabel,
+    required bool showSpinner,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(28),
+        child: Ink(
+          height: 54,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.92),
+            borderRadius: BorderRadius.circular(28),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.15),
+                blurRadius: 16,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Row(
+            children: [
+              if (showSpinner)
+                const SizedBox(width: 36)
+              else
+                leading,
+              Expanded(
+                child: showSpinner
+                    ? Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Color(0xFF1A1A1A),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Flexible(
+                            child: Text(
+                              busyLabel,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 16,
+                                color: Color(0xFF1A1A1A),
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      )
+                    : Text(
+                        label,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                          color: Color(0xFF1A1A1A),
+                        ),
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
-    final scheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
     final isLoginBusy = _isLoginBusy(authState);
-    final viewInsetsBottom = MediaQuery.viewInsetsOf(context).bottom;
-    final sheetHeight = MediaQuery.sizeOf(context).height * 0.6;
 
     ref.listen(authProvider, (previous, next) {
+      if (previous?.isLoading == true &&
+          next.isLoading == false &&
+          mounted &&
+          _googlePressed) {
+        setState(() => _googlePressed = false);
+      }
+
       if (next.verificationId != null &&
           next.phoneNumber != null &&
           !next.isLoading &&
           mounted &&
           previous?.verificationId != next.verificationId) {
+        setState(() => _phoneSending = false);
         debugPrint('✅ [UI] OTP sent, navigating to OTP screen...');
         Future.delayed(const Duration(milliseconds: 100), () {
           if (!context.mounted) return;
@@ -284,7 +555,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           });
         }
       }
-      if (next.error != null && mounted && !next.isLoading && previous?.error != next.error) {
+      if (next.error != null &&
+          mounted &&
+          !next.isLoading &&
+          previous?.error != next.error) {
+        if (_phoneSending) {
+          setState(() => _phoneSending = false);
+        }
         final errorMessage = next.error!;
         if (errorMessage.toLowerCase().contains('network') ||
             errorMessage.toLowerCase().contains('connection') ||
@@ -300,264 +577,226 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       }
     });
 
-    Widget authButtonContent({
-      required bool busy,
-      required Widget icon,
-      required String label,
-      required String busyLabel,
-    }) {
-      if (!busy) {
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            icon,
-            const SizedBox(width: 12),
-            Flexible(
-              child: Text(
-                label,
-                style: textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: scheme.onSurface,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        );
-      }
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            width: 22,
-            height: 22,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: scheme.primary,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Flexible(
-            child: Text(
-              busyLabel,
-              style: textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: scheme.onSurface,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      );
-    }
+    final showGoogleSpinner = _googlePressed && isLoginBusy;
+    final showPhoneSpinner = _phoneSending && isLoginBusy;
+    final pillsEnabled = !isLoginBusy;
 
-    final sheetBody = Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Center(
-          child: Container(
-            width: 40,
-            height: 4,
-            margin: const EdgeInsets.only(bottom: 12),
-            decoration: BoxDecoration(
-              color: scheme.onSurfaceVariant.withValues(alpha: 0.35),
-              borderRadius: BorderRadius.circular(2),
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light.copyWith(
+        statusBarColor: Colors.transparent,
+      ),
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (_videoReady && _videoController != null)
+              FittedBox(
+                fit: BoxFit.cover,
+                clipBehavior: Clip.hardEdge,
+                child: SizedBox(
+                  width: _videoController!.value.size.width,
+                  height: _videoController!.value.size.height,
+                  child: VideoPlayer(_videoController!),
+                ),
+              )
+            else
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  image: DecorationImage(
+                    image: const AssetImage(AppConstants.loaderBackgroundAsset),
+                    fit: BoxFit.cover,
+                    colorFilter: _videoFailed
+                        ? null
+                        : ColorFilter.mode(
+                            Colors.black.withValues(alpha: 0.3),
+                            BlendMode.darken,
+                          ),
+                  ),
+                ),
+                child: const SizedBox.expand(),
+              ),
+            if (!_videoReady && !_videoFailed)
+              const Center(
+                child: SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white54,
+                  ),
+                ),
+              ),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.35),
+                    Colors.black.withValues(alpha: 0.15),
+                    Colors.black.withValues(alpha: 0.55),
+                  ],
+                  stops: const [0.0, 0.45, 1.0],
+                ),
+              ),
+              child: const SizedBox.expand(),
             ),
-          ),
-        ),
-        Expanded(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(16, 0, 16, 16 + viewInsetsBottom),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Image.asset(
-                  AppConstants.appLogoAsset,
-                  height: 56,
-                  fit: BoxFit.contain,
-                  semanticLabel: AppConstants.appName,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                Text(
-                  'Login to get started',
-                  style: textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: scheme.onSurface,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                Text(
-                  'Sign in with Google or your phone number to continue.',
-                  style: textTheme.bodyMedium?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                TextField(
-                  controller: _referralController,
-                  focusNode: _referralFocusNode,
-                  enabled: !isLoginBusy,
-                  decoration: InputDecoration(
-                    labelText: 'Referral Code (optional)',
-                    hintText: 'e.g. JO4832',
-                    hintStyle: TextStyle(color: scheme.onSurfaceVariant.withValues(alpha: 0.6)),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: scheme.outline),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  ),
-                  textCapitalization: TextCapitalization.characters,
-                  maxLength: 6,
-                  onChanged: (v) {
-                    if (v.length <= 6) {
-                      setState(() {});
-                    }
-                  },
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                OutlinedButton(
-                  onPressed: (isLoginBusy || !_acceptTerms) ? null : _handleGoogleLogin,
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
-                    side: BorderSide(color: scheme.outline),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: authButtonContent(
-                    busy: isLoginBusy,
-                    icon: Icon(Icons.g_mobiledata, size: 28, color: scheme.primary),
-                    label: 'Continue with Google',
-                    busyLabel: 'Signing in…',
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                OutlinedButton(
-                  onPressed: (isLoginBusy || !_acceptTerms) ? null : _showPhoneLoginSheet,
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
-                    side: BorderSide(color: scheme.outline),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: authButtonContent(
-                    busy: isLoginBusy,
-                    icon: Icon(Icons.phone_android, size: 24, color: scheme.primary),
-                    label: 'Continue with Phone Number',
-                    busyLabel: 'Signing in…',
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Checkbox(
-                      value: _acceptTerms,
-                      onChanged: isLoginBusy
-                          ? null
-                          : (value) {
-                              setState(() => _acceptTerms = value ?? false);
-                            },
-                      activeColor: scheme.primary,
-                      checkColor: scheme.onPrimary,
-                      side: BorderSide(color: scheme.outlineVariant, width: 2),
-                    ),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: AppSpacing.sm),
-                        child: RichText(
-                          text: TextSpan(
-                            style: textTheme.bodySmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                              height: 1.5,
-                            ),
-                            children: [
-                              const TextSpan(text: 'I accept '),
-                              TextSpan(
-                                text: 'terms & conditions',
-                                style: TextStyle(decoration: TextDecoration.underline, color: scheme.primary),
-                              ),
-                              const TextSpan(text: ' and '),
-                              TextSpan(
-                                text: 'community guidelines',
-                                style: TextStyle(decoration: TextDecoration.underline, color: scheme.primary),
-                              ),
-                              const TextSpan(text: ' of Match Vibe.'),
-                            ],
+            SafeArea(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          AppConstants.appName,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 28,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.5,
                           ),
                         ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-
-    return Scaffold(
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          const DecoratedBox(
-            decoration: BoxDecoration(
-              image: DecorationImage(
-                image: AssetImage(AppConstants.loaderBackgroundAsset),
-                fit: BoxFit.cover,
-              ),
-            ),
-            child: SizedBox.expand(),
-          ),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.black.withValues(alpha: 0.12),
-                  Colors.black.withValues(alpha: 0.28),
-                ],
-              ),
-            ),
-            child: const SizedBox.expand(),
-          ),
-          const Positioned.fill(
-            child: LoaderBgWordmarkCover(),
-          ),
-          SafeArea(
-            bottom: false,
-            child: Align(
-              alignment: Alignment.bottomCenter,
-              child: SizedBox(
-                height: sheetHeight,
-                width: double.infinity,
-                child: ClipRRect(
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                  child: Material(
-                    color: scheme.surface,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        if (isLoginBusy)
-                          LinearProgressIndicator(
-                            minHeight: 2,
-                            backgroundColor: scheme.surfaceContainerHighest,
-                            color: scheme.primary,
+                        const SizedBox(height: 6),
+                        Container(
+                          width: 56,
+                          height: 3,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.85),
+                            borderRadius: BorderRadius.circular(2),
                           ),
-                        Expanded(child: sheetBody),
+                        ),
                       ],
                     ),
                   ),
-                ),
+                  const Spacer(),
+                  if (isLoginBusy)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: LinearProgressIndicator(
+                        minHeight: 2,
+                        backgroundColor: Colors.white24,
+                        color: Colors.white,
+                      ),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(28, 12, 28, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        TextButton(
+                          onPressed: pillsEnabled ? _showReferralDialog : null,
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white.withValues(alpha: 0.9),
+                          ),
+                          child: const Text('Have a referral code?'),
+                        ),
+                        const SizedBox(height: 4),
+                        _pillButton(
+                          onPressed: pillsEnabled ? _handleGoogleLogin : null,
+                          leading: const Icon(
+                            Icons.g_mobiledata,
+                            size: 36,
+                            color: Color(0xFF1A1A1A),
+                          ),
+                          label: 'Sign in via Google',
+                          busyLabel: 'Signing in…',
+                          showSpinner: showGoogleSpinner,
+                        ),
+                        const SizedBox(height: 12),
+                        _pillButton(
+                          onPressed:
+                              pillsEnabled ? _showPhoneLoginSheet : null,
+                          leading: const Icon(
+                            Icons.phone_android_rounded,
+                            size: 26,
+                            color: Color(0xFF1A1A1A),
+                          ),
+                          label: 'Sign in via Phone Number',
+                          busyLabel: 'Sending…',
+                          showSpinner: showPhoneSpinner,
+                        ),
+                        const SizedBox(height: 20),
+                        Center(
+                          child: Column(
+                            children: [
+                              Text(
+                                'Proceeding means you agree to our',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.88),
+                                  fontSize: 12,
+                                  height: 1.45,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Wrap(
+                                alignment: WrapAlignment.center,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  GestureDetector(
+                                    onTap: () => _openUrl(
+                                        AppConstants.privacyPolicyUrl),
+                                    child: Text(
+                                      'Privacy Policy',
+                                      style: TextStyle(
+                                        color:
+                                            Colors.white.withValues(alpha: 0.95),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        decoration: TextDecoration.underline,
+                                        decorationColor: Colors.white
+                                            .withValues(alpha: 0.95),
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    ' and ',
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(alpha: 0.88),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  GestureDetector(
+                                    onTap: () => _openUrl(
+                                        AppConstants.termsOfUseUrl),
+                                    child: Text(
+                                      'Terms of Use',
+                                      style: TextStyle(
+                                        color:
+                                            Colors.white.withValues(alpha: 0.95),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        decoration: TextDecoration.underline,
+                                        decorationColor: Colors.white
+                                            .withValues(alpha: 0.95),
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    '.',
+                                    style: TextStyle(
+                                      color:
+                                          Colors.white.withValues(alpha: 0.88),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

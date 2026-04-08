@@ -3,9 +3,6 @@
     <!-- Internet permission for API calls -->
     <uses-permission android:name="android.permission.INTERNET"/>
     
-    <!-- Push notification permission (Android 13+) -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    
     <!-- Camera and microphone permissions for video calls -->
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../app/widgets/main_layout.dart';
@@ -14,6 +15,7 @@ import '../../video/controllers/call_connection_controller.dart';
 import '../models/call_history_model.dart';
 import '../providers/recent_provider.dart';
 import '../../../shared/widgets/coin_purchase_popup.dart';
+import '../../../shared/widgets/app_modal_bottom_sheet.dart';
 
 class RecentScreen extends ConsumerStatefulWidget {
   const RecentScreen({super.key});
@@ -69,19 +71,20 @@ class _RecentScreenState extends ConsumerState<RecentScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.history, size: 64, color: Colors.grey[400]),
+                  const Icon(Icons.history, size: 64, color: AppPalette.emptyIcon),
                   const SizedBox(height: 16),
                   Text(
                     'No recent calls',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          color: Colors.grey[600],
+                          color: AppPalette.onSurface,
+                          fontWeight: FontWeight.w600,
                         ),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     'Your call history will appear here',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.grey[500],
+                          color: AppPalette.subtitle,
                         ),
                     textAlign: TextAlign.center,
                   ),
@@ -154,7 +157,7 @@ class _CallHistoryTile extends ConsumerWidget {
           Icon(
             isOutgoing ? Icons.call_made : Icons.call_received,
             size: 14,
-            color: isOutgoing ? Colors.green : Colors.blue,
+            color: isOutgoing ? AppPalette.success : scheme.primary,
           ),
           const SizedBox(width: 4),
           // Duration
@@ -166,12 +169,12 @@ class _CallHistoryTile extends ConsumerWidget {
           ),
           const SizedBox(width: 8),
           // Coin info
-          GemIcon(size: 12, color: Colors.amber[700]),
+          const GemIcon(size: 12),
           const SizedBox(width: 2),
           Text(
             isOutgoing ? '-${call.coinsDeducted}' : '+${call.coinsEarned}',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: isOutgoing ? Colors.red[400] : Colors.green[600],
+                  color: isOutgoing ? scheme.error : AppPalette.success,
                   fontWeight: FontWeight.w500,
                 ),
           ),
@@ -313,10 +316,8 @@ class _CallButtonState extends ConsumerState<_CallButton> {
     final user = authState.user;
     if (user != null && user.coins < 10) {
       if (mounted) {
-        showModalBottomSheet(
+        showAppModalBottomSheet(
           context: context,
-          isScrollControlled: true,
-          backgroundColor: Colors.transparent,
           builder: (context) => const CoinPurchaseBottomSheet(),
         );
       }

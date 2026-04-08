@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stream_chat_flutter/stream_chat_flutter.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../app/widgets/main_layout.dart';
@@ -176,14 +177,15 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
           Icon(
             Icons.chat_bubble_outline,
             size: 64,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            color: AppPalette.emptyIcon,
           ),
           const SizedBox(height: 16),
           Text(
             'No conversations yet',
             style: TextStyle(
               fontSize: 18,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              color: AppPalette.onSurface,
+              fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(height: 8),
@@ -191,7 +193,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
             'Start a conversation after a video call',
             style: TextStyle(
               fontSize: 14,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              color: AppPalette.subtitle,
             ),
           ),
         ],
@@ -264,14 +266,15 @@ class _RecentChatsTab extends StatelessWidget {
               Icon(
                 Icons.chat_bubble_outline,
                 size: 64,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                color: AppPalette.emptyIcon,
               ),
               const SizedBox(height: 16),
               Text(
                 'No conversations yet',
                 style: TextStyle(
                   fontSize: 18,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  color: AppPalette.onSurface,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 8),
@@ -279,7 +282,7 @@ class _RecentChatsTab extends StatelessWidget {
                 'Users will appear here after they message you',
                 style: TextStyle(
                   fontSize: 14,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  color: AppPalette.subtitle,
                 ),
               ),
             ],
@@ -350,20 +353,25 @@ class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
         }).toList();
 
         if (onlineUsers.isEmpty) {
-          return const Center(
+          return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.people_outline, size: 64, color: Colors.grey),
-                SizedBox(height: 16),
+                const Icon(Icons.people_outline,
+                    size: 64, color: AppPalette.emptyIcon),
+                const SizedBox(height: 16),
                 Text(
                   'No online users',
-                  style: TextStyle(fontSize: 18, color: Colors.grey),
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: scheme.onSurface,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-                SizedBox(height: 8),
+                const SizedBox(height: 8),
                 Text(
                   'Users will appear here when they come online',
-                  style: TextStyle(fontSize: 14, color: Colors.grey),
+                  style: TextStyle(fontSize: 14, color: AppPalette.subtitle),
                 ),
               ],
             ),
@@ -409,9 +417,9 @@ class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
                     Container(
                       width: 8,
                       height: 8,
-                      decoration: BoxDecoration(
+                      decoration: const BoxDecoration(
                         shape: BoxShape.circle,
-                        color: Colors.green,
+                        color: AppPalette.success,
                       ),
                     ),
                     const SizedBox(width: 6),
@@ -463,7 +471,7 @@ class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline, size: 48, color: Colors.red),
+            Icon(Icons.error_outline, size: 48, color: scheme.error),
             const SizedBox(height: 16),
             Text(
               'Failed to load users',

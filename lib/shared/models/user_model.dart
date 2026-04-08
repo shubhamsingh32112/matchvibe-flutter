@@ -12,14 +12,20 @@ class UserModel extends Equatable {
   final int coins;
   final bool welcomeBonusClaimed;
   final int freeTextUsed; // Count of free text messages used (first 3 are free)
-  final String? role; // 'user', 'creator', or 'admin'
+  final String? role; // 'user', 'creator', 'admin', or 'agent' (app users are never 'agent')
+  /// True when user signed up with an agent referral and is waiting for approval.
+  final bool creatorApplicationPending;
+  final bool creatorApplicationRejected;
+  final String? creatorApplicationRejectionReason;
   // Creator-specific fields (only populated when role is 'creator')
   final String? name; // Creator name
   final String? about; // Creator about/bio
   final int? age; // Creator age
-  final String? referralCode; // User's unique 6-char referral code (e.g. JO4832)
+  final String? referralCode; // Unique code: legacy 6-char (JO4832) or 8-char (JOE48392)
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  /// Incremented when admin updates profile; app shows a one-time toast when this increases.
+  final int profileRevision;
 
   const UserModel({
     required this.id,
@@ -34,12 +40,16 @@ class UserModel extends Equatable {
     this.welcomeBonusClaimed = false,
     this.freeTextUsed = 0,
     this.role,
+    this.creatorApplicationPending = false,
+    this.creatorApplicationRejected = false,
+    this.creatorApplicationRejectionReason,
     this.name,
     this.about,
     this.age,
     this.referralCode,
     this.createdAt,
     this.updatedAt,
+    this.profileRevision = 0,
   });
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
@@ -58,6 +68,10 @@ class UserModel extends Equatable {
       welcomeBonusClaimed: json['welcomeBonusClaimed'] as bool? ?? false,
       freeTextUsed: json['freeTextUsed'] as int? ?? 0,
       role: json['role'] as String?,
+      creatorApplicationPending: json['creatorApplicationPending'] == true,
+      creatorApplicationRejected: json['creatorApplicationRejected'] == true,
+      creatorApplicationRejectionReason:
+          json['creatorApplicationRejectionReason'] as String?,
       name: json['name'] as String?,
       about: json['about'] as String?,
       age: json['age'] != null ? json['age'] as int? : null,
@@ -68,6 +82,7 @@ class UserModel extends Equatable {
       updatedAt: json['updatedAt'] != null
           ? DateTime.parse(json['updatedAt'] as String)
           : null,
+      profileRevision: (json['profileRevision'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -85,12 +100,16 @@ class UserModel extends Equatable {
       'welcomeBonusClaimed': welcomeBonusClaimed,
       'freeTextUsed': freeTextUsed,
       'role': role,
+      'creatorApplicationPending': creatorApplicationPending,
+      'creatorApplicationRejected': creatorApplicationRejected,
+      'creatorApplicationRejectionReason': creatorApplicationRejectionReason,
       'name': name,
       'about': about,
       'age': age,
       'referralCode': referralCode,
       'createdAt': createdAt?.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
+      'profileRevision': profileRevision,
     };
   }
 
@@ -107,12 +126,16 @@ class UserModel extends Equatable {
     bool? welcomeBonusClaimed,
     int? freeTextUsed,
     String? role,
+    bool? creatorApplicationPending,
+    bool? creatorApplicationRejected,
+    String? creatorApplicationRejectionReason,
     String? name,
     String? about,
     int? age,
     String? referralCode,
     DateTime? createdAt,
     DateTime? updatedAt,
+    int? profileRevision,
   }) {
     return UserModel(
       id: id ?? this.id,
@@ -127,12 +150,19 @@ class UserModel extends Equatable {
       welcomeBonusClaimed: welcomeBonusClaimed ?? this.welcomeBonusClaimed,
       freeTextUsed: freeTextUsed ?? this.freeTextUsed,
       role: role ?? this.role,
+      creatorApplicationPending:
+          creatorApplicationPending ?? this.creatorApplicationPending,
+      creatorApplicationRejected:
+          creatorApplicationRejected ?? this.creatorApplicationRejected,
+      creatorApplicationRejectionReason: creatorApplicationRejectionReason ??
+          this.creatorApplicationRejectionReason,
       name: name ?? this.name,
       about: about ?? this.about,
       age: age ?? this.age,
       referralCode: referralCode ?? this.referralCode,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      profileRevision: profileRevision ?? this.profileRevision,
     );
   }
 
@@ -150,11 +180,15 @@ class UserModel extends Equatable {
         welcomeBonusClaimed,
         freeTextUsed,
         role,
+        creatorApplicationPending,
+        creatorApplicationRejected,
+        creatorApplicationRejectionReason,
         name,
         about,
         age,
         referralCode,
         createdAt,
         updatedAt,
+        profileRevision,
       ];
 }

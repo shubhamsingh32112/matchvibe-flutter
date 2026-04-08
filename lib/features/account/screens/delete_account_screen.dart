@@ -6,6 +6,7 @@ import '../../../core/api/api_client.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/styles/app_brand_styles.dart';
+import '../../../shared/widgets/brand_app_chrome.dart';
 import '../../auth/providers/auth_provider.dart';
 
 /// Bottom sheet wrapper for delete account screen
@@ -124,44 +125,16 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
     final scheme = Theme.of(context).colorScheme;
     final canDelete = _selectedReasons.isNotEmpty && !_isSubmitting;
 
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: AppBrandGradients.appBackground,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          children: [
-            // Drag handle
-            Container(
-              margin: const EdgeInsets.only(top: 12, bottom: 8),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: scheme.onSurfaceVariant.withOpacity(0.4),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            // Header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Delete Account',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            color: scheme.onSurface,
-                            fontWeight: FontWeight.bold,
-                          ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            // Content
-            Expanded(
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      child: ColoredBox(
+        color: AppBrandGradients.accountMenuPageBackground,
+        child: SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              const BrandSheetHeader(title: 'Delete Account'),
+              Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Column(
@@ -291,6 +264,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
               ),
             ),
           ],
+        ),
         ),
       ),
     );

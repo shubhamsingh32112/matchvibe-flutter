@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/theme/app_theme.dart';
 import '../styles/app_brand_styles.dart';
 
 /// Canonical scaffold for the app:
@@ -23,10 +24,8 @@ class AppScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget body = Container(
-      decoration: const BoxDecoration(
-        gradient: AppBrandGradients.appBackground,
-      ),
+    Widget body = ColoredBox(
+      color: AppBrandGradients.accountMenuPageBackground,
       child: SafeArea(
         child: padded
             ? Padding(
@@ -38,7 +37,7 @@ class AppScaffold extends StatelessWidget {
     );
 
     return Scaffold(
-      backgroundColor: Colors.transparent,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: appBar,
       body: body,
       bottomNavigationBar: bottomNavigationBar,
@@ -64,18 +63,23 @@ class AppCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
     final content = Container(
       margin: margin,
       padding: padding ?? const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: scheme.surfaceContainerHigh,
+        color: AppPalette.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: scheme.outlineVariant,
+          color: AppPalette.outlineSoft,
           width: 1,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: child,
     );
@@ -185,7 +189,17 @@ class SecondaryButton extends StatelessWidget {
       ],
     );
 
-    final button = OutlinedButton(
+    final button = FilledButton(
+      style: FilledButton.styleFrom(
+        backgroundColor: AppPalette.beige,
+        foregroundColor: AppPalette.onSurface,
+        elevation: 0,
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: AppPalette.outlineSoft),
+        ),
+      ),
       onPressed: onPressed,
       child: child,
     );
@@ -229,7 +243,7 @@ class EmptyState extends StatelessWidget {
             Icon(
               icon,
               size: 56,
-              color: scheme.onSurfaceVariant,
+              color: AppPalette.emptyIcon,
             ),
             const SizedBox(height: 16),
             Text(

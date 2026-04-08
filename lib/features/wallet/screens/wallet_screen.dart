@@ -15,6 +15,7 @@ import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/widgets/gem_icon.dart';
 import '../../../shared/styles/app_brand_styles.dart';
+import '../../../shared/widgets/brand_app_chrome.dart';
 
 /// Bottom sheet wrapper for wallet screen
 class WalletBottomSheet extends StatelessWidget {
@@ -84,46 +85,19 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
         : null;
     ref.watch(socketServiceProvider);
 
-    return Container(
-      decoration: BoxDecoration(
-        gradient: AppBrandGradients.appBackground,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          children: [
-            // Drag handle
-            Container(
-              margin: const EdgeInsets.only(top: 12, bottom: 8),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.4),
-                borderRadius: BorderRadius.circular(2),
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      child: ColoredBox(
+        color: AppBrandGradients.accountMenuPageBackground,
+        child: SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              BrandSheetHeader(
+                title: 'Wallet',
+                trailing: [BrandHeaderCoinsChip(coins: coins)],
               ),
-            ),
-            // Header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Wallet',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurface,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  _CoinsPill(coins: coins),
-                ],
-              ),
-            ),
-            // Content
-            Expanded(
+              Expanded(
               child: isCreator
                   ? earningsAsync!.when(
                       data: (earnings) => _CreatorWalletView(
@@ -172,6 +146,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                     ),
             ),
           ],
+        ),
         ),
       ),
     );
@@ -243,9 +218,8 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  GemIcon(
+                  const GemIcon(
                     size: 18,
-                    color: scheme.primary,
                   ),
                   const SizedBox(width: 4),
                     Flexible(
@@ -429,9 +403,8 @@ class _CreatorWalletView extends StatelessWidget {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        GemIcon(
+                        const GemIcon(
                           size: 36,
-                          color: scheme.primary,
                         ),
                         const SizedBox(width: 8),
                         Flexible(
@@ -743,49 +716,6 @@ class _UserWalletView extends StatelessWidget {
   }
 }
 
-class _CoinsPill extends StatelessWidget {
-  final int coins;
-  const _CoinsPill({required this.coins});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: scheme.scrim.withValues(alpha: 0.35),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: scheme.outlineVariant),
-        boxShadow: [
-          BoxShadow(
-            color: scheme.shadow.withValues(alpha: 0.18),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              GemIcon(
-                size: 20,
-                color: scheme.primary,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                coins.toString(),
-                style: TextStyle(
-                  color: scheme.onSurface,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
-            ],
-          ),
-    );
-  }
-}
-
 class _CoinPack {
   final int coins;
   final int price;
@@ -836,9 +766,8 @@ class _VerticalCoinPackCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: GemIcon(
+                child: const GemIcon(
                   size: 24,
-                  color: scheme.primary,
                 ),
               ),
               const SizedBox(width: 16),
