@@ -274,12 +274,18 @@ class ApiClient {
     return token;
   }
 
-  Future<Response> get(String path) async {
+  Future<Response> get(
+    String path, {
+    Map<String, dynamic>? queryParameters,
+  }) async {
     try {
       if (kDebugMode) {
         debugPrint('🔵 [API] GET request to: $path');
+        if (queryParameters != null && queryParameters.isNotEmpty) {
+          debugPrint('   🔍 Query params: $queryParameters');
+        }
       }
-      return await _dio.get(path);
+      return await _dio.get(path, queryParameters: queryParameters);
     } catch (e) {
       if (kDebugMode) {
         debugPrint('❌ [API] GET request failed: $e');

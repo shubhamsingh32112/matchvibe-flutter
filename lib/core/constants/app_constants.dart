@@ -40,5 +40,8 @@ class AppConstants {
 
   /// Per-user key suffix: `ack_profile_revision_$userId` — last seen [UserModel.profileRevision].
   static const String keyAckProfileRevisionPrefix = 'ack_profile_revision_';
+
+  /// Staged referral code before Firebase sign-in (survives process death when persisted).
+  static const String keyPendingReferralCode = 'pending_referral_code';
 }
 

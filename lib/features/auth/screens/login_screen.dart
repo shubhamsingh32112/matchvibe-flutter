@@ -1,5 +1,7 @@
+import 'dart:async' show unawaited;
 import 'dart:ui';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
@@ -13,10 +15,14 @@ import '../../../core/constants/app_constants.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/app_modal_bottom_sheet.dart';
 import '../../../core/utils/referral_code_format.dart';
+import '../../referral/services/referral_service.dart';
 import '../providers/auth_provider.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.initialRefParam});
+
+  /// From `?ref=` query or deep link (optional).
+  final String? initialRefParam;
 
   @override
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
@@ -26,6 +32,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     with WidgetsBindingObserver {
   final _referralController = TextEditingController();
   final _referralFocusNode = FocusNode();
+  final _referralService = ReferralService();
 
   VideoPlayerController? _videoController;
   bool _videoReady = false;
@@ -37,11 +44,105 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   /// Phone sheet is sending OTP (for in-pill spinner on main screen).
   bool _phoneSending = false;
 
+  /// After successful [GET /referral/preview] — normalized code shown in banner.
+  String? _stagedReferralDisplay;
+
+  String? _referralInlineError;
+  bool _previewLoading = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initVideo();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrapReferralUi());
+  }
+
+  void _bootstrapReferralUi() {
+    final fromQuery = widget.initialRefParam?.trim();
+    if (fromQuery != null && fromQuery.isNotEmpty) {
+      _referralController.text = fromQuery.toUpperCase();
+      unawaited(_runReferralPreview(rawOverride: fromQuery));
+      return;
+    }
+    final pending = ref.read(authProvider.notifier).peekPendingReferralCode();
+    if (pending != null && pending.isNotEmpty) {
+      _referralController.text = pending;
+      setState(() => _stagedReferralDisplay = pending);
+    }
+  }
+
+  Future<void> _runReferralPreview({String? rawOverride}) async {
+    final raw = (rawOverride ?? _referralController.text).trim();
+    if (raw.isEmpty) {
+      setState(() {
+        _referralInlineError = 'Enter a referral code';
+        _stagedReferralDisplay = null;
+      });
+      return;
+    }
+    if (!ReferralCodeFormat.isValid(raw)) {
+      if (mounted) {
+        AppToast.showInfo(
+          context,
+          'Referral code must be 6 or 8 characters (e.g. JO4832 or JOE48392)',
+        );
+      }
+      return;
+    }
+
+    setState(() {
+      _previewLoading = true;
+      _referralInlineError = null;
+    });
+
+    try {
+      final normalized = await _referralService.previewReferralCode(raw);
+      await ref.read(authProvider.notifier).setPendingReferralCode(normalized);
+      if (!mounted) return;
+      setState(() {
+        _previewLoading = false;
+        _stagedReferralDisplay = normalized;
+        _referralController.text = normalized;
+        _referralInlineError = null;
+      });
+    } on ApplyReferralException catch (e) {
+      await ref.read(authProvider.notifier).setPendingReferralCode(null);
+      if (!mounted) return;
+      setState(() {
+        _previewLoading = false;
+        _stagedReferralDisplay = null;
+        _referralInlineError = e.message;
+      });
+    } on DioException catch (e) {
+      await ref.read(authProvider.notifier).setPendingReferralCode(null);
+      if (!mounted) return;
+      setState(() {
+        _previewLoading = false;
+        _stagedReferralDisplay = null;
+        _referralInlineError = ErrorHandler.getHumanReadableError(
+          e.message ?? 'Network error',
+        );
+      });
+    } catch (e) {
+      await ref.read(authProvider.notifier).setPendingReferralCode(null);
+      if (!mounted) return;
+      setState(() {
+        _previewLoading = false;
+        _stagedReferralDisplay = null;
+        _referralInlineError = 'Could not verify referral code. Try again.';
+      });
+    }
+  }
+
+  Future<void> _clearStagedReferral() async {
+    await ref.read(authProvider.notifier).setPendingReferralCode(null);
+    if (!mounted) return;
+    setState(() {
+      _stagedReferralDisplay = null;
+      _referralInlineError = null;
+      _referralController.clear();
+    });
   }
 
   Future<void> _initVideo() async {
@@ -104,33 +205,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     }
   }
 
-  void _showReferralDialog() {
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Referral code (optional)'),
-        content: TextField(
-          controller: _referralController,
-          focusNode: _referralFocusNode,
-          decoration: const InputDecoration(
-            hintText: 'e.g. JOE48392 or JO4832',
-            counterText: '',
-          ),
-          textCapitalization: TextCapitalization.characters,
-          maxLength: 8,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Done'),
-          ),
-        ],
-      ),
-    );
+  bool _referralReadyForSignIn() {
+    final typed = _referralController.text.trim();
+    if (typed.isEmpty) return true;
+    final staged = _stagedReferralDisplay;
+    return staged != null && staged == typed.toUpperCase();
   }
 
   Future<void> _handleGoogleLogin() async {
     debugPrint('🖱️  [UI] Google Sign-In button pressed');
+
+    if (!_referralReadyForSignIn()) {
+      AppToast.showInfo(
+        context,
+        'Tap Apply to confirm your referral code first.',
+      );
+      return;
+    }
 
     final refCode = _referralController.text.trim();
     if (refCode.isNotEmpty && !ReferralCodeFormat.isValid(refCode)) {
@@ -142,8 +233,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     }
 
     setState(() => _googlePressed = true);
-    ref.read(authProvider.notifier).setPendingReferralCode(
-          refCode.isEmpty ? null : refCode,
+    await ref.read(authProvider.notifier).setPendingReferralCode(
+          refCode.isEmpty ? null : refCode.toUpperCase(),
         );
     await ref.read(authProvider.notifier).signInWithGoogle();
     if (mounted && !ref.read(authProvider).isLoading) {
@@ -269,6 +360,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                             onTap: isSending
                                 ? null
                                 : () async {
+                                    if (!_referralReadyForSignIn()) {
+                                      AppToast.showInfo(
+                                        sheetContext,
+                                        'Tap Apply to confirm your referral code first.',
+                                      );
+                                      return;
+                                    }
                                     final phone = phoneValue?.trim();
                                     if (phone == null || phone.isEmpty) {
                                       AppToast.showInfo(
@@ -292,10 +390,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                     if (rootContext.mounted) {
                                       setState(() => _phoneSending = true);
                                     }
-                                    ref
+                                    await ref
                                         .read(authProvider.notifier)
                                         .setPendingReferralCode(
-                                          refCode.isEmpty ? null : refCode,
+                                          refCode.isEmpty ? null : refCode.toUpperCase(),
                                         );
                                     await ref
                                         .read(authProvider.notifier)
@@ -509,6 +607,155 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     );
   }
 
+  Widget _referralBlock(bool pillsEnabled) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Referral code (optional)',
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.88),
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _referralController,
+          focusNode: _referralFocusNode,
+          enabled: pillsEnabled && !_previewLoading,
+          decoration: InputDecoration(
+            hintText: 'e.g. JOE48392 or JO4832',
+            hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.45)),
+            filled: true,
+            fillColor: Colors.white.withValues(alpha: 0.12),
+            counterText: '',
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(color: Color(0xFF90CAF9), width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 14,
+            ),
+          ),
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.5,
+          ),
+          textCapitalization: TextCapitalization.characters,
+          maxLength: 8,
+          onChanged: (_) {
+            if (_stagedReferralDisplay != null) {
+              unawaited(ref.read(authProvider.notifier).setPendingReferralCode(null));
+              setState(() {
+                _stagedReferralDisplay = null;
+                _referralInlineError = null;
+              });
+            }
+          },
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 48,
+          child: OutlinedButton(
+            onPressed: pillsEnabled && !_previewLoading
+                ? () => _runReferralPreview()
+                : null,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.white,
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.5)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            child: _previewLoading
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Text('Apply'),
+          ),
+        ),
+        if (_referralInlineError != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            _referralInlineError!,
+            style: TextStyle(
+              color: Colors.red.shade200,
+              fontSize: 13,
+              height: 1.3,
+            ),
+          ),
+        ],
+        if (_stagedReferralDisplay != null) ...[
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.check_circle, color: Colors.green.shade300, size: 22),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Referral applied: ${_stagedReferralDisplay!}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'You can continue with Google or phone.',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.78),
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                TextButton(
+                  onPressed: pillsEnabled ? _clearStagedReferral : null,
+                  child: Text(
+                    'Change',
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.9)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Divider(height: 1, color: Colors.white.withValues(alpha: 0.25)),
+          const SizedBox(height: 12),
+        ],
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
@@ -687,14 +934,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        TextButton(
-                          onPressed: pillsEnabled ? _showReferralDialog : null,
-                          style: TextButton.styleFrom(
-                            foregroundColor: Colors.white.withValues(alpha: 0.9),
-                          ),
-                          child: const Text('Have a referral code?'),
-                        ),
-                        const SizedBox(height: 4),
+                        _referralBlock(pillsEnabled),
                         _pillButton(
                           onPressed: pillsEnabled ? _handleGoogleLogin : null,
                           leading: const Icon(
@@ -702,7 +942,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                             size: 36,
                             color: Color(0xFF1A1A1A),
                           ),
-                          label: 'Sign in via Google',
+                          label: 'Continue with Google',
                           busyLabel: 'Signing in…',
                           showSpinner: showGoogleSpinner,
                         ),
@@ -715,7 +955,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                             size: 26,
                             color: Color(0xFF1A1A1A),
                           ),
-                          label: 'Sign in via Phone Number',
+                          label: 'Continue with Phone',
                           busyLabel: 'Sending…',
                           showSpinner: showPhoneSpinner,
                         ),

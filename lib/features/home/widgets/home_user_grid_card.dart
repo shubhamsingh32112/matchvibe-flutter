@@ -17,6 +17,7 @@ import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/coin_purchase_popup.dart';
 import '../../../shared/widgets/app_modal_bottom_sheet.dart';
 import '../../../shared/widgets/brand_app_chrome.dart';
+import '../../../shared/widgets/creator_price_per_minute_label.dart';
 
 class HomeUserGridCard extends ConsumerStatefulWidget {
   final CreatorModel? creator;
@@ -227,17 +228,41 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
                   right: AppSpacing.md,
                   child: _AvailabilityTag(isOnline: isCreatorOnline),
                 ),
-              if (showVideoCall)
+              if (widget.creator != null)
                 Positioned(
-                  left: 0,
-                  right: 0,
+                  left: AppSpacing.md,
+                  right: AppSpacing.md,
                   bottom: AppSpacing.lg,
-                  child: Center(
-                    child: _VideoCallButton(
-                      isLoading: _isInitiatingCall,
-                      onPressed: isCreatorOnline ? _initiateVideoCall : null,
-                      disabled: !isCreatorOnline,
-                    ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: CreatorPricePerMinuteLabel(
+                            price: widget.creator!.price,
+                            expandText: true,
+                            overflow: TextOverflow.ellipsis,
+                            iconSize: 14,
+                            iconColor: Colors.white,
+                            textStyle:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 12,
+                                      height: 1.2,
+                                    ),
+                          ),
+                        ),
+                      ),
+                      if (showVideoCall)
+                        _VideoCallButton(
+                          isLoading: _isInitiatingCall,
+                          onPressed:
+                              isCreatorOnline ? _initiateVideoCall : null,
+                          disabled: !isCreatorOnline,
+                        ),
+                    ],
                   ),
                 ),
             ],
@@ -268,7 +293,8 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
   }
 }
 
-class _VideoCallButton extends StatelessWidget {
+/// Video call FAB on home creator tiles: optional heartbeat scale when tappable.
+class _VideoCallButton extends StatefulWidget {
   final bool isLoading;
   final VoidCallback? onPressed;
   final bool disabled;
@@ -280,28 +306,107 @@ class _VideoCallButton extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final effectiveDisabled = disabled || onPressed == null;
-    const double buttonSize = 56;
-    const double iconSize = 26;
-    final brand = AppBrandGradients.userHomeVideoCall;
+  State<_VideoCallButton> createState() => _VideoCallButtonState();
+}
 
-    return Material(
+class _VideoCallButtonState extends State<_VideoCallButton>
+    with SingleTickerProviderStateMixin {
+  static const double _buttonSize = 56;
+  static const double _iconSize = 26;
+
+  late final AnimationController _heartbeatController;
+  late final Animation<double> _heartbeatScale;
+
+  @override
+  void initState() {
+    super.initState();
+    _heartbeatController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1600),
+    );
+    _heartbeatScale = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.0, end: 1.12)
+            .chain(CurveTween(curve: Curves.easeOut)),
+        weight: 14,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.12, end: 1.0)
+            .chain(CurveTween(curve: Curves.easeIn)),
+        weight: 14,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.0, end: 1.08)
+            .chain(CurveTween(curve: Curves.easeOut)),
+        weight: 11,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.08, end: 1.0)
+            .chain(CurveTween(curve: Curves.easeIn)),
+        weight: 11,
+      ),
+      TweenSequenceItem(tween: ConstantTween<double>(1.0), weight: 50),
+    ]).animate(_heartbeatController);
+  }
+
+  void _syncHeartbeat() {
+    final effectiveDisabled = widget.disabled || widget.onPressed == null;
+    final shouldPulse = !effectiveDisabled &&
+        !widget.isLoading &&
+        !(MediaQuery.maybeOf(context)?.disableAnimations ?? false);
+
+    if (shouldPulse) {
+      if (!_heartbeatController.isAnimating) {
+        _heartbeatController.repeat();
+      }
+    } else {
+      _heartbeatController.stop();
+      _heartbeatController.value = 0;
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncHeartbeat();
+  }
+
+  @override
+  void didUpdateWidget(_VideoCallButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncHeartbeat();
+  }
+
+  @override
+  void dispose() {
+    _heartbeatController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final effectiveDisabled = widget.disabled || widget.onPressed == null;
+    final brand = AppBrandGradients.userHomeVideoCall;
+    final shouldPulse = !effectiveDisabled &&
+        !widget.isLoading &&
+        !(MediaQuery.maybeOf(context)?.disableAnimations ?? false);
+
+    Widget button = Material(
       color: effectiveDisabled
           ? brand.withValues(alpha: 0.42)
           : brand.withValues(alpha: 0.95),
       borderRadius: BorderRadius.circular(999),
       child: InkWell(
-        onTap: isLoading || effectiveDisabled ? null : onPressed,
+        onTap: widget.isLoading || effectiveDisabled ? null : widget.onPressed,
         borderRadius: BorderRadius.circular(999),
         child: SizedBox(
-          width: buttonSize,
-          height: buttonSize,
+          width: _buttonSize,
+          height: _buttonSize,
           child: Center(
-            child: isLoading
+            child: widget.isLoading
                 ? SizedBox(
-                    width: iconSize,
-                    height: iconSize,
+                    width: _iconSize,
+                    height: _iconSize,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
                       valueColor:
@@ -313,12 +418,28 @@ class _VideoCallButton extends StatelessWidget {
                     color: effectiveDisabled
                         ? Colors.white.withValues(alpha: 0.72)
                         : Colors.white,
-                    size: iconSize,
+                    size: _iconSize,
                   ),
           ),
         ),
       ),
     );
+
+    if (shouldPulse) {
+      button = AnimatedBuilder(
+        animation: _heartbeatScale,
+        builder: (context, child) {
+          return Transform.scale(
+            scale: _heartbeatScale.value,
+            alignment: Alignment.center,
+            child: child,
+          );
+        },
+        child: button,
+      );
+    }
+
+    return button;
   }
 }
 
@@ -354,7 +475,7 @@ class _AvailabilityTag extends StatelessWidget {
             isOnline ? 'Online' : 'Busy',
             style: const TextStyle(
               color: Colors.white,
-              fontSize: 10,
+              fontSize: 9,
               fontWeight: FontWeight.bold,
             ),
           ),
@@ -379,13 +500,16 @@ class _CreatorInfoText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final titleStyle = Theme.of(context).textTheme.titleMedium?.copyWith(
+    final titleStyle = Theme.of(context).textTheme.titleSmall?.copyWith(
           color: textColor,
           fontWeight: FontWeight.w700,
           height: 1.12,
+          fontSize: 13,
         );
-    final subtitleStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
+    final subtitleStyle = Theme.of(context).textTheme.labelMedium?.copyWith(
           color: textColor,
+          fontSize: 11,
+          height: 1.2,
         );
 
     return Column(
@@ -545,6 +669,19 @@ class _CreatorProfileBottomSheet extends StatelessWidget {
                               .textTheme
                               .titleMedium
                               ?.copyWith(color: scheme.onSurfaceVariant),
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Center(
+                        child: CreatorPricePerMinuteLabel(
+                          price: creator.price,
+                          iconColor: scheme.onSurface,
+                          textStyle:
+                              Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                    color: scheme.onSurface,
+                                  ),
+                          textAlign: TextAlign.center,
                         ),
                       ),
                       const SizedBox(height: AppSpacing.lg),

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/withdrawal_provider.dart';
 import '../models/withdrawal_model.dart';
@@ -44,13 +43,6 @@ class _WithdrawalScreenState extends ConsumerState<WithdrawalScreen> {
     final authState = ref.watch(authProvider);
     final user = authState.user;
     final withdrawalState = ref.watch(withdrawalProvider);
-
-    if (user?.creatorApplicationPending == true) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (context.mounted) context.go('/agent-verification');
-      });
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
 
     // Role guard — only creators
     if (user?.role != 'creator' && user?.role != 'admin') {

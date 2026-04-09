@@ -53,6 +53,12 @@
 				<string>zztherapy</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>app</string>
+			</array>
+		</dict>
 	</array>
 	<!-- Privacy usage descriptions (required on iOS) -->
 	<key>NSCameraUsageDescription</key>

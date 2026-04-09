@@ -81,6 +81,23 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
   Future<void> _handleIncomingDeepLink(Uri uri) async {
     if (!mounted) return;
 
+    // Referral: app://signup?ref=CODE or zztherapy://signup?ref=CODE
+    if ((uri.scheme == 'app' || uri.scheme == 'zztherapy') &&
+        uri.host == 'signup') {
+      final raw = uri.queryParameters['ref'];
+      if (raw == null || raw.trim().isEmpty) {
+        debugPrint('🔗 [APP LINKS] signup deep link without ref → /login');
+        appRouter.go('/login');
+        return;
+      }
+      final trimmed = raw.trim();
+      debugPrint('🔗 [APP LINKS] signup deep link ref=$trimmed');
+      appRouter.go(
+        Uri(path: '/login', queryParameters: {'ref': trimmed}).toString(),
+      );
+      return;
+    }
+
     if (uri.scheme != 'zztherapy') return;
     if (uri.host != 'wallet') return;
 
@@ -209,11 +226,12 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
             '   Call screen should already be visible — not navigating');
       }
 
-      // Refresh home feed when app resumes (so users see newly online creators)
+      // Refresh home feed + profile when app resumes (promotion to creator syncs role)
       if (user != null && user.role == 'user') {
         debugPrint(
-            '📱 [APP LIFECYCLE] App resumed — refreshing home feed for user');
+            '📱 [APP LIFECYCLE] App resumed — refreshing home feed + user for user');
         ref.invalidate(homeFeedProvider);
+        unawaited(ref.read(authProvider.notifier).refreshUser());
       }
 
       // Creators / admins: refresh profile (profileRevision toast) + dashboard

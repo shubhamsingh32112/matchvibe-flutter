@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../../../core/api/api_client.dart';
+import '../../../core/utils/referral_apply_messages.dart';
 import '../../../core/utils/referral_code_format.dart';
 import '../models/referral_model.dart';
 
@@ -25,6 +26,40 @@ class ReferralService {
       return ReferralData.fromJson(response.data['data'] as Map<String, dynamic>);
     }
     throw Exception(response.data['error'] as String? ?? 'Failed to load referrals');
+  }
+
+  /// Pre-login validation (`GET /referral/preview?code=`). Returns normalized code.
+  Future<String> previewReferralCode(String rawCode) async {
+    final c = rawCode.trim().toUpperCase();
+    if (!ReferralCodeFormat.isValid(c)) {
+      throw ApplyReferralException(
+        ReferralApplyMessages.forServerCode('INVALID_FORMAT'),
+        errorCode: 'INVALID_FORMAT',
+      );
+    }
+    try {
+      final response = await _apiClient.get(
+        '/referral/preview',
+        queryParameters: {'code': c},
+      );
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        final data = response.data['data'] as Map<String, dynamic>?;
+        final code = data?['code'] as String?;
+        if (code != null && code.isNotEmpty) return code;
+      }
+      throw ApplyReferralException('Invalid referral code', errorCode: 'NOT_FOUND');
+    } on DioException catch (e) {
+      final data = e.response?.data;
+      if (data is Map<String, dynamic>) {
+        final errCode = data['errorCode'] as String?;
+        throw ApplyReferralException(
+          data['error'] as String? ??
+              ReferralApplyMessages.forServerCode(errCode),
+          errorCode: errCode,
+        );
+      }
+      rethrow;
+    }
   }
 
   /// One-time post-signup attach (`POST /user/referral/apply`).

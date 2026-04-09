@@ -19,6 +19,16 @@ class AppBrandGradients {
 
   static const LinearGradient accountBackground = appBackground;
 
+  /// Pre-connect video call card (dial / incoming) — lavender → light grey.
+  static const LinearGradient callDialCard = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [
+      Color(0xFFE8E0F5),
+      Color(0xFFF8F8FA),
+    ],
+  );
+
   /// Soft separation for frosted-style cards (light mode).
   static LinearGradient get frostedCard => LinearGradient(
         begin: Alignment.topLeft,

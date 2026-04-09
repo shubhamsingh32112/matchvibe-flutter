@@ -2,26 +2,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stream_video_flutter/stream_video_flutter.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../shared/styles/app_brand_styles.dart';
 import '../../../shared/widgets/coin_purchase_popup.dart';
 import '../../../shared/widgets/app_modal_bottom_sheet.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../controllers/call_connection_controller.dart';
 import '../utils/call_remote_image_resolver.dart';
+import '../utils/call_remote_participant_display.dart';
+import 'call_dial_card.dart';
 
 /// Widget to display incoming call notification.
 ///
 /// Shows Accept / Reject buttons when idle.
-/// Shows "Connecting…" spinner when the controller is preparing / joining.
+/// Shows "Connecting…" + progress bar when the controller is preparing / joining.
 ///
-/// ❌ Does NOT navigate or join — delegates entirely to [CallConnectionController].
-class IncomingCallWidget extends ConsumerWidget {
+/// Does not navigate or join — delegates entirely to [CallConnectionController].
+class IncomingCallWidget extends ConsumerStatefulWidget {
   final Call incomingCall;
   final String? fallbackImageUrl;
 
   /// Called when the call is dismissed (rejected by creator or cancelled by caller).
-  /// The parent [IncomingCallListener] uses this to mark the call ID as handled
-  /// and prevent the overlay from re-appearing.
   final VoidCallback? onDismiss;
 
   const IncomingCallWidget({
@@ -32,197 +31,129 @@ class IncomingCallWidget extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final scheme = Theme.of(context).colorScheme;
+  ConsumerState<IncomingCallWidget> createState() => _IncomingCallWidgetState();
+}
+
+class _IncomingCallWidgetState extends ConsumerState<IncomingCallWidget>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _barController;
+
+  @override
+  void initState() {
+    super.initState();
+    _barController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _barController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final callPhase = ref.watch(callConnectionControllerProvider).phase;
     final currentUserId = ref.watch(authProvider).firebaseUser?.uid;
     final isProcessing = callPhase == CallConnectionPhase.preparing ||
         callPhase == CallConnectionPhase.joining;
 
-    String? remoteImageUrl = (fallbackImageUrl != null &&
-            fallbackImageUrl!.isNotEmpty)
-        ? fallbackImageUrl
+    String? remoteImageUrl = (widget.fallbackImageUrl != null &&
+            widget.fallbackImageUrl!.isNotEmpty)
+        ? widget.fallbackImageUrl
         : resolveRemoteImageUrl(
-            call: incomingCall,
+            call: widget.incomingCall,
             currentUserId: currentUserId,
-            fallbackImageUrl: fallbackImageUrl,
+            fallbackImageUrl: widget.fallbackImageUrl,
             enableDebugLogs: true,
             debugSourceTag: 'incoming',
           );
 
     debugPrint(
-        '🖼️ [INCOMING CALL WIDGET] Image URL: ${remoteImageUrl ?? "null"} (fallback: ${fallbackImageUrl ?? "null"})');
+        '🖼️ [INCOMING CALL WIDGET] Image URL: ${remoteImageUrl ?? "null"} (fallback: ${widget.fallbackImageUrl ?? "null"})');
 
     final u = remoteImageUrl;
     final String? photoUrl =
         u != null && u.trim().isNotEmpty ? u.trim() : null;
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        if (photoUrl != null)
-          Image.network(
-            photoUrl,
-            fit: BoxFit.cover,
-            width: double.infinity,
-            height: double.infinity,
-            errorBuilder: (context, error, stackTrace) {
-              debugPrint('❌ [INCOMING CALL WIDGET] Image load error: $error');
-              return ColoredBox(color: scheme.surface);
-            },
-            loadingBuilder: (context, child, loadingProgress) {
-              if (loadingProgress == null) return child;
-              return ColoredBox(
-                color: scheme.surface,
-                child: Center(
-                  child: CircularProgressIndicator(
-                    color: scheme.primary,
-                    value: loadingProgress.expectedTotalBytes != null
-                        ? loadingProgress.cumulativeBytesLoaded /
-                            loadingProgress.expectedTotalBytes!
-                        : null,
-                  ),
-                ),
-              );
-            },
-          )
-        else
-          Container(
-            width: double.infinity,
-            height: double.infinity,
-            decoration: const BoxDecoration(
-              gradient: AppBrandGradients.appBackground,
-            ),
-            child: Center(
-              child: Icon(
-                Icons.person,
-                size: 120,
-                color: AppPalette.emptyIcon,
+    final display = resolveRemoteParticipantDisplay(
+      call: widget.incomingCall,
+      currentUserId: currentUserId,
+      fallbackName: 'Caller',
+    );
+
+    final footer = isProcessing
+        ? null
+        : Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _CallActionButton(
+                icon: Icons.call_end,
+                label: 'Reject',
+                color: AppPalette.primaryRed,
+                labelColor: AppPalette.onSurface,
+                onPressed: () async {
+                  try {
+                    await widget.incomingCall.reject();
+                    debugPrint('❌ [CALL] Call rejected by creator');
+                  } catch (e) {
+                    debugPrint('❌ [CALL] Error rejecting call: $e');
+                  }
+                  widget.onDismiss?.call();
+                },
               ),
-            ),
-          ),
-        if (photoUrl != null)
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.black.withValues(alpha: 0.18),
-                  Colors.black.withValues(alpha: 0.48),
-                ],
+              _CallActionButton(
+                icon: Icons.call,
+                label: 'Accept',
+                color: AppPalette.success,
+                labelColor: AppPalette.onSurface,
+                onPressed: () {
+                  final authState = ref.read(authProvider);
+                  final user = authState.user;
+                  if (user != null &&
+                      user.role == 'user' &&
+                      user.coins < 10) {
+                    showAppModalBottomSheet(
+                      context: context,
+                      builder: (context) => const CoinPurchaseBottomSheet(),
+                    );
+                    return;
+                  }
+                  ref
+                      .read(callConnectionControllerProvider.notifier)
+                      .acceptIncomingCall(widget.incomingCall);
+                },
               ),
-            ),
-          ),
-        SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                CircleAvatar(
-                  radius: 60,
-                  backgroundColor: photoUrl != null
-                      ? Colors.white.withValues(alpha: 0.22)
-                      : AppPalette.surface,
-                  child: ClipOval(
-                    child: photoUrl != null
-                        ? Image.network(
-                            photoUrl,
-                            width: 120,
-                            height: 120,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) =>
-                                const Icon(
-                              Icons.person,
-                              size: 60,
-                              color: Colors.white,
-                            ),
-                          )
-                        : Icon(
-                            Icons.person,
-                            size: 60,
-                            color: AppPalette.subtitle,
-                          ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  isProcessing ? 'Connecting…' : 'Incoming Call',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: photoUrl != null
-                            ? Colors.white
-                            : AppPalette.onSurface,
-                      ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Video Call',
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: photoUrl != null
-                            ? Colors.white.withValues(alpha: 0.85)
-                            : AppPalette.subtitle,
-                      ),
-                ),
-                const Spacer(),
-                if (isProcessing)
-                  CircularProgressIndicator(
-                    color: photoUrl != null ? Colors.white : scheme.primary,
-                  )
-                else
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _CallActionButton(
-                        icon: Icons.call_end,
-                        label: 'Reject',
-                        color: AppPalette.primaryRed,
-                        labelColor: photoUrl != null
-                            ? Colors.white
-                            : AppPalette.onSurface,
-                        onPressed: () async {
-                          try {
-                            await incomingCall.reject();
-                            debugPrint('❌ [CALL] Call rejected by creator');
-                          } catch (e) {
-                            debugPrint('❌ [CALL] Error rejecting call: $e');
-                          }
-                          onDismiss?.call();
-                        },
-                      ),
-                      _CallActionButton(
-                        icon: Icons.call,
-                        label: 'Accept',
-                        color: AppPalette.success,
-                        labelColor: photoUrl != null
-                            ? Colors.white
-                            : AppPalette.onSurface,
-                        onPressed: () {
-                          final authState = ref.read(authProvider);
-                          final user = authState.user;
-                          if (user != null &&
-                              user.role == 'user' &&
-                              user.coins < 10) {
-                            showAppModalBottomSheet(
-                              context: context,
-                              builder: (context) =>
-                                  const CoinPurchaseBottomSheet(),
-                            );
-                            return;
-                          }
-                          ref
-                              .read(callConnectionControllerProvider.notifier)
-                              .acceptIncomingCall(incomingCall);
-                        },
-                      ),
-                    ],
-                  ),
-              ],
+            ],
+          );
+
+    return Material(
+      color: Colors.black54,
+      child: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                bottom: Radius.circular(28),
+              ),
+              child: CallDialCard(
+                nameLine: display.nameLine,
+                country: display.country,
+                imageUrl: photoUrl,
+                statusText: isProcessing ? 'Connecting…' : 'Incoming Call',
+                showConnectingBar: isProcessing,
+                connectingBarAnimation: _barController,
+                showHangUpButton: false,
+                bottomSectionReplacement: footer,
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+              ),
             ),
           ),
         ),
-      ],
+      ),
     );
   }
 }
@@ -245,6 +176,7 @@ class _CallActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Container(
           width: 64,

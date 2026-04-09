@@ -54,10 +54,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
   void _goAfterAuth(AuthState authState) {
     if (!mounted) return;
-    if (authState.user?.creatorApplicationPending == true) {
-      context.go('/agent-verification');
-      return;
-    }
     if (authState.user?.gender == null || authState.user!.gender!.isEmpty) {
       context.go('/gender');
     } else {

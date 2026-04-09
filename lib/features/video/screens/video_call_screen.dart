@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -11,13 +10,14 @@ import '../widgets/live_billing_overlay.dart';
 import '../services/permission_service.dart';
 import '../services/security_service.dart';
 import '../utils/call_remote_image_resolver.dart';
+import '../utils/call_remote_participant_display.dart';
+import '../widgets/call_dial_card.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/coin_purchase_popup.dart';
 import '../../../shared/widgets/app_modal_bottom_sheet.dart';
-import '../../../shared/styles/app_brand_styles.dart';
 
 /// Screen for active video call — **pure renderer**.
 ///
@@ -117,10 +117,8 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
 // Outgoing / Connecting call view
 // ---------------------------------------------------------------------------
 
-/// Shown while the call is being set up (preparing / joining).
-///
-/// For users (outgoing): "Calling…" with a pulsating avatar and end-call button.
-/// For creators (incoming-accepted): "Connecting…" with a spinner.
+/// Shown while the call is being set up (preparing / joining) on `/call`
+/// (e.g. creator after accept). Uses the same [CallDialCard] as dial / incoming.
 class _OutgoingCallView extends ConsumerStatefulWidget {
   final bool isOutgoing;
   final Call? call;
@@ -136,30 +134,25 @@ class _OutgoingCallView extends ConsumerStatefulWidget {
 
 class _OutgoingCallViewState extends ConsumerState<_OutgoingCallView>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _pulseController;
-  late final Animation<double> _pulseAnimation;
+  late final AnimationController _barController;
 
   @override
   void initState() {
     super.initState();
-    _pulseController = AnimationController(
+    _barController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    )..repeat(reverse: true);
-    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.15).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
-    );
+      duration: const Duration(milliseconds: 1400),
+    )..repeat();
   }
 
   @override
   void dispose() {
-    _pulseController.dispose();
+    _barController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final statusText = widget.isOutgoing ? 'Calling…' : 'Connecting…';
     final currentUserId = ref.watch(authProvider).firebaseUser?.uid;
     final callConnectionState = ref.watch(callConnectionControllerProvider);
@@ -174,237 +167,54 @@ class _OutgoingCallViewState extends ConsumerState<_OutgoingCallView>
         ? remoteUrl.trim()
         : null;
 
-    // 🔥 BACK BUTTON HANDLER: End call when back button pressed during preparing/joining
+    final display = resolveRemoteParticipantDisplay(
+      call: widget.call,
+      currentUserId: currentUserId,
+      fallbackName: widget.isOutgoing ? 'Creator' : 'User',
+    );
+
     return PopScope(
-      canPop: false, // Prevent default navigation
+      canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (!didPop) {
-          // Back button pressed - cancel/end call
           final phase = callConnectionState.phase;
-          if (phase == CallConnectionPhase.preparing || 
+          if (phase == CallConnectionPhase.preparing ||
               phase == CallConnectionPhase.joining) {
-            debugPrint('🔙 [CALL] Back button pressed during $phase - ending call');
+            debugPrint(
+                '🔙 [CALL] Back button pressed during $phase - ending call');
             await ref.read(callConnectionControllerProvider.notifier).endCall();
           }
         }
       },
       child: Scaffold(
-      backgroundColor: scheme.surface,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (photoUrl != null)
-            Image.network(
-              photoUrl,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) =>
-                  Container(color: scheme.surface),
-            )
-          else
-            const DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: AppBrandGradients.appBackground,
-              ),
-            ),
-          if (photoUrl != null)
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.black.withValues(alpha: 0.2),
-                    Colors.black.withValues(alpha: 0.48),
-                  ],
+        backgroundColor: Colors.black54,
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(
+                  bottom: Radius.circular(28),
                 ),
-              ),
-            ),
-          SafeArea(
-            child: Column(
-              children: [
-                const Spacer(flex: 2),
-
-                // ── Pulsating avatar ──────────────────────────────────────
-                AnimatedBuilder(
-                  animation: _pulseAnimation,
-                  builder: (context, child) {
-                    return Transform.scale(
-                      scale: _pulseAnimation.value,
-                      child: child,
-                    );
-                  },
-                  child: Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: photoUrl != null
-                          ? Colors.white.withValues(alpha: 0.2)
-                          : AppPalette.surface,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.12),
-                          blurRadius: 24,
-                          spreadRadius: 2,
-                        ),
-                      ],
-                    ),
-                    child: ClipOval(
-                      child: photoUrl != null
-                          ? Image.network(
-                              photoUrl,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) =>
-                                  const Icon(
-                                Icons.person,
-                                size: 60,
-                                color: Colors.white,
-                              ),
-                            )
-                          : Icon(
-                              Icons.person,
-                              size: 60,
-                              color: AppPalette.subtitle,
-                            ),
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 32),
-
-                // ── Status text ──────────────────────────────────────────
-                Text(
-                  statusText,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: photoUrl != null
-                            ? Colors.white
-                            : AppPalette.onSurface,
-                      ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Video Call',
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: photoUrl != null
-                            ? Colors.white.withValues(alpha: 0.85)
-                            : AppPalette.subtitle,
-                      ),
-                ),
-                const SizedBox(height: 16),
-
-                // ── Animated dots ────────────────────────────────────────
-                _AnimatedDots(
-                  color: photoUrl != null ? Colors.white : AppPalette.primaryRed,
-                ),
-
-                const Spacer(flex: 3),
-
-                // ── End call button ──────────────────────────────────────
-                GestureDetector(
-                  onTap: () {
+                child: CallDialCard(
+                  nameLine: display.nameLine,
+                  country: display.country,
+                  imageUrl: photoUrl,
+                  statusText: statusText,
+                  showConnectingBar: true,
+                  connectingBarAnimation: _barController,
+                  onHangUp: () {
                     ref
                         .read(callConnectionControllerProvider.notifier)
                         .endCall();
                   },
-                  child: Container(
-                    width: 72,
-                    height: 72,
-                    decoration: BoxDecoration(
-                      color: AppPalette.primaryRed,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppPalette.primaryRed.withValues(alpha: 0.45),
-                          blurRadius: 16,
-                          spreadRadius: 1,
-                        ),
-                      ],
-                    ),
-                    child: const Icon(
-                      Icons.call_end,
-                      color: Colors.white,
-                      size: 32,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  widget.isOutgoing ? 'Cancel' : 'End',
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: photoUrl != null
-                            ? Colors.white.withValues(alpha: 0.85)
-                            : AppPalette.subtitle,
-                      ),
-                ),
-
-                const SizedBox(height: 48),
-              ],
-            ),
-          ),
-        ],
-      ),
-      ),
-    );
-  }
-}
-
-/// Three animated dots that pulse in sequence.
-class _AnimatedDots extends StatefulWidget {
-  final Color color;
-  const _AnimatedDots({required this.color});
-
-  @override
-  State<_AnimatedDots> createState() => _AnimatedDotsState();
-}
-
-class _AnimatedDotsState extends State<_AnimatedDots>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, _) {
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(3, (index) {
-            final delay = index * 0.2;
-            final t = (_controller.value - delay).clamp(0.0, 1.0);
-            final opacity = 0.3 + 0.7 * math.sin(t * math.pi);
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Opacity(
-                opacity: opacity,
-                child: Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    color: widget.color,
-                    shape: BoxShape.circle,
-                  ),
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
                 ),
               ),
-            );
-          }),
-        );
-      },
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

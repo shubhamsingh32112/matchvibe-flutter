@@ -1,5 +1,8 @@
+import 'dart:async' show unawaited;
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
@@ -13,7 +16,10 @@ import '../../../core/services/availability_socket_service.dart';
 import '../../../core/services/device_fingerprint_service.dart';
 import '../../../core/services/google_sign_in_service.dart';
 import '../../../shared/models/user_model.dart';
+import '../../../core/utils/referral_apply_messages.dart';
 import '../../../core/utils/referral_code_format.dart';
+import '../../../app/router/app_router.dart';
+import '../../../shared/widgets/app_toast.dart';
 
 
 final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
@@ -143,7 +149,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<void> _init() async {
     if (_auth == null) return;
-    
+
+    await _hydratePendingReferralFromPrefs();
+
     // 🔥 CRITICAL: Disable app verification in debug mode
     // Skips Play Integrity, reCAPTCHA, cert hash checks
     // Does NOT affect production builds
@@ -332,6 +340,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       
       if (response.statusCode == 200) {
         final responseData = response.data['data'] as Map<String, dynamic>;
+        String? referralToastMessage;
+        String? referralToastCode;
 
         final ra = responseData['referralApply'];
         if (ra is Map<String, dynamic> && ra['ok'] == false) {
@@ -339,23 +349,32 @@ class AuthNotifier extends StateNotifier<AuthState> {
             '⚠️ [AUTH] Referral code not applied at signup: ${ra['code']}',
           );
         }
-
         if (pendingReferralForLogin != null) {
           if (ra is Map<String, dynamic>) {
             if (ra['ok'] == true) {
               _pendingReferralCode = null;
+              unawaited(_persistPendingReferralCode());
             } else {
               final code = ra['code'] as String?;
+              referralToastCode = code;
+              final serverMessage = ra['message'] as String?;
+              referralToastMessage = (serverMessage != null &&
+                      serverMessage.trim().isNotEmpty)
+                  ? serverMessage.trim()
+                  : ReferralApplyMessages.forServerCode(code);
               if (code == 'INVALID_FORMAT' ||
                   code == 'NOT_FOUND' ||
-                  code == 'AGENT_DISABLED') {
+                  code == 'AGENT_DISABLED' ||
+                  code == 'CREATOR_CANNOT_REFER') {
                 _pendingReferralCode = pendingReferralForLogin;
               } else {
                 _pendingReferralCode = null;
               }
+              unawaited(_persistPendingReferralCode());
             }
           } else {
             _pendingReferralCode = null;
+            unawaited(_persistPendingReferralCode());
           }
         }
         referralDispositionFinalized = true;
@@ -444,6 +463,30 @@ class AuthNotifier extends StateNotifier<AuthState> {
         );
         debugPrint('✅ [AUTH] User authenticated and synced successfully');
         debugPrint('   🎉 Ready for app usage');
+
+        final rtm = referralToastMessage;
+        final rtc = referralToastCode;
+        if (rtm != null) {
+          SchedulerBinding.instance.addPostFrameCallback((_) {
+            final ctx = appRouter.routerDelegate.navigatorKey.currentContext;
+            if (ctx != null && ctx.mounted) {
+              const infoCodes = {'ALREADY_REFERRED', 'SELF'};
+              if (rtc != null && infoCodes.contains(rtc)) {
+                AppToast.showInfo(
+                  ctx,
+                  rtm,
+                  duration: const Duration(seconds: 5),
+                );
+              } else {
+                AppToast.showError(
+                  ctx,
+                  rtm,
+                  duration: const Duration(seconds: 5),
+                );
+              }
+            }
+          });
+        }
         
         // Connect to Stream Chat
         try {
@@ -523,10 +566,50 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  /// Set pending referral code to send on the next [POST /auth/login] sync.
-  void setPendingReferralCode(String? code) {
-    _pendingReferralCode = code?.trim().isNotEmpty == true ? code!.trim().toUpperCase() : null;
+  Future<void> _persistPendingReferralCode() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (_pendingReferralCode != null && _pendingReferralCode!.isNotEmpty) {
+        await prefs.setString(
+          AppConstants.keyPendingReferralCode,
+          _pendingReferralCode!,
+        );
+      } else {
+        await prefs.remove(AppConstants.keyPendingReferralCode);
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('⚠️ [AUTH] Persist pending referral failed: $e');
+      }
+    }
   }
+
+  Future<void> _hydratePendingReferralFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final s = prefs.getString(AppConstants.keyPendingReferralCode);
+      if (s != null && s.isNotEmpty && ReferralCodeFormat.isValid(s)) {
+        _pendingReferralCode = s.trim().toUpperCase();
+        if (kDebugMode) {
+          debugPrint('🎫 [AUTH] Restored pending referral from storage');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('⚠️ [AUTH] Hydrate pending referral failed: $e');
+      }
+    }
+  }
+
+  /// Set pending referral code to send on the next [POST /auth/login] sync.
+  Future<void> setPendingReferralCode(String? code) async {
+    _pendingReferralCode =
+        code?.trim().isNotEmpty == true ? code!.trim().toUpperCase() : null;
+    await _persistPendingReferralCode();
+  }
+
+  /// Staging value for login UI (restored from prefs or deep link).
+  String? peekPendingReferralCode() => _pendingReferralCode;
 
   /// Sign in with Google (primary auth method)
   Future<void> signInWithGoogle() async {
