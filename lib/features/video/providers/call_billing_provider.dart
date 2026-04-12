@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../home/providers/availability_provider.dart';
@@ -43,6 +45,28 @@ class CallBillingState {
   final int? totalDeducted;
   final int? totalEarned;
   final int? durationSeconds;
+
+  /// Display-only: estimated coins after last server snapshot (smooth if socket lags).
+  int get estimatedUserCoins {
+    final ts = lastServerTimestampMs;
+    final pps = pricePerSecond;
+    if (ts == null || pps == null) return userCoins;
+    final extraMs = DateTime.now().millisecondsSinceEpoch - ts;
+    if (extraMs <= 0) return userCoins;
+    final burn = (extraMs / 1000.0) * pps.toDouble();
+    return math.max(0, userCoins - burn.floor());
+  }
+
+  /// Display-only: estimated creator earnings after last server snapshot.
+  double get estimatedCreatorEarningsDisplay {
+    final ts = lastServerTimestampMs;
+    final rate = pricePerSecond;
+    if (ts == null || rate == null) return creatorEarnings;
+    final extraMs = DateTime.now().millisecondsSinceEpoch - ts;
+    if (extraMs <= 0) return creatorEarnings;
+    final add = (extraMs / 1000.0) * rate.toDouble();
+    return creatorEarnings + add;
+  }
 
   const CallBillingState({
     this.isActive = false,

@@ -33,7 +33,7 @@ class _LiveBillingOverlayState extends State<LiveBillingOverlay> {
   @override
   void initState() {
     super.initState();
-    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+    _tick = Timer.periodic(const Duration(milliseconds: 400), (_) {
       if (mounted) setState(() {});
     });
   }
@@ -88,11 +88,11 @@ class _LiveBillingOverlayState extends State<LiveBillingOverlay> {
               if (widget.isCreator) ...[
                 Icon(Icons.paid_outlined, size: 18, color: accent),
                 const SizedBox(width: 6),
-                Text(_formatEarnings(b.creatorEarnings)),
+                Text(_formatEarnings(b.estimatedCreatorEarningsDisplay)),
               ] else ...[
                 Icon(Icons.monetization_on_outlined, size: 18, color: accent),
                 const SizedBox(width: 6),
-                Text('${b.userCoins}'),
+                Text('${b.estimatedUserCoins}'),
                 if (b.remainingSeconds != null) ...[
                   const SizedBox(width: 8),
                   Text(
@@ -117,8 +117,8 @@ class _LiveBillingOverlayState extends State<LiveBillingOverlay> {
     );
 
     final semanticsLabel = widget.isCreator
-        ? 'Billed time $timeLabel, earnings ${_formatEarnings(b.creatorEarnings)} coins'
-        : 'Billed time $timeLabel, ${b.userCoins} coins in wallet'
+        ? 'Billed time $timeLabel, earnings ${_formatEarnings(b.estimatedCreatorEarningsDisplay)} coins'
+        : 'Billed time $timeLabel, ${b.estimatedUserCoins} coins in wallet'
             '${b.remainingSeconds != null ? ', about ${b.remainingSeconds} seconds of call time remaining' : ''}';
 
     return Semantics(

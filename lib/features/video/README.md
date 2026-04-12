@@ -7,8 +7,8 @@ This module implements 1-on-1 video calling between users and creators using Str
 ## Components
 
 ### Services
-- **`video_service.dart`**: Backend API calls for token generation and call initiation
-- **`call_service.dart`**: High-level call management (initiate, join, leave)
+- **`video_service.dart`**: Backend API for Stream Video JWT (`POST /api/v1/video/token`) only
+- **`call_service.dart`**: Call creation via **Stream SDK** (`getOrCreate`), join, leave — the backend learns calls from Stream webhooks + billing events, not from a REST “initiate” endpoint
 
 ### Providers
 - **`stream_video_provider.dart`**: Stream Video client state management
@@ -146,7 +146,7 @@ if (isRegularUser && creator != null)
 - Only users can initiate calls (enforced server-side)
 - Exactly 2 participants (user + creator)
 - Role-based tokens (user vs call_member)
-- Deterministic call IDs prevent duplicates
+- Call IDs include a timestamp so each dial attempt is a fresh Stream session
 
 ### 🚫 Disabled Features
 - Screen sharing (explicitly disabled)
@@ -156,8 +156,8 @@ if (isRegularUser && creator != null)
 
 ## Backend Endpoints
 
-- `POST /api/v1/video/token` - Get Stream Video JWT token
-- `POST /api/v1/video/call/initiate` - Create/initiate call
+- `POST /api/v1/video/token` — Stream Video JWT (required before `StreamVideo` connects)
+- Call creation is **not** a backend REST call; use the SDK as in `call_service.dart`
 
 ## Configuration
 

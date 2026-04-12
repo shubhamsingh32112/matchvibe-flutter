@@ -417,10 +417,30 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
   }
 
 
+  /// Stream Video SDK nested call state (partially typed in SDK versions).
+  Object? _streamCallStateValue(Call call) {
+    try {
+      // ignore: avoid_dynamic_calls
+      return (call as dynamic).state?.value;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  dynamic _readStreamCreatedBy(Object? callState) {
+    if (callState == null) return null;
+    try {
+      // ignore: avoid_dynamic_calls
+      return (callState as dynamic).createdBy;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _hydrateIncomingFallbackImage(Call call) async {
     try {
-      final dynamic callState = (call as dynamic).state?.value;
-      final createdBy = callState?.createdBy;
+      final callState = _streamCallStateValue(call);
+      final createdBy = _readStreamCreatedBy(callState);
       final remoteFirebaseUid = createdBy?.id?.toString() ??
           createdBy?.userId?.toString() ??
           extractCallerFirebaseUidFromCallId(call.id);
@@ -490,6 +510,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     final endedCreatorFirebaseUid = _activeCreatorFirebaseUid;
     final endedCreatorLookupId = _activeCreatorMongoId;
     final wasConnected = _wasConnected;
+    final activeUserFirebaseUidSnapshot = _activeUserFirebaseUid;
 
     // ── Emit call:ended to trigger MongoDB settlement ──────────
     if (_activeCallId != null) {
@@ -511,44 +532,14 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       }
     }
 
-    // Queue feedback prompt for the user who paid for the call
-    // - User-initiated calls: wasOutgoing = true, _activeUserFirebaseUid = null (user pays)
-    // - Creator-initiated calls: 
-    //   * Creator's side: wasOutgoing = true, _activeUserFirebaseUid is set (user pays, but creator shouldn't rate)
-    //   * User's side: wasOutgoing = false, _activeUserFirebaseUid = null (user pays, user should rate)
-    // So we queue feedback if: wasConnected && we're NOT on creator's side of creator-initiated call
-    // i.e., _activeUserFirebaseUid == null means we're the user who pays
-    // Also ensure we're a regular user (not creator/admin) - only users should rate creators
-    final authState = _ref.read(authProvider);
-    final currentUser = authState.user;
-    final isRegularUser = currentUser != null && currentUser.role == 'user';
-    
-    if (wasConnected &&
-        _activeUserFirebaseUid == null &&
-        isRegularUser &&
-        endedCallId != null &&
-        endedCallId.isNotEmpty) {
-      _queuePostCallFeedbackPrompt(
-        callId: endedCallId,
-        creatorFirebaseUid: endedCreatorFirebaseUid,
-        creatorLookupId: endedCreatorLookupId,
-        call: call,
-      );
-    }
-
-    // Navigate to home — both user and creator land on their home page
-    CallNavigationService.navigateToHome();
-    
-    // Show coin pack bottom sheet after call ends (only for regular users)
-    if (wasConnected && isRegularUser && mounted) {
-      // Small delay to ensure navigation is complete
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (mounted) {
-          // Trigger coin purchase popup by setting the provider state directly
-          _ref.read(coinPurchasePopupProvider.notifier).state = true;
-        }
-      });
-    }
+    _feedbackNavigateCoinAfterCall(
+      wasConnected: wasConnected,
+      activeUserFirebaseUidSnapshot: activeUserFirebaseUidSnapshot,
+      endedCallId: endedCallId,
+      endedCreatorFirebaseUid: endedCreatorFirebaseUid,
+      endedCreatorLookupId: endedCreatorLookupId,
+      call: call,
+    );
     
     if (mounted) {
       _creatorAccepted = false;
@@ -560,10 +551,10 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
   //  Internals
   // ──────────────────────────────────────────────────────────────────────────
 
-  /// Returns true if [status] indicates creator has accepted (we're connecting).
+  /// True when callee accepted and WebRTC is connecting (SDK-stable checks).
   bool _isCreatorAcceptedStatus(CallStatus status) {
-    return status.runtimeType.toString().contains('Connecting') ||
-        status.toString().contains('acceptedByCallee: true');
+    return status.isConnecting ||
+        (status is CallStatusOutgoing && status.acceptedByCallee);
   }
 
   /// Listens for [CallStatusConnected] / [CallStatusDisconnected] via
@@ -635,6 +626,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
           final endedCreatorFirebaseUid = _activeCreatorFirebaseUid;
           final endedCreatorLookupId = _activeCreatorMongoId;
           final wasConnected = _wasConnected;
+          final activeUserFirebaseUidSnapshot = _activeUserFirebaseUid;
           if (_activeCallId != null) {
             debugPrint(
                 '💰 [CALL CTRL] Emitting call:ended for $_activeCallId (unexpected disconnect)');
@@ -672,46 +664,15 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
               }
             }
           } else {
-            // Queue feedback prompt for the user who paid for the call
-            // - User-initiated calls: isOutgoing = true, _activeUserFirebaseUid = null (user pays)
-            // - Creator-initiated calls:
-            //   * Creator's side: isOutgoing = true, _activeUserFirebaseUid is set (user pays, but creator shouldn't rate)
-            //   * User's side: isOutgoing = false, _activeUserFirebaseUid = null (user pays, user should rate)
-            // So we queue feedback if: wasConnected && we're NOT on creator's side of creator-initiated call
-            // i.e., _activeUserFirebaseUid == null means we're the user who pays
-            // Also ensure we're a regular user (not creator/admin) - only users should rate creators
-            final authState = _ref.read(authProvider);
-            final currentUser = authState.user;
-            final isRegularUser = currentUser != null && currentUser.role == 'user';
-            
-            if (wasConnected &&
-                _activeUserFirebaseUid == null &&
-                isRegularUser &&
-                endedCallId != null &&
-                endedCallId.isNotEmpty) {
-              _queuePostCallFeedbackPrompt(
-                callId: endedCallId,
-                creatorFirebaseUid: endedCreatorFirebaseUid,
-                creatorLookupId: endedCreatorLookupId,
-                call: call,
-              );
-            }
+            _feedbackNavigateCoinAfterCall(
+              wasConnected: wasConnected,
+              activeUserFirebaseUidSnapshot: activeUserFirebaseUidSnapshot,
+              endedCallId: endedCallId,
+              endedCreatorFirebaseUid: endedCreatorFirebaseUid,
+              endedCreatorLookupId: endedCreatorLookupId,
+              call: call,
+            );
 
-            // Normal disconnect (other party left, network, etc.)
-            // Navigate both user and creator to home
-            CallNavigationService.navigateToHome();
-            
-            // Show coin pack bottom sheet after call ends (only for regular users)
-            if (wasConnected && isRegularUser && mounted) {
-              // Small delay to ensure navigation is complete
-              Future.delayed(const Duration(milliseconds: 500), () {
-                if (mounted) {
-                  // Trigger coin purchase popup by setting the provider state directly
-                  _ref.read(coinPurchasePopupProvider.notifier).state = true;
-                }
-              });
-            }
-            
             if (mounted) {
               _creatorAccepted = false;
               state = const CallConnectionState.idle();
@@ -844,6 +805,43 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     try {
       await state.call?.leave();
     } catch (_) {}
+  }
+
+  /// Post-call feedback (paying user only) + home navigation + coin-offer popup.
+  void _feedbackNavigateCoinAfterCall({
+    required bool wasConnected,
+    required String? activeUserFirebaseUidSnapshot,
+    required String? endedCallId,
+    required String? endedCreatorFirebaseUid,
+    required String? endedCreatorLookupId,
+    required Call? call,
+  }) {
+    final authState = _ref.read(authProvider);
+    final currentUser = authState.user;
+    final isRegularUser = currentUser != null && currentUser.role == 'user';
+
+    if (wasConnected &&
+        activeUserFirebaseUidSnapshot == null &&
+        isRegularUser &&
+        endedCallId != null &&
+        endedCallId.isNotEmpty) {
+      _queuePostCallFeedbackPrompt(
+        callId: endedCallId,
+        creatorFirebaseUid: endedCreatorFirebaseUid,
+        creatorLookupId: endedCreatorLookupId,
+        call: call,
+      );
+    }
+
+    CallNavigationService.navigateToHome();
+
+    if (wasConnected && isRegularUser && mounted) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) {
+          _ref.read(coinPurchasePopupProvider.notifier).state = true;
+        }
+      });
+    }
   }
 
   void _queuePostCallFeedbackPrompt({
