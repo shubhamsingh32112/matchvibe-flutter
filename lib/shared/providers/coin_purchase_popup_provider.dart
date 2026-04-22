@@ -1,14 +1,13 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// Provider to control when the coin purchase pop-up should be shown.
-final coinPurchasePopupProvider = StateProvider<bool>((ref) => false);
+class CoinPopupIntent {
+  final String reason;
+  final String dedupeKey;
 
-/// Helper function to show the coin purchase pop-up.
-void showCoinPurchasePopup(WidgetRef ref) {
-  ref.read(coinPurchasePopupProvider.notifier).state = true;
+  const CoinPopupIntent({required this.reason, required this.dedupeKey});
 }
 
-/// Helper function to hide the coin purchase pop-up.
-void hideCoinPurchasePopup(WidgetRef ref) {
-  ref.read(coinPurchasePopupProvider.notifier).state = false;
-}
+/// Provider to request coin purchase popups via modal coordinator.
+final coinPurchasePopupProvider = StateProvider<CoinPopupIntent?>(
+  (ref) => null,
+);

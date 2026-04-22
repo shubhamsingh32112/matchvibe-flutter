@@ -1,0 +1,144 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+enum AppModalPriority { critical, high, normal, low }
+
+int _priorityRank(AppModalPriority priority) {
+  switch (priority) {
+    case AppModalPriority.critical:
+      return 0;
+    case AppModalPriority.high:
+      return 1;
+    case AppModalPriority.normal:
+      return 2;
+    case AppModalPriority.low:
+      return 3;
+  }
+}
+
+typedef ModalPresenter<T> =
+    Future<T?> Function(BuildContext context, WidgetRef ref);
+
+class AppModalRequest<T> {
+  final String id;
+  final AppModalPriority priority;
+  final String? dedupeKey;
+  final ModalPresenter<T> present;
+  final void Function(T? result)? onCompleted;
+
+  const AppModalRequest({
+    required this.id,
+    required this.priority,
+    required this.present,
+    this.dedupeKey,
+    this.onCompleted,
+  });
+}
+
+class ModalCoordinatorState {
+  final List<AppModalRequest<dynamic>> queue;
+  final bool isPresenting;
+  final Set<String> activeDedupeKeys;
+  final bool onboardingInProgress;
+  final int queueTransitions;
+  final int presentedCount;
+
+  const ModalCoordinatorState({
+    this.queue = const [],
+    this.isPresenting = false,
+    this.activeDedupeKeys = const {},
+    this.onboardingInProgress = false,
+    this.queueTransitions = 0,
+    this.presentedCount = 0,
+  });
+
+  ModalCoordinatorState copyWith({
+    List<AppModalRequest<dynamic>>? queue,
+    bool? isPresenting,
+    Set<String>? activeDedupeKeys,
+    bool? onboardingInProgress,
+    int? queueTransitions,
+    int? presentedCount,
+  }) {
+    return ModalCoordinatorState(
+      queue: queue ?? this.queue,
+      isPresenting: isPresenting ?? this.isPresenting,
+      activeDedupeKeys: activeDedupeKeys ?? this.activeDedupeKeys,
+      onboardingInProgress: onboardingInProgress ?? this.onboardingInProgress,
+      queueTransitions: queueTransitions ?? this.queueTransitions,
+      presentedCount: presentedCount ?? this.presentedCount,
+    );
+  }
+}
+
+class ModalCoordinatorNotifier extends StateNotifier<ModalCoordinatorState> {
+  ModalCoordinatorNotifier() : super(const ModalCoordinatorState());
+
+  int _counter = 0;
+
+  String nextRequestId(String prefix) {
+    _counter++;
+    return '$prefix-$_counter';
+  }
+
+  void setOnboardingInProgress(bool value) {
+    if (state.onboardingInProgress == value) return;
+    state = state.copyWith(onboardingInProgress: value);
+  }
+
+  void enqueue<T>(AppModalRequest<T> request) {
+    final key = request.dedupeKey;
+    if (key != null) {
+      final existsInQueue = state.queue.any((r) => r.dedupeKey == key);
+      final isActive = state.activeDedupeKeys.contains(key);
+      if (existsInQueue || isActive) {
+        return;
+      }
+    }
+
+    final nextQueue = [...state.queue, request];
+    nextQueue.sort(
+      (a, b) => _priorityRank(a.priority).compareTo(_priorityRank(b.priority)),
+    );
+    state = state.copyWith(queue: nextQueue);
+  }
+
+  AppModalRequest<dynamic>? takeNext() {
+    if (state.isPresenting || state.queue.isEmpty) return null;
+    assert(
+      !state.isPresenting,
+      'Modal coordinator invariant violated: tried to present while already presenting',
+    );
+    final request = state.queue.first;
+    final remaining = state.queue.sublist(1);
+    final nextKeys = {...state.activeDedupeKeys};
+    if (request.dedupeKey != null) {
+      nextKeys.add(request.dedupeKey!);
+    }
+    state = state.copyWith(
+      queue: remaining,
+      isPresenting: true,
+      activeDedupeKeys: nextKeys,
+      queueTransitions: state.queueTransitions + 1,
+    );
+    return request;
+  }
+
+  void complete(String requestId, dynamic result, {String? dedupeKey}) {
+    final nextKeys = {...state.activeDedupeKeys};
+    if (dedupeKey != null) {
+      nextKeys.remove(dedupeKey);
+    }
+    state = state.copyWith(
+      isPresenting: false,
+      activeDedupeKeys: nextKeys,
+      queueTransitions: state.queueTransitions + 1,
+      presentedCount: state.presentedCount + 1,
+    );
+  }
+}
+
+final modalCoordinatorProvider =
+    StateNotifierProvider<ModalCoordinatorNotifier, ModalCoordinatorState>(
+      (ref) => ModalCoordinatorNotifier(),
+    );

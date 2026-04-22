@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:ui' show TimingsCallback;
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_spacing.dart';
@@ -30,9 +32,11 @@ import '../../support/services/support_service.dart';
 import '../../video/providers/call_feedback_prompt_provider.dart';
 import '../../video/providers/creator_busy_toast_provider.dart';
 import '../../withdrawal/screens/withdrawal_screen.dart';
-import '../../../shared/widgets/coin_purchase_popup.dart';
 import '../../../shared/widgets/app_modal_bottom_sheet.dart';
-import '../../../shared/providers/coin_purchase_popup_provider.dart';
+import '../../../shared/widgets/permissions_intro_bottom_sheet.dart';
+import '../../../core/services/modal_coordinator_service.dart';
+import '../../onboarding/models/onboarding_step.dart';
+import '../../onboarding/services/onboarding_flow_service.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -45,26 +49,140 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _welcomeDialogShown = false;
   final SupportService _supportService = SupportService();
   String? _lastHandledFeedbackCallId;
+  final ScrollController _homeScrollController = ScrollController();
+  int _homeBuildCount = 0;
+  ProviderSubscription<String?>? _creatorBusyToastSub;
+  ProviderSubscription<CallFeedbackPrompt?>? _feedbackPromptSub;
+  TimingsCallback? _homeTimingsCallback;
   @override
   void initState() {
     super.initState();
-    // Check and show welcome dialog if needed
     _checkAndShowWelcomeDialog();
-    // Note: Video permissions are now requested after welcome bonus dialog
+    // Note: Permission onboarding is now requested after welcome bonus accept
     // Connect Socket.IO and hydrate creator availability from Redis
     _initSocketAndHydrateAvailability();
+    _homeScrollController.addListener(_onHomeScroll);
+    _setupReactiveListeners();
+    _startFrameTimingSampling();
     // Note: Coin purchase popup is now handled in AppLifecycleWrapper
     // to show once per app session, not every time user navigates to homepage
   }
 
-  /// Connect to Socket.IO, then hydrate availability once creators are loaded.
+  @override
+  void dispose() {
+    _creatorBusyToastSub?.close();
+    _feedbackPromptSub?.close();
+    if (_homeTimingsCallback != null) {
+      WidgetsBinding.instance.removeTimingsCallback(_homeTimingsCallback!);
+    }
+    _homeScrollController
+      ..removeListener(_onHomeScroll)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _setupReactiveListeners() {
+    _creatorBusyToastSub = ref.listenManual<String?>(
+      creatorBusyToastProvider,
+      (previous, next) {
+        if (!mounted || next == null || next.isEmpty) return;
+        ref.read(creatorBusyToastProvider.notifier).state = null;
+        AppToast.showInfo(context, next);
+      },
+    );
+
+    _feedbackPromptSub = ref.listenManual<CallFeedbackPrompt?>(
+      callFeedbackPromptProvider,
+      (previous, prompt) {
+        if (!mounted || prompt == null) return;
+        if (_lastHandledFeedbackCallId == prompt.callId) return;
+        _lastHandledFeedbackCallId = prompt.callId;
+        final id = ref
+            .read(modalCoordinatorProvider.notifier)
+            .nextRequestId('feedback');
+        ref
+            .read(modalCoordinatorProvider.notifier)
+            .enqueue<void>(
+              AppModalRequest<void>(
+                id: id,
+                priority: AppModalPriority.normal,
+                dedupeKey: 'feedback-${prompt.callId}',
+                present: (ctx, _) async {
+                  await _showPostCallFeedbackDialog(prompt);
+                },
+              ),
+            );
+      },
+    );
+  }
+
+  void _startFrameTimingSampling() {
+    _homeTimingsCallback = (timings) {
+      if (!mounted || timings.isEmpty) return;
+      final worstFrameUs = timings
+          .map((t) => t.totalSpan.inMicroseconds)
+          .fold<int>(0, (max, value) => value > max ? value : max);
+      if (worstFrameUs > 16666) {
+        debugPrint(
+          '📈 [HOME PERF] frameJank worstFrameUs=$worstFrameUs samples=${timings.length}',
+        );
+      }
+    };
+    WidgetsBinding.instance.addTimingsCallback(_homeTimingsCallback!);
+  }
+
+  void _onHomeScroll() {
+    if (!_homeScrollController.hasClients) return;
+    final position = _homeScrollController.position;
+    if (position.extentAfter < 600) {
+      final hasMore = ref.read(homeFeedHasMoreProvider);
+      if (hasMore) {
+        final authState = ref.read(authProvider);
+        final user = authState.user;
+        final adminView = ref.read(adminViewModeProvider);
+        final creatorLikeView =
+            user?.role == 'creator' ||
+            (user?.role == 'admin' && adminView == AdminViewMode.creator);
+        if (creatorLikeView) {
+          final meta = ref.read(usersFeedMetaProvider);
+          if (!meta.isLoadingMore) {
+            ref.read(usersProvider.notifier).loadMore();
+          }
+        } else {
+          final meta = ref.read(creatorsFeedMetaProvider);
+          if (!meta.isLoadingMore) {
+            ref.read(creatorsProvider.notifier).loadMore();
+          }
+        }
+      }
+    }
+  }
+
+  SliverGridDelegate _gridDelegateForWidth(double width) {
+    int crossAxisCount = 2;
+    double aspectRatio = 0.70;
+    if (width >= 1200) {
+      crossAxisCount = 5;
+      aspectRatio = 0.82;
+    } else if (width >= 900) {
+      crossAxisCount = 4;
+      aspectRatio = 0.78;
+    } else if (width >= 640) {
+      crossAxisCount = 3;
+      aspectRatio = 0.74;
+    }
+    return SliverGridDelegateWithFixedCrossAxisCount(
+      crossAxisCount: crossAxisCount,
+      crossAxisSpacing: AppSpacing.xs,
+      mainAxisSpacing: AppSpacing.xs,
+      childAspectRatio: aspectRatio,
+    );
+  }
+
+  /// Ensure Socket.IO is connected for realtime events.
   ///
-  /// Sequence:
-  ///   1. Get Firebase token
-  ///   2. Connect socket (auth handshake)
-  ///   3. Wait for creatorsProvider to resolve
-  ///   4. Emit availability:get with all creator firebaseUids
-  ///   5. Socket service auto-re-requests on reconnect
+  /// Availability hydration is handled centrally in `StreamChatWrapper` to avoid duplicate
+  /// fetch races and double socket requests from multiple screens.
   Future<void> _initSocketAndHydrateAvailability() async {
     // Give the widget tree a moment to settle
     await Future.delayed(const Duration(milliseconds: 200));
@@ -80,68 +198,65 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // Connect socket (no-op if already connected)
     final socketService = ref.read(socketServiceProvider);
     socketService.connect(token);
-
-    // Only request creator availability if the current user is a regular user
-    // (or admin).  Creators don't need this — they see users, not creators.
-    final user = authState.user;
-    if (user?.role != 'creator') {
-      try {
-        final creators = await ref.read(creatorsProvider.future);
-        if (!mounted) return;
-
-        final creatorFirebaseUids = creators
-            .where((c) => c.firebaseUid != null)
-            .map((c) => c.firebaseUid!)
-            .toList();
-
-        if (creatorFirebaseUids.isNotEmpty) {
-          socketService.requestAvailability(creatorFirebaseUids);
-        }
-      } catch (e) {
-        debugPrint('❌ [HOME] Failed to hydrate availability: $e');
-      }
-    }
   }
 
   Future<void> _checkAndShowWelcomeDialog() async {
     // Wait for the first frame to ensure context is available
     await Future.delayed(const Duration(milliseconds: 500));
-    
+
     if (!mounted) return; // ✅ Guard: Check mounted before any context/ref usage
-    
+
     // Check if user is authenticated
     final authState = ref.read(authProvider);
     if (!authState.isAuthenticated) {
       return; // Don't show welcome dialog if not authenticated
     }
-    
+
     // ✅ TASK 1: Wait for creators to load before showing welcome dialog
     // Only show welcome dialog when user can actually see creators on homepage
     final user = authState.user;
-    if (user?.role == 'user' || (user?.role == 'admin' && ref.read(adminViewModeProvider) != AdminViewMode.creator)) {
+    if (user?.role == 'user' ||
+        (user?.role == 'admin' &&
+            ref.read(adminViewModeProvider) != AdminViewMode.creator)) {
       // For regular users (or admin viewing as user), wait for creators to load
       final creatorsLoaded = await _waitForCreatorsToLoad();
       if (!mounted) return;
-      
+
       if (!creatorsLoaded) {
-        debugPrint('⏭️  [HOME] Creators not loaded yet, skipping welcome dialog');
+        debugPrint(
+          '⏭️  [HOME] Creators not loaded yet, skipping welcome dialog',
+        );
         // If creators don't load, still check for bonus (user might have seen welcome before)
         _checkAndShowBonusDialog();
         return;
       }
     }
-    
-    // Check if user has seen the welcome dialog
-    final hasSeen = await WelcomeService.hasSeenWelcome();
-    
-    if (!mounted) return; // ✅ Guard: Check mounted after async operation
-    
-    if (!hasSeen && !_welcomeDialogShown) {
+
+    final firebaseUid = authState.firebaseUser?.uid;
+    if (firebaseUid == null) return;
+    final nextStep = await OnboardingFlowService.nextStep(
+      firebaseUid: firebaseUid,
+      bonusAlreadyClaimed: user?.welcomeBonusClaimed ?? false,
+    );
+    if (!mounted) return;
+    if (nextStep == OnboardingStep.completed) {
+      ref
+          .read(modalCoordinatorProvider.notifier)
+          .setOnboardingInProgress(false);
+      return;
+    }
+    ref.read(modalCoordinatorProvider.notifier).setOnboardingInProgress(true);
+    if (nextStep == OnboardingStep.welcome && !_welcomeDialogShown) {
       _welcomeDialogShown = true;
       _showWelcomeDialog();
-    } else {
-      // Welcome dialog already seen — check for bonus
+      return;
+    }
+    if (nextStep == OnboardingStep.bonus) {
       _checkAndShowBonusDialog();
+      return;
+    }
+    if (nextStep == OnboardingStep.permissionsIntro) {
+      _checkAndRequestOnboardingPermissions();
     }
   }
 
@@ -150,22 +265,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Future<void> _markWelcomeAsSeenWithRetry({int maxRetries = 2}) async {
     for (int attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        await WelcomeService.markWelcomeAsSeen();
+        final firebaseUid = ref.read(authProvider).firebaseUser?.uid;
+        await WelcomeService.markWelcomeAsSeen(firebaseUid);
         // Verify it was saved
         final hasSeen = await WelcomeService.hasSeenWelcome();
         if (hasSeen) {
-          debugPrint('✅ [HOME] Welcome dialog marked as seen (attempt ${attempt + 1})');
+          debugPrint(
+            '✅ [HOME] Welcome dialog marked as seen (attempt ${attempt + 1})',
+          );
           return;
         }
       } catch (e) {
-        debugPrint('⚠️  [HOME] Failed to mark welcome as seen (attempt ${attempt + 1}): $e');
+        debugPrint(
+          '⚠️  [HOME] Failed to mark welcome as seen (attempt ${attempt + 1}): $e',
+        );
         if (attempt < maxRetries - 1) {
           await Future.delayed(Duration(milliseconds: 200 * (attempt + 1)));
         }
       }
     }
     // If all retries failed, log but don't throw - dialog should still close
-    debugPrint('⚠️  [HOME] Failed to mark welcome as seen after $maxRetries attempts');
+    debugPrint(
+      '⚠️  [HOME] Failed to mark welcome as seen after $maxRetries attempts',
+    );
   }
 
   /// Wait for creators to load and be visible on homepage
@@ -174,74 +296,81 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Future<bool> _waitForCreatorsToLoad({int maxAttempts = 10}) async {
     for (int attempt = 0; attempt < maxAttempts; attempt++) {
       if (!mounted) return false;
-      
+
       // Check if creators are loaded via homeFeedProvider
       final homeFeedItems = ref.read(homeFeedProvider);
-      
+
       // If we have items (creators), they're loaded
       if (homeFeedItems.isNotEmpty) {
         debugPrint('✅ [HOME] Creators loaded: ${homeFeedItems.length} items');
         return true;
       }
-      
+
       // Also check creatorsProvider directly for more accurate state
       final creatorsAsync = ref.read(creatorsProvider);
       if (creatorsAsync.hasValue) {
         final creators = creatorsAsync.value ?? [];
         if (creators.isNotEmpty) {
-          debugPrint('✅ [HOME] Creators loaded via provider: ${creators.length} creators');
+          debugPrint(
+            '✅ [HOME] Creators loaded via provider: ${creators.length} creators',
+          );
           return true;
         }
       }
-      
+
       // Wait before next attempt (exponential backoff for scalability)
       await Future.delayed(Duration(milliseconds: 200 * (attempt + 1)));
     }
-    
+
     debugPrint('⏭️  [HOME] Creators not loaded after ${maxAttempts} attempts');
     return false;
   }
 
   void _showWelcomeDialog() {
-    if (!mounted) return; // ✅ Guard: Never show bottom sheet if widget is disposed
-    
-    showAppModalBottomSheet(
-      context: context,
-      isDismissible: false,
-      enableDrag: false,
-      builder: (context) => WelcomeBottomSheet(
-        onAgree: () async {
-          // ✅ TASK 2: Improved error handling with retry mechanism
-          try {
-            // Mark as seen with retry logic
-            await _markWelcomeAsSeenWithRetry();
-            
-            if (mounted && context.mounted) { // ✅ Guard: Check both mounted and context.mounted
-              Navigator.of(context).pop();
-            }
-            
-            // ✅ TASK 3: After welcome bottom sheet dismissed, wait 2 seconds then check for bonus
-            Future.delayed(const Duration(seconds: 2), () {
-              if (mounted) {
-                _checkAndShowBonusDialog();
-              }
-            });
-          } catch (e) {
-            debugPrint('❌ [HOME] Error in welcome dialog onAgree: $e');
-            // Even on error, try to close dialog to prevent stuck state
-            if (mounted && context.mounted) {
-              Navigator.of(context).pop();
-            }
-            // Still schedule bonus dialog - user should see it even if save failed
-            Future.delayed(const Duration(seconds: 2), () {
-              if (mounted) {
-                _checkAndShowBonusDialog();
-              }
-            });
-          }
-        },
-      ),
-    );
+    if (!mounted) return;
+    final id = ref
+        .read(modalCoordinatorProvider.notifier)
+        .nextRequestId('welcome');
+    ref.read(modalCoordinatorProvider.notifier).setOnboardingInProgress(true);
+    ref
+        .read(modalCoordinatorProvider.notifier)
+        .enqueue<void>(
+          AppModalRequest<void>(
+            id: id,
+            priority: AppModalPriority.critical,
+            dedupeKey: 'onboarding-welcome',
+            present: (ctx, _) => showAppModalBottomSheet<void>(
+              context: ctx,
+              isDismissible: true,
+              enableDrag: true,
+              builder: (sheetContext) => WelcomeBottomSheet(
+                onAgree: () async {
+                  await _markWelcomeAsSeenWithRetry();
+                  final firebaseUid = ref.read(authProvider).firebaseUser?.uid;
+                  if (firebaseUid != null) {
+                    await OnboardingFlowService.markWelcomeSeen(firebaseUid);
+                  }
+                  if (sheetContext.mounted) {
+                    Navigator.of(sheetContext).pop();
+                  }
+                },
+                onNotNow: () async {
+                  final firebaseUid = ref.read(authProvider).firebaseUser?.uid;
+                  await WelcomeService.markWelcomeAsSeen(firebaseUid);
+                  if (firebaseUid != null) {
+                    await OnboardingFlowService.markWelcomeSeen(firebaseUid);
+                  }
+                  if (sheetContext.mounted) {
+                    Navigator.of(sheetContext).pop();
+                  }
+                },
+              ),
+            ),
+            onCompleted: (_) {
+              if (mounted) _checkAndShowBonusDialog();
+            },
+          ),
+        );
   }
 
   /// Show the 30-coin welcome bonus dialog if:
@@ -255,6 +384,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     // Only for regular users who haven't claimed
     if (user == null || user.role != 'user' || user.welcomeBonusClaimed) {
+      final firebaseUid = authState.firebaseUser?.uid;
+      if (firebaseUid != null) {
+        await OnboardingFlowService.markBonusSeen(firebaseUid);
+      }
       return;
     }
 
@@ -262,8 +395,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final firebaseUid = authState.firebaseUser?.uid;
     if (firebaseUid == null) return;
 
-    final alreadyShown = await WelcomeService.hasBonusDialogBeenShown(firebaseUid);
-    if (alreadyShown) return;
+    final alreadyShown = await WelcomeService.hasBonusDialogBeenShown(
+      firebaseUid,
+    );
+    if (alreadyShown) {
+      await OnboardingFlowService.markBonusSeen(firebaseUid);
+      _scheduleOnboardingPermissionRequest();
+      return;
+    }
 
     // Mark as shown BEFORE displaying (prevents race conditions on fast rebuilds)
     await WelcomeService.markBonusDialogShown(firebaseUid);
@@ -277,262 +416,264 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _isBonusClaiming = false;
 
   void _showBonusDialog() {
-    showAppModalBottomSheet(
-      context: context,
-      isDismissible: false,
-      enableDrag: false,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setBottomSheetState) => WelcomeBonusBottomSheet(
-          isLoading: _isBonusClaiming,
-          onAccept: () async {
-            setBottomSheetState(() => _isBonusClaiming = true);
-            try {
-              final walletService = WalletService();
-              final newCoins = await walletService.claimWelcomeBonus();
-              // Update auth state with new coins + claimed flag
-              if (mounted) {
-                ref.read(authProvider.notifier).refreshUser();
-              }
-              if (ctx.mounted) {
-                Navigator.of(ctx).pop();
-                AppToast.showSuccess(
-                  context,
-                  '🎉 You received 30 coins! Balance: $newCoins',
-                );
-              }
-            } catch (e) {
-              if (ctx.mounted) {
-                Navigator.of(ctx).pop();
-                AppToast.showError(
-                  context,
-                  UserMessageMapper.userMessageFor(
-                    e,
-                    fallback: 'Couldn\'t claim bonus. Please try again.',
-                  ),
-                );
-              }
-            } finally {
-              _isBonusClaiming = false;
-            }
-            // Schedule video permissions request after bonus bottom sheet is handled
-            _scheduleVideoPermissionRequest();
-          },
-          onDecline: () {
-            Navigator.of(ctx).pop();
-            // Schedule video permissions request after bonus bottom sheet is handled
-            _scheduleVideoPermissionRequest();
-          },
-        ),
-      ),
-    );
+    final id = ref
+        .read(modalCoordinatorProvider.notifier)
+        .nextRequestId('bonus');
+    ref
+        .read(modalCoordinatorProvider.notifier)
+        .enqueue<void>(
+          AppModalRequest<void>(
+            id: id,
+            priority: AppModalPriority.high,
+            dedupeKey: 'onboarding-bonus',
+            present: (ctx, _) => showAppModalBottomSheet<void>(
+              context: ctx,
+              isDismissible: true,
+              enableDrag: true,
+              builder: (ctx) => StatefulBuilder(
+                builder: (ctx, setBottomSheetState) => WelcomeBonusBottomSheet(
+                  isLoading: _isBonusClaiming,
+                  onAccept: () async {
+                    setBottomSheetState(() => _isBonusClaiming = true);
+                    var claimSucceeded = false;
+                    try {
+                      final walletService = WalletService();
+                      final newCoins = await walletService.claimWelcomeBonus();
+                      // Update auth state with new coins + claimed flag
+                      if (mounted) {
+                        ref.read(authProvider.notifier).refreshUser();
+                      }
+                      if (ctx.mounted) {
+                        Navigator.of(ctx).pop();
+                        AppToast.showSuccess(
+                          context,
+                          '🎉 You received 30 coins! Balance: $newCoins',
+                        );
+                      }
+                      claimSucceeded = true;
+                    } catch (e) {
+                      if (ctx.mounted) {
+                        Navigator.of(ctx).pop();
+                        AppToast.showError(
+                          context,
+                          UserMessageMapper.userMessageFor(
+                            e,
+                            fallback:
+                                'Couldn\'t claim bonus. Please try again.',
+                          ),
+                        );
+                      }
+                    } finally {
+                      _isBonusClaiming = false;
+                    }
+                    if (claimSucceeded) {
+                      final firebaseUid = ref
+                          .read(authProvider)
+                          .firebaseUser
+                          ?.uid;
+                      if (firebaseUid != null) {
+                        await OnboardingFlowService.markBonusSeen(firebaseUid);
+                      }
+                      _scheduleOnboardingPermissionRequest();
+                    }
+                  },
+                  onSkip: () async {
+                    final firebaseUid = ref
+                        .read(authProvider)
+                        .firebaseUser
+                        ?.uid;
+                    if (firebaseUid != null) {
+                      await OnboardingFlowService.markBonusSeen(firebaseUid);
+                    }
+                    if (ctx.mounted) {
+                      Navigator.of(ctx).pop();
+                    }
+                    _scheduleOnboardingPermissionRequest();
+                  },
+                ),
+              ),
+            ),
+          ),
+        );
   }
 
-  /// Schedule video permissions request with a delay after welcome bonus dialog
-  /// ✅ TASK 4: Changed to 2 seconds as per requirements
-  void _scheduleVideoPermissionRequest() {
-    // Wait 2 seconds after bonus dialog is dismissed before requesting permissions
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) {
-        _checkAndRequestVideoPermissions();
-      }
-    });
+  /// Schedule onboarding permission flow with a delay after welcome bonus dialog
+  void _scheduleOnboardingPermissionRequest() {
+    if (mounted) {
+      _checkAndRequestOnboardingPermissions();
+    }
   }
 
-  /// Check and request video permissions for users
-  Future<void> _checkAndRequestVideoPermissions() async {
-    // Wait for auth state to be available
-    await Future.delayed(const Duration(milliseconds: 500));
-    
+  /// Check and request onboarding-time permissions for users.
+  Future<void> _checkAndRequestOnboardingPermissions() async {
     if (!mounted) return;
-    
+
     final authState = ref.read(authProvider);
     final user = authState.user;
-    
+
     // Only request permissions for regular users (they can make video calls)
     if (user == null || user.role != 'user') {
       return;
     }
-    
-    // Check if permissions are already granted
-    final hasPermissions = await PermissionService.hasCameraAndMicrophonePermissions();
-    
+
+    final firebaseUid = authState.firebaseUser?.uid;
+    if (firebaseUid == null) return;
+
+    // Check user-scoped persistent flag (prevents cross-account leakage on shared devices).
+    final hasShownPrompt =
+        await PermissionPromptService.hasShownPermissionPrompt(firebaseUid);
+
     if (!mounted) return;
-    
-    if (hasPermissions) {
-      debugPrint('✅ [HOME] Camera and microphone permissions already granted');
-      return;
-    }
-    
-    // 🔥 CRITICAL: Check persistent flag (not session flag)
-    final hasShownPrompt = await PermissionPromptService.hasShownPermissionPrompt();
-    
-    if (!mounted) return;
-    
+
     if (hasShownPrompt) {
       debugPrint('⏭️  [HOME] Permission prompt already shown (persisted)');
       return;
     }
-    
-    // Wait a bit more for UI to stabilize
-    await Future.delayed(const Duration(milliseconds: 1000));
-    
-    if (!mounted) return;
-    
-    // Mark as shown BEFORE showing dialog (prevents race conditions)
-    await PermissionPromptService.markPermissionPromptAsShown();
-    
-    if (!mounted) return;
-    _showVideoPermissionDialog();
+
+    await _showPermissionsIntroThenRequest(firebaseUid);
   }
 
-  /// Show dialog requesting video permissions
-  void _showVideoPermissionDialog() {
+  Future<void> _showPermissionsIntroThenRequest(String userId) async {
     if (!mounted) return;
-    
-    final scheme = Theme.of(context).colorScheme;
-    
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.videocam, color: scheme.primary),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Text('Enable Video Calls'),
+
+    final completer = Completer<bool>();
+    final id = ref
+        .read(modalCoordinatorProvider.notifier)
+        .nextRequestId('permissions');
+    ref
+        .read(modalCoordinatorProvider.notifier)
+        .enqueue<bool>(
+          AppModalRequest<bool>(
+            id: id,
+            priority: AppModalPriority.high,
+            dedupeKey: 'onboarding-permissions',
+            present: (ctx, _) => showAppModalBottomSheet<bool>(
+              context: ctx,
+              isDismissible: true,
+              enableDrag: true,
+              builder: (sheetContext) => PermissionsIntroBottomSheet(
+                onAgree: () {
+                  if (sheetContext.mounted) {
+                    Navigator.of(sheetContext).pop(true);
+                  }
+                },
+                onNotNow: () {
+                  if (sheetContext.mounted) {
+                    Navigator.of(sheetContext).pop(false);
+                  }
+                },
+              ),
             ),
-          ],
-        ),
-        content: const Text(
-          'To make video calls with creators, we need access to your camera and microphone. '
-          'You can enable these permissions in your device settings.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              if (mounted && context.mounted) {
-                Navigator.of(context).pop();
+            onCompleted: (result) {
+              if (!completer.isCompleted) {
+                completer.complete(result == true);
               }
             },
-            child: const Text('Not Now'),
           ),
-          ElevatedButton(
-            onPressed: () async {
-              if (mounted && context.mounted) {
-                Navigator.of(context).pop();
-              }
-              
-              try {
-                final granted = await PermissionService.ensureCameraAndMicrophonePermissions();
-                
-                if (!mounted) return;
-                
-                if (granted) {
-                  if (mounted && context.mounted) {
-                    AppToast.showSuccess(
-                      context,
-                      'Permissions granted! You can now make video calls.',
-                      duration: const Duration(seconds: 2),
-                    );
-                  }
-                } else {
-                  if (mounted && context.mounted) {
-                    AppToast.showErrorWithAction(
-                      context,
-                      'Permissions are required for video calls. Enable them in Settings.',
-                      actionLabel: 'Settings',
-                      onAction: () {
-                        unawaited(PermissionService.openAppSettings());
-                      },
-                      duration: const Duration(seconds: 4),
-                    );
-                  }
-                }
-              } catch (e) {
-                if (!mounted) return;
-                
-                if (mounted && context.mounted) {
-                  AppToast.showError(
-                    context,
-                    UserMessageMapper.userMessageFor(
-                      e,
-                      fallback: 'Couldn\'t update permissions. Please try again.',
-                    ),
-                  );
-                }
-              }
-            },
-            child: const Text('Enable'),
-          ),
-        ],
-      ),
-    );
+        );
+
+    final agreed = await completer.future;
+    if (agreed != true || !mounted) {
+      await PermissionPromptService.markPermissionPromptAsShown(userId);
+      await OnboardingFlowService.markPermissionsSeen(userId);
+      ref
+          .read(modalCoordinatorProvider.notifier)
+          .setOnboardingInProgress(false);
+      return;
+    }
+
+    await _requestBundledPermissions(userId);
   }
 
+  Future<void> _requestBundledPermissions(String userId) async {
+    try {
+      final videoGranted =
+          await PermissionService.ensureCameraAndMicrophonePermissions();
+      final notificationSettings =
+          await FirebaseMessaging.instance.requestPermission();
+
+      await PermissionPromptService.markPermissionPromptAsShown(userId);
+      await OnboardingFlowService.markPermissionsSeen(userId);
+      await OnboardingFlowService.markCompleted(userId);
+      ref
+          .read(modalCoordinatorProvider.notifier)
+          .setOnboardingInProgress(false);
+
+      if (!mounted) return;
+
+      if (videoGranted) {
+        final status = notificationSettings.authorizationStatus;
+        final notificationAllowed =
+            status == AuthorizationStatus.authorized ||
+            status == AuthorizationStatus.provisional;
+        final message = notificationAllowed
+            ? 'Permissions granted! You can now make video calls.'
+            : 'Camera and microphone enabled. You can enable notifications later in Settings.';
+        AppToast.showSuccess(
+          context,
+          message,
+          duration: const Duration(seconds: 3),
+        );
+      } else {
+        AppToast.showErrorWithAction(
+          context,
+          'Camera and microphone are required for video calls. Enable them in Settings.',
+          actionLabel: 'Settings',
+          onAction: () {
+            unawaited(PermissionService.openAppSettings());
+          },
+          duration: const Duration(seconds: 4),
+        );
+      }
+    } catch (e) {
+      await PermissionPromptService.markPermissionPromptAsShown(userId);
+      await OnboardingFlowService.markPermissionsSeen(userId);
+      await OnboardingFlowService.markCompleted(userId);
+      ref
+          .read(modalCoordinatorProvider.notifier)
+          .setOnboardingInProgress(false);
+      if (!mounted) return;
+      AppToast.showError(
+        context,
+        UserMessageMapper.userMessageFor(
+          e,
+          fallback: 'Couldn\'t update permissions. Please try again.',
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Show toast when creator didn't pick up (navigated from call screen)
-    final creatorBusyToast = ref.watch(creatorBusyToastProvider);
-    if (creatorBusyToast != null && creatorBusyToast.isNotEmpty) {
-      final message = creatorBusyToast;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        final current = ref.read(creatorBusyToastProvider);
-        if (current == null) return;
-        ref.read(creatorBusyToastProvider.notifier).state = null;
-        AppToast.showInfo(context, message);
-      });
+    _homeBuildCount++;
+    if (_homeBuildCount % 20 == 0) {
+      debugPrint('📊 [HOME] build count=$_homeBuildCount');
     }
-
-    final pendingFeedbackPrompt = ref.watch(callFeedbackPromptProvider);
-    if (pendingFeedbackPrompt != null &&
-        _lastHandledFeedbackCallId != pendingFeedbackPrompt.callId) {
-      _lastHandledFeedbackCallId = pendingFeedbackPrompt.callId;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _showPostCallFeedbackDialog(pendingFeedbackPrompt);
-      });
-    }
-
-    final homeFeedItems = ref.watch(homeFeedProvider); // Now a Provider, not FutureProvider
+    final homeFeedItems = ref.watch(
+      homeFeedProvider,
+    ); // Now a Provider, not FutureProvider
     final authState = ref.watch(authProvider);
     final user = authState.user;
     final isCreator = user?.role == 'creator' || user?.role == 'admin';
     final scheme = Theme.of(context).colorScheme;
 
-    // Listen for coin purchase pop-up trigger
-    final showCoinPopup = ref.watch(coinPurchasePopupProvider);
-    if (showCoinPopup) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          hideCoinPurchasePopup(ref);
-          showAppModalBottomSheet(
-            context: context,
-            builder: (context) => const CoinPurchaseBottomSheet(),
-          );
-        }
-      });
-    }
-
     return MainLayout(
-        selectedIndex: 0,
-        child: AppScaffold(
-          padded: true,
-          child: isCreator
+      selectedIndex: 0,
+      child: AppScaffold(
+        padded: true,
+        child: isCreator
             ? _CreatorTasksView()
             : _buildHomeFeedContent(homeFeedItems, scheme, isCreator),
       ),
     );
   }
 
-  void _showPostCallFeedbackDialog(CallFeedbackPrompt prompt) {
+  Future<void> _showPostCallFeedbackDialog(CallFeedbackPrompt prompt) async {
     ref.read(callFeedbackPromptProvider.notifier).clear();
     int selectedStars = 0;
     bool isSubmitting = false;
 
-    showDialog(
+    await showDialog<void>(
       context: context,
       barrierDismissible: true,
       builder: (ctx) => StatefulBuilder(
@@ -557,7 +698,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         ? null
                         : () => setDialogState(() => selectedStars = starIndex),
                     icon: Icon(
-                      starIndex <= selectedStars ? Icons.star : Icons.star_border,
+                      starIndex <= selectedStars
+                          ? Icons.star
+                          : Icons.star_border,
                       color: Colors.amber,
                     ),
                   );
@@ -612,7 +755,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           context,
                           UserMessageMapper.userMessageFor(
                             e,
-                            fallback: 'Couldn\'t submit rating. Please try again.',
+                            fallback:
+                                'Couldn\'t submit rating. Please try again.',
                           ),
                         );
                         setDialogState(() => isSubmitting = false);
@@ -710,7 +854,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           context,
                           UserMessageMapper.userMessageFor(
                             e,
-                            fallback: 'Couldn\'t send report. Please try again.',
+                            fallback:
+                                'Couldn\'t send report. Please try again.',
                           ),
                         );
                         setDialogState(() => isSubmitting = false);
@@ -730,15 +875,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     ).whenComplete(() {
       // Delay disposal to avoid transient "used after disposed" during route
       // transition / IME teardown on some Android builds.
-      Future<void>.delayed(const Duration(milliseconds: 250), controller.dispose);
+      Future<void>.delayed(
+        const Duration(milliseconds: 250),
+        controller.dispose,
+      );
     });
   }
 
-  Widget _buildHomeFeedContent(List<dynamic> items, ColorScheme scheme, bool isCreator) {
+  Widget _buildHomeFeedContent(
+    List<dynamic> items,
+    ColorScheme scheme,
+    bool isCreator,
+  ) {
     // Show loading state while creators are being fetched
     final creatorsAsync = ref.watch(creatorsProvider);
     final isLoading = creatorsAsync.isLoading;
-    
+
     if (isLoading) {
       return GridView.builder(
         padding: const EdgeInsets.only(top: AppSpacing.lg),
@@ -752,7 +904,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         itemBuilder: (context, index) => const SkeletonCard(),
       );
     }
-    
+
     // Show empty state if no items
     if (items.isEmpty) {
       return RefreshIndicator(
@@ -760,17 +912,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           final beforeRole = ref.read(authProvider).user?.role;
           await ref.read(authProvider.notifier).refreshUser();
           final afterRole = ref.read(authProvider).user?.role;
-          if (mounted &&
-              beforeRole != 'creator' &&
-              afterRole == 'creator') {
+          if (mounted && beforeRole != 'creator' && afterRole == 'creator') {
             AppToast.showSuccess(
               context,
               'You are now a creator. Home has been updated.',
             );
           }
-          ref.invalidate(creatorsProvider);
-          ref.invalidate(usersProvider);
-          ref.invalidate(homeFeedProvider);
+          await ref.read(creatorsProvider.notifier).refreshFeed();
+          await ref.read(usersProvider.notifier).refreshFeed();
           await Future.delayed(const Duration(milliseconds: 500));
         },
         child: SingleChildScrollView(
@@ -780,7 +929,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             child: EmptyState(
               icon: isCreator ? Icons.people_outline : Icons.person_outline,
               title: isCreator ? 'No users available' : 'No creators available',
-              message: isCreator ? 'Users will appear here when they join' : 'Creators will appear here when they join',
+              message: isCreator
+                  ? 'Users will appear here when they join'
+                  : 'Creators will appear here when they join',
             ),
           ),
         ),
@@ -794,47 +945,50 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         final beforeRole = ref.read(authProvider).user?.role;
         await ref.read(authProvider.notifier).refreshUser();
         final afterRole = ref.read(authProvider).user?.role;
-        if (mounted &&
-            beforeRole != 'creator' &&
-            afterRole == 'creator') {
+        if (mounted && beforeRole != 'creator' && afterRole == 'creator') {
           AppToast.showSuccess(
             context,
             'You are now a creator. Home has been updated.',
           );
         }
-        ref.invalidate(creatorsProvider);
-        ref.invalidate(usersProvider);
-        ref.invalidate(homeFeedProvider);
+        await ref.read(creatorsProvider.notifier).refreshFeed();
+        await ref.read(usersProvider.notifier).refreshFeed();
         // Wait a bit for the refresh to complete
         await Future.delayed(const Duration(milliseconds: 500));
       },
       child: CustomScrollView(
+        controller: _homeScrollController,
         slivers: [
           const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.md)),
           SliverPadding(
             padding: const EdgeInsets.only(bottom: AppSpacing.xl),
-            sliver: SliverGrid(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                crossAxisSpacing: AppSpacing.xs,
-                mainAxisSpacing: AppSpacing.xs,
-                childAspectRatio: 0.70,
-              ),
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final item = items[index];
-                  if (item is CreatorModel) {
-                    return HomeUserGridCard(creator: item);
-                  }
-                  if (item is UserProfileModel) {
-                    return HomeUserGridCard(user: item);
-                  }
-                  return const SizedBox.shrink();
-                },
-                childCount: items.length,
-              ),
+            sliver: SliverLayoutBuilder(
+              builder: (context, constraints) {
+                return SliverGrid(
+                  gridDelegate: _gridDelegateForWidth(
+                    constraints.crossAxisExtent,
+                  ),
+                  delegate: SliverChildBuilderDelegate((context, index) {
+                    final item = items[index];
+                    if (item is CreatorModel) {
+                      return HomeUserGridCard(creator: item);
+                    }
+                    if (item is UserProfileModel) {
+                      return HomeUserGridCard(user: item);
+                    }
+                    return const SizedBox.shrink();
+                  }, childCount: items.length),
+                );
+              },
             ),
           ),
+          if (ref.watch(homeFeedHasMoreProvider))
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.only(bottom: 24),
+                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+              ),
+            ),
         ],
       ),
     );
@@ -874,99 +1028,101 @@ class _CreatorTasksViewState extends ConsumerState<_CreatorTasksView> {
         // Balance Card (shows current balance, not total earned)
         // Note: We use earningsAsync for stats (calls, minutes) but balance from auth state for instant updates
         earningsAsync.when(
-            data: (earnings) => AppCard(
-              margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Header with Balance label and Manual Refresh button
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Balance',
+          data: (earnings) => AppCard(
+            margin: const EdgeInsets.only(bottom: AppSpacing.lg),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header with Balance label and Manual Refresh button
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Balance',
+                      style: TextStyle(
+                        color: scheme.onSurfaceVariant,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    // Manual refresh button for creators
+                    IconButton(
+                      icon: const Icon(Icons.refresh, size: 20),
+                      tooltip: 'Refresh balance',
+                      onPressed: () async {
+                        debugPrint(
+                          '🔄 [CREATOR HOME] Manual refresh triggered',
+                        );
+                        // Refresh both dashboard and auth user
+                        ref.invalidate(creatorDashboardProvider);
+                        await ref.read(authProvider.notifier).refreshUser();
+                      },
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      iconSize: 20,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      balance.toString(),
+                      style: TextStyle(
+                        color: scheme.onSurface,
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Text(
+                        'coins',
                         style: TextStyle(
                           color: scheme.onSurfaceVariant,
-                          fontSize: 14,
+                          fontSize: 16,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
-                      // Manual refresh button for creators
-                      IconButton(
-                        icon: const Icon(Icons.refresh, size: 20),
-                        tooltip: 'Refresh balance',
-                        onPressed: () async {
-                          debugPrint('🔄 [CREATOR HOME] Manual refresh triggered');
-                          // Refresh both dashboard and auth user
-                          ref.invalidate(creatorDashboardProvider);
-                          await ref.read(authProvider.notifier).refreshUser();
-                        },
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        iconSize: 20,
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        balance.toString(),
-                        style: TextStyle(
-                          color: scheme.onSurface,
-                          fontSize: 32,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Text(
-                          'coins',
-                          style: TextStyle(
-                            color: scheme.onSurfaceVariant,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      _EarningsStatItem(
-                        label: 'Calls',
-                        value: earnings.totalCalls.toString(),
-                        icon: Icons.phone,
-                      ),
-                      const SizedBox(width: 24),
-                      _EarningsStatItem(
-                        label: 'Minutes',
-                        value: earnings.totalMinutes.toStringAsFixed(1),
-                        icon: Icons.timer,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    _EarningsStatItem(
+                      label: 'Calls',
+                      value: earnings.totalCalls.toString(),
+                      icon: Icons.phone,
+                    ),
+                    const SizedBox(width: 24),
+                    _EarningsStatItem(
+                      label: 'Minutes',
+                      value: earnings.totalMinutes.toStringAsFixed(1),
+                      icon: Icons.timer,
+                    ),
+                  ],
+                ),
+              ],
             ),
-            loading: () => AppCard(
-              margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-              child: const SizedBox(
-                height: 100,
-                child: Center(child: LoadingIndicator()),
-              ),
+          ),
+          loading: () => AppCard(
+            margin: const EdgeInsets.only(bottom: AppSpacing.lg),
+            child: const SizedBox(
+              height: 100,
+              child: Center(child: LoadingIndicator()),
             ),
-            error: (error, stack) => AppCard(
-              margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-              child: const SizedBox(
-                height: 100,
-                child: Center(child: LoadingIndicator()),
-              ),
+          ),
+          error: (error, stack) => AppCard(
+            margin: const EdgeInsets.only(bottom: AppSpacing.lg),
+            child: const SizedBox(
+              height: 100,
+              child: Center(child: LoadingIndicator()),
             ),
+          ),
         ),
         // Withdrawal Button
         AppCard(
@@ -1034,10 +1190,10 @@ class _CreatorTasksViewState extends ConsumerState<_CreatorTasksView> {
   Future<void> _claimTask(String taskKey) async {
     try {
       await ref.read(creatorTaskServiceProvider).claimTaskReward(taskKey);
-      
+
       // Invalidate dashboard to refresh all creator data (earnings + tasks + coins)
       ref.invalidate(creatorDashboardProvider);
-      
+
       if (mounted) {
         AppToast.showSuccess(context, 'Reward claimed successfully!');
       }
@@ -1058,13 +1214,25 @@ class _CreatorTasksViewState extends ConsumerState<_CreatorTasksView> {
     BuildContext context,
     CreatorTasksResponse tasksResponse,
   ) {
-    showAppModalBottomSheet(
-      context: context,
-      builder: (context) => TaskProgressBottomSheet(
-        tasksResponse: tasksResponse,
-        onClaim: (taskKey) => _claimTask(taskKey),
-      ),
-    );
+    final id = ref
+        .read(modalCoordinatorProvider.notifier)
+        .nextRequestId('tasks');
+    ref
+        .read(modalCoordinatorProvider.notifier)
+        .enqueue<void>(
+          AppModalRequest<void>(
+            id: id,
+            priority: AppModalPriority.low,
+            dedupeKey: 'creator-task-progress',
+            present: (ctx, _) => showAppModalBottomSheet<void>(
+              context: ctx,
+              builder: (context) => TaskProgressBottomSheet(
+                tasksResponse: tasksResponse,
+                onClaim: (taskKey) => _claimTask(taskKey),
+              ),
+            ),
+          ),
+        );
   }
 }
 
@@ -1073,20 +1241,17 @@ class _NextTaskPreview extends StatelessWidget {
   final double totalMinutes;
   final List<CreatorTask> tasks;
 
-  const _NextTaskPreview({
-    required this.totalMinutes,
-    required this.tasks,
-  });
+  const _NextTaskPreview({required this.totalMinutes, required this.tasks});
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    
+
     // Find next uncompleted task
     try {
       final nextTask = tasks.firstWhere((task) => !task.isCompleted);
       final minutesNeeded = nextTask.thresholdMinutes - totalMinutes;
-      
+
       if (minutesNeeded <= 0) {
         return const SizedBox.shrink();
       }
@@ -1096,18 +1261,11 @@ class _NextTaskPreview extends StatelessWidget {
         decoration: BoxDecoration(
           color: scheme.surfaceContainerHigh,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: scheme.outlineVariant,
-            width: 1,
-          ),
+          border: Border.all(color: scheme.outlineVariant, width: 1),
         ),
         child: Row(
           children: [
-            Icon(
-              Icons.trending_up,
-              size: 16,
-              color: scheme.primary,
-            ),
+            Icon(Icons.trending_up, size: 16, color: scheme.primary),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -1132,11 +1290,7 @@ class _NextTaskPreview extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(
-              Icons.celebration,
-              size: 16,
-              color: scheme.onPrimaryContainer,
-            ),
+            Icon(Icons.celebration, size: 16, color: scheme.onPrimaryContainer),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -1159,10 +1313,7 @@ class _TasksContent extends StatelessWidget {
   final CreatorTasksResponse tasksResponse;
   final Function(String) onClaim;
 
-  const _TasksContent({
-    required this.tasksResponse,
-    required this.onClaim,
-  });
+  const _TasksContent({required this.tasksResponse, required this.onClaim});
 
   @override
   Widget build(BuildContext context) {
@@ -1291,10 +1442,10 @@ class _TasksContent extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          ...tasksResponse.tasks.map((task) => _TaskCard(
-                task: task,
-                onClaim: () => onClaim(task.taskKey),
-              )),
+          ...tasksResponse.tasks.map(
+            (task) =>
+                _TaskCard(task: task, onClaim: () => onClaim(task.taskKey)),
+          ),
         ],
       ),
     );
@@ -1356,8 +1507,8 @@ class _DailyResetBannerState extends State<_DailyResetBanner> {
     final timeText = hours > 0
         ? '${hours}h ${minutes}m ${seconds}s'
         : minutes > 0
-            ? '${minutes}m ${seconds}s'
-            : '${seconds}s';
+        ? '${minutes}m ${seconds}s'
+        : '${seconds}s';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -1438,10 +1589,7 @@ class _TaskCard extends StatelessWidget {
   final CreatorTask task;
   final VoidCallback onClaim;
 
-  const _TaskCard({
-    required this.task,
-    required this.onClaim,
-  });
+  const _TaskCard({required this.task, required this.onClaim});
 
   @override
   Widget build(BuildContext context) {
@@ -1464,11 +1612,7 @@ class _TaskCard extends StatelessWidget {
                       : scheme.surfaceContainerHighest,
                 ),
                 child: task.isCompleted
-                    ? Icon(
-                        Icons.check,
-                        size: 16,
-                        color: scheme.onPrimary,
-                      )
+                    ? Icon(Icons.check, size: 16, color: scheme.onPrimary)
                     : null,
               ),
               const SizedBox(width: 12),
@@ -1549,11 +1693,7 @@ class _TaskCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(
-                  Icons.check_circle,
-                  size: 16,
-                  color: scheme.primary,
-                ),
+                Icon(Icons.check_circle, size: 16, color: scheme.primary),
                 const SizedBox(width: 4),
                 Text(
                   'Reward claimed',
@@ -1604,10 +1744,7 @@ class _EarningsStatItem extends StatelessWidget {
               ),
               Text(
                 label,
-                style: TextStyle(
-                  color: scheme.onSurfaceVariant,
-                  fontSize: 11,
-                ),
+                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 11),
               ),
             ],
           ),
@@ -1649,18 +1786,18 @@ class TaskProgressBottomSheet extends StatelessWidget {
                   ),
                 ],
               ),
-            Expanded(
-              child: SingleChildScrollView(
-                controller: scrollController,
-                padding: const EdgeInsets.all(16),
-                child: _TasksContent(
-                  tasksResponse: tasksResponse,
-                  onClaim: onClaim,
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.all(16),
+                  child: _TasksContent(
+                    tasksResponse: tasksResponse,
+                    onClaim: onClaim,
+                  ),
                 ),
               ),
-            ),
-          ],
-        ),
+            ],
+          ),
         ),
       ),
     );
@@ -1672,23 +1809,24 @@ class _TaskProgressButton extends StatelessWidget {
   final CreatorTasksResponse tasksResponse;
   final VoidCallback onTap;
 
-  const _TaskProgressButton({
-    required this.tasksResponse,
-    required this.onTap,
-  });
+  const _TaskProgressButton({required this.tasksResponse, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final totalMinutes = tasksResponse.totalMinutes;
-    final completedTasks = tasksResponse.tasks.where((t) => t.isCompleted).length;
+    final completedTasks = tasksResponse.tasks
+        .where((t) => t.isCompleted)
+        .length;
     final totalTasks = tasksResponse.tasks.length;
     final progressPercentage = (totalMinutes / 600).clamp(0.0, 1.0);
 
     // Find next uncompleted task
     String? nextTaskText;
     try {
-      final nextTask = tasksResponse.tasks.firstWhere((task) => !task.isCompleted);
+      final nextTask = tasksResponse.tasks.firstWhere(
+        (task) => !task.isCompleted,
+      );
       final minutesNeeded = nextTask.thresholdMinutes - totalMinutes;
       if (minutesNeeded > 0) {
         nextTaskText = '${minutesNeeded.toStringAsFixed(0)} min to next reward';
@@ -1746,10 +1884,7 @@ class _TaskProgressButton extends StatelessWidget {
                       ],
                     ),
                   ),
-                  Icon(
-                    Icons.chevron_right,
-                    color: scheme.onSurfaceVariant,
-                  ),
+                  Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
                 ],
               ),
               const SizedBox(height: 12),

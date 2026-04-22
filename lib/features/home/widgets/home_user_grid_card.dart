@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:math' as math;
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_spacing.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -23,11 +24,11 @@ class HomeUserGridCard extends ConsumerStatefulWidget {
   final CreatorModel? creator;
   final UserProfileModel? user;
 
-  const HomeUserGridCard({
-    super.key,
-    this.creator,
-    this.user,
-  }) : assert(creator != null || user != null, 'Either creator or user must be provided');
+  const HomeUserGridCard({super.key, this.creator, this.user})
+    : assert(
+        creator != null || user != null,
+        'Either creator or user must be provided',
+      );
 
   @override
   ConsumerState<HomeUserGridCard> createState() => _HomeUserGridCardState();
@@ -96,27 +97,22 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
 
   void _openCreatorProfileModal({required bool isCreatorOnline}) {
     if (widget.creator == null) return;
-    showAppModalBottomSheet<void>(
-      context: context,
-      builder: (sheetContext) => DraggableScrollableSheet(
-        initialChildSize: 0.68,
-        minChildSize: 0.45,
-        maxChildSize: 0.95,
-        builder: (context, scrollController) => _CreatorProfileBottomSheet(
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (pageContext) => _CreatorProfilePage(
           creator: widget.creator!,
           isOnline: isCreatorOnline,
-          scrollController: scrollController,
           onCallPressed: _isInitiatingCall
               ? null
               : () {
-                  Navigator.of(sheetContext).pop();
+                  Navigator.of(pageContext).pop();
                   _initiateVideoCall();
                 },
           isCalling: _isInitiatingCall,
           onChatPressed: _isOpeningChat
               ? null
               : () {
-                  Navigator.of(sheetContext).pop();
+                  Navigator.of(pageContext).pop();
                   _openCreatorChat();
                 },
           isOpeningChat: _isOpeningChat,
@@ -135,8 +131,7 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
     try {
       final chatService = ChatService();
       // Backend resolves User by Mongo id — use creator's User document id, not Creator profile id.
-      final result =
-          await chatService.createOrGetChannel(creator.userId);
+      final result = await chatService.createOrGetChannel(creator.userId);
       final channelId = result['channelId'] as String?;
 
       if (channelId != null && mounted) {
@@ -163,8 +158,10 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
   Widget build(BuildContext context) {
     // Listen for call connection failures to show error SnackBars.
     // Only this card reacts (guarded by _isInitiatingCall).
-    ref.listen<CallConnectionState>(callConnectionControllerProvider,
-        (prev, next) {
+    ref.listen<CallConnectionState>(callConnectionControllerProvider, (
+      prev,
+      next,
+    ) {
       if (_isInitiatingCall &&
           next.phase == CallConnectionPhase.failed &&
           next.error != null) {
@@ -176,7 +173,8 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
 
     final scheme = Theme.of(context).colorScheme;
 
-    final String title = widget.creator?.name ?? widget.user?.username ?? 'User';
+    final String title =
+        widget.creator?.name ?? widget.user?.username ?? 'User';
     final age = _creatorAge();
     final country = _creatorCountry();
     final authState = ref.watch(authProvider);
@@ -184,11 +182,9 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
     final showVideoCall = isRegularUser && widget.creator != null;
 
     // ── Availability (only relevant for creator cards) ────────────────────
-    final availabilityMap = ref.watch(creatorAvailabilityProvider);
-    final creatorAvailability = widget.creator?.firebaseUid != null
-        ? (availabilityMap[widget.creator!.firebaseUid!] ??
-            CreatorAvailability.busy)
-        : CreatorAvailability.busy;
+    final creatorAvailability = ref.watch(
+      creatorStatusProvider(widget.creator?.firebaseUid),
+    );
     final isCreatorOnline = creatorAvailability == CreatorAvailability.online;
 
     return AppCard(
@@ -204,7 +200,8 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
           child: Stack(
             children: [
               Positioned.fill(
-                  child: _CardImage(creator: widget.creator, user: widget.user)),
+                child: _CardImage(creator: widget.creator, user: widget.user),
+              ),
               Positioned.fill(
                 child: DecoratedBox(
                   decoration: BoxDecoration(
@@ -245,21 +242,22 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
                             overflow: TextOverflow.ellipsis,
                             iconSize: 14,
                             iconColor: Colors.white,
-                            textStyle:
-                                Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 12,
-                                      height: 1.2,
-                                    ),
+                            textStyle: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12,
+                                  height: 1.2,
+                                ),
                           ),
                         ),
                       ),
                       if (showVideoCall)
                         _VideoCallButton(
                           isLoading: _isInitiatingCall,
-                          onPressed:
-                              isCreatorOnline ? _initiateVideoCall : null,
+                          onPressed: isCreatorOnline
+                              ? _initiateVideoCall
+                              : null,
                           disabled: !isCreatorOnline,
                         ),
                     ],
@@ -280,7 +278,7 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
     if (creator.age != null) {
       return creator.age!;
     }
-    
+
     // Fallback: if age is not available, try to infer from text (legacy support)
     final source = '${creator.name} ${creator.about}';
     final match = RegExp(r'\b(1[89]|[2-9]\d)\b').firstMatch(source);
@@ -326,23 +324,31 @@ class _VideoCallButtonState extends State<_VideoCallButton>
     );
     _heartbeatScale = TweenSequence<double>([
       TweenSequenceItem(
-        tween: Tween<double>(begin: 1.0, end: 1.12)
-            .chain(CurveTween(curve: Curves.easeOut)),
+        tween: Tween<double>(
+          begin: 1.0,
+          end: 1.12,
+        ).chain(CurveTween(curve: Curves.easeOut)),
         weight: 14,
       ),
       TweenSequenceItem(
-        tween: Tween<double>(begin: 1.12, end: 1.0)
-            .chain(CurveTween(curve: Curves.easeIn)),
+        tween: Tween<double>(
+          begin: 1.12,
+          end: 1.0,
+        ).chain(CurveTween(curve: Curves.easeIn)),
         weight: 14,
       ),
       TweenSequenceItem(
-        tween: Tween<double>(begin: 1.0, end: 1.08)
-            .chain(CurveTween(curve: Curves.easeOut)),
+        tween: Tween<double>(
+          begin: 1.0,
+          end: 1.08,
+        ).chain(CurveTween(curve: Curves.easeOut)),
         weight: 11,
       ),
       TweenSequenceItem(
-        tween: Tween<double>(begin: 1.08, end: 1.0)
-            .chain(CurveTween(curve: Curves.easeIn)),
+        tween: Tween<double>(
+          begin: 1.08,
+          end: 1.0,
+        ).chain(CurveTween(curve: Curves.easeIn)),
         weight: 11,
       ),
       TweenSequenceItem(tween: ConstantTween<double>(1.0), weight: 50),
@@ -351,7 +357,8 @@ class _VideoCallButtonState extends State<_VideoCallButton>
 
   void _syncHeartbeat() {
     final effectiveDisabled = widget.disabled || widget.onPressed == null;
-    final shouldPulse = !effectiveDisabled &&
+    final shouldPulse =
+        !effectiveDisabled &&
         !widget.isLoading &&
         !(MediaQuery.maybeOf(context)?.disableAnimations ?? false);
 
@@ -387,9 +394,11 @@ class _VideoCallButtonState extends State<_VideoCallButton>
   Widget build(BuildContext context) {
     final effectiveDisabled = widget.disabled || widget.onPressed == null;
     final brand = AppBrandGradients.userHomeVideoCall;
-    final shouldPulse = !effectiveDisabled &&
+    final shouldPulse =
+        !effectiveDisabled &&
         !widget.isLoading &&
-        !(MediaQuery.maybeOf(context)?.disableAnimations ?? false);
+        !(MediaQuery.maybeOf(context)?.disableAnimations ?? false) &&
+        (Scrollable.recommendDeferredLoadingForContext(context) == false);
 
     Widget button = Material(
       color: effectiveDisabled
@@ -409,8 +418,9 @@ class _VideoCallButtonState extends State<_VideoCallButton>
                     height: _iconSize,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      valueColor:
-                          const AlwaysStoppedAnimation<Color>(Colors.white),
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                        Colors.white,
+                      ),
                     ),
                   )
                 : Icon(
@@ -501,16 +511,16 @@ class _CreatorInfoText extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final titleStyle = Theme.of(context).textTheme.titleSmall?.copyWith(
-          color: textColor,
-          fontWeight: FontWeight.w700,
-          height: 1.12,
-          fontSize: 13,
-        );
+      color: textColor,
+      fontWeight: FontWeight.w700,
+      height: 1.12,
+      fontSize: 13,
+    );
     final subtitleStyle = Theme.of(context).textTheme.labelMedium?.copyWith(
-          color: textColor,
-          fontSize: 11,
-          height: 1.2,
-        );
+      color: textColor,
+      fontSize: 11,
+      height: 1.2,
+    );
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -535,10 +545,9 @@ class _CreatorInfoText extends StatelessWidget {
   }
 }
 
-class _CreatorProfileBottomSheet extends StatelessWidget {
+class _CreatorProfilePage extends StatelessWidget {
   final CreatorModel creator;
   final bool isOnline;
-  final ScrollController scrollController;
   final VoidCallback? onCallPressed;
   final bool isCalling;
   final VoidCallback? onChatPressed;
@@ -546,10 +555,9 @@ class _CreatorProfileBottomSheet extends StatelessWidget {
   final String country;
   final int age;
 
-  const _CreatorProfileBottomSheet({
+  const _CreatorProfilePage({
     required this.creator,
     required this.isOnline,
-    required this.scrollController,
     required this.onCallPressed,
     required this.isCalling,
     required this.onChatPressed,
@@ -561,10 +569,7 @@ class _CreatorProfileBottomSheet extends StatelessWidget {
   List<String> _orderedGalleryUrls() {
     final sorted = List<CreatorGalleryImage>.from(creator.galleryImages)
       ..sort((a, b) => a.position.compareTo(b.position));
-    return sorted
-        .map((e) => e.url.trim())
-        .where((u) => u.isNotEmpty)
-        .toList();
+    return sorted.map((e) => e.url.trim()).where((u) => u.isNotEmpty).toList();
   }
 
   void _openGalleryImage(BuildContext context, String url) {
@@ -580,25 +585,15 @@ class _CreatorProfileBottomSheet extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final galleryUrls = _orderedGalleryUrls();
 
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      child: ColoredBox(
+    return Scaffold(
+      appBar: buildBrandAppBar(context, title: creator.name),
+      body: ColoredBox(
         color: AppBrandGradients.accountMenuPageBackground,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            BrandSheetHeader(
-              title: creator.name,
-              trailing: [
-                IconButton(
-                  icon: const Icon(Icons.close_rounded, color: Colors.white),
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-              ],
-            ),
             Expanded(
               child: SingleChildScrollView(
-                controller: scrollController,
                 padding: const EdgeInsets.fromLTRB(
                   AppSpacing.lg,
                   AppSpacing.sm,
@@ -608,167 +603,180 @@ class _CreatorProfileBottomSheet extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                      Center(
-                        child: ClipOval(
-                          child: SizedBox(
-                            width: 100,
-                            height: 100,
-                            child: Image.network(
-                              creator.photo,
-                              fit: BoxFit.cover,
-                              loadingBuilder: (context, child, loadingProgress) {
-                                if (loadingProgress == null) return child;
-                                return ColoredBox(
-                                  color: scheme.surfaceContainerHigh,
-                                  child: Center(
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
+                    Center(
+                      child: ClipOval(
+                        child: SizedBox(
+                          width: 100,
+                          height: 100,
+                          child: Image.network(
+                            creator.photo,
+                            fit: BoxFit.cover,
+                            cacheWidth:
+                                (100 * MediaQuery.of(context).devicePixelRatio)
+                                    .round(),
+                            cacheHeight:
+                                (100 * MediaQuery.of(context).devicePixelRatio)
+                                    .round(),
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return ColoredBox(
+                                color: scheme.surfaceContainerHigh,
+                                child: Center(
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: scheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              );
+                            },
+                            errorBuilder: (_, _, _) => ColoredBox(
+                              color: scheme.surfaceContainerHigh,
+                              child: Icon(
+                                Icons.broken_image_outlined,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Center(
+                      child: Text(
+                        isOnline ? '● Online' : '● Busy',
+                        style: TextStyle(
+                          color: isOnline
+                              ? AppPalette.success
+                              : AppPalette.warning,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Center(
+                      child: Text(
+                        '${creator.name} $age',
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    Center(
+                      child: Text(
+                        country,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(color: scheme.onSurfaceVariant),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Center(
+                      child: CreatorPricePerMinuteLabel(
+                        price: creator.price,
+                        iconColor: scheme.onSurface,
+                        textStyle: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: scheme.onSurface,
+                            ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    Text(
+                      'About Me',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      creator.about.isNotEmpty
+                          ? creator.about
+                          : 'No bio available.',
+                      style: Theme.of(context).textTheme.bodyLarge,
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    Text(
+                      'Pictures',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    if (galleryUrls.isEmpty)
+                      Text(
+                        'no pictures added',
+                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      )
+                    else
+                      GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 3,
+                              crossAxisSpacing: AppSpacing.sm,
+                              mainAxisSpacing: AppSpacing.sm,
+                              childAspectRatio: 0.85,
+                            ),
+                        itemCount: galleryUrls.length,
+                        itemBuilder: (context, index) {
+                          final url = galleryUrls[index];
+                          return Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: () => _openGalleryImage(context, url),
+                              borderRadius: BorderRadius.circular(14),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(14),
+                                child: Image.network(
+                                  url,
+                                  fit: BoxFit.cover,
+                                  cacheWidth:
+                                      (140 *
+                                              MediaQuery.of(
+                                                context,
+                                              ).devicePixelRatio)
+                                          .round(),
+                                  cacheHeight:
+                                      (180 *
+                                              MediaQuery.of(
+                                                context,
+                                              ).devicePixelRatio)
+                                          .round(),
+                                  loadingBuilder:
+                                      (context, child, loadingProgress) {
+                                        if (loadingProgress == null) {
+                                          return child;
+                                        }
+                                        return ColoredBox(
+                                          color: scheme.surfaceContainerHigh,
+                                          child: Center(
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: scheme.onSurfaceVariant,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                  errorBuilder: (_, _, _) => ColoredBox(
+                                    color: scheme.surfaceContainerHigh,
+                                    child: Icon(
+                                      Icons.broken_image_outlined,
                                       color: scheme.onSurfaceVariant,
                                     ),
                                   ),
-                                );
-                              },
-                              errorBuilder: (_, _, _) => ColoredBox(
-                                color: scheme.surfaceContainerHigh,
-                                child: Icon(
-                                  Icons.broken_image_outlined,
-                                  color: scheme.onSurfaceVariant,
                                 ),
                               ),
                             ),
-                          ),
-                        ),
+                          );
+                        },
                       ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Center(
-                        child: Text(
-                          isOnline ? '● Online' : '● Busy',
-                          style: TextStyle(
-                            color: isOnline
-                                ? AppPalette.success
-                                : AppPalette.warning,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Center(
-                        child: Text(
-                          '${creator.name} $age',
-                          style: Theme.of(context)
-                              .textTheme
-                              .headlineSmall
-                              ?.copyWith(fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                      Center(
-                        child: Text(
-                          country,
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleMedium
-                              ?.copyWith(color: scheme.onSurfaceVariant),
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Center(
-                        child: CreatorPricePerMinuteLabel(
-                          price: creator.price,
-                          iconColor: scheme.onSurface,
-                          textStyle:
-                              Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                    color: scheme.onSurface,
-                                  ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                      Text(
-                        'About Me',
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Text(
-                        creator.about.isNotEmpty
-                            ? creator.about
-                            : 'No bio available.',
-                        style: Theme.of(context).textTheme.bodyLarge,
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                      Text(
-                        'Pictures',
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                      if (galleryUrls.isEmpty)
-                        Text(
-                          'no pictures added',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodyLarge
-                              ?.copyWith(color: scheme.onSurfaceVariant),
-                        )
-                      else
-                        GridView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          gridDelegate:
-                              const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 3,
-                            crossAxisSpacing: AppSpacing.sm,
-                            mainAxisSpacing: AppSpacing.sm,
-                            childAspectRatio: 0.85,
-                          ),
-                          itemCount: galleryUrls.length,
-                          itemBuilder: (context, index) {
-                            final url = galleryUrls[index];
-                            return Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: () => _openGalleryImage(context, url),
-                                borderRadius: BorderRadius.circular(14),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(14),
-                                  child: Image.network(
-                                    url,
-                                    fit: BoxFit.cover,
-                                    loadingBuilder:
-                                        (context, child, loadingProgress) {
-                                      if (loadingProgress == null) {
-                                        return child;
-                                      }
-                                      return ColoredBox(
-                                        color: scheme.surfaceContainerHigh,
-                                        child: Center(
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: scheme.onSurfaceVariant,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                    errorBuilder: (_, _, _) => ColoredBox(
-                                      color: scheme.surfaceContainerHigh,
-                                      child: Icon(
-                                        Icons.broken_image_outlined,
-                                        color: scheme.onSurfaceVariant,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                    ],
-                  ),
+                  ],
                 ),
+              ),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(
@@ -788,7 +796,9 @@ class _CreatorProfileBottomSheet extends StatelessWidget {
                             ? const SizedBox(
                                 width: 16,
                                 height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
                             : const Icon(Icons.chat_bubble_outline),
                         label: const Text('Chat'),
@@ -858,6 +868,14 @@ class _CreatorGalleryImageViewer extends StatelessWidget {
           child: Image.network(
             url,
             fit: BoxFit.contain,
+            cacheWidth:
+                (MediaQuery.of(context).size.width *
+                        MediaQuery.of(context).devicePixelRatio)
+                    .round(),
+            cacheHeight:
+                (MediaQuery.of(context).size.height *
+                        MediaQuery.of(context).devicePixelRatio)
+                    .round(),
             loadingBuilder: (context, child, loadingProgress) {
               if (loadingProgress == null) return child;
               return const SizedBox(
@@ -888,6 +906,10 @@ class _CardImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dpr = MediaQuery.of(context).devicePixelRatio;
+    final width = MediaQuery.of(context).size.width;
+    final tileWidthPx = math.max(120, (width / 2 * dpr).round());
+    final tileHeightPx = math.max(180, (tileWidthPx * 1.4).round());
     final creatorPhoto = creator?.photo;
     if (creator != null) {
       // Creators must use Firebase/network image only.
@@ -899,23 +921,29 @@ class _CardImage extends StatelessWidget {
         return Image.network(
           creatorPhoto,
           fit: BoxFit.cover,
+          cacheWidth: tileWidthPx,
+          cacheHeight: tileHeightPx,
           errorBuilder: (context, error, stackTrace) {
             final scheme = Theme.of(context).colorScheme;
             return DecoratedBox(
-                decoration: BoxDecoration(color: scheme.surfaceContainerHigh));
+              decoration: BoxDecoration(color: scheme.surfaceContainerHigh),
+            );
           },
         );
       }
       final scheme = Theme.of(context).colorScheme;
       return DecoratedBox(
-          decoration: BoxDecoration(color: scheme.surfaceContainerHigh));
+        decoration: BoxDecoration(color: scheme.surfaceContainerHigh),
+      );
     }
 
     final avatarStr = user?.avatar;
     if (avatarStr == null || avatarStr.isEmpty) {
       // Fallback to a semantic surface tone (no hardcoded colors).
       final scheme = Theme.of(context).colorScheme;
-      return DecoratedBox(decoration: BoxDecoration(color: scheme.surfaceContainerHigh));
+      return DecoratedBox(
+        decoration: BoxDecoration(color: scheme.surfaceContainerHigh),
+      );
     }
 
     if (avatarStr.startsWith('http://') ||
@@ -924,9 +952,13 @@ class _CardImage extends StatelessWidget {
       return Image.network(
         avatarStr,
         fit: BoxFit.cover,
+        cacheWidth: tileWidthPx,
+        cacheHeight: tileHeightPx,
         errorBuilder: (context, error, stackTrace) {
           final scheme = Theme.of(context).colorScheme;
-          return DecoratedBox(decoration: BoxDecoration(color: scheme.surfaceContainerHigh));
+          return DecoratedBox(
+            decoration: BoxDecoration(color: scheme.surfaceContainerHigh),
+          );
         },
       );
     }
@@ -941,21 +973,26 @@ class _CardImage extends StatelessWidget {
             !snapshot.hasData) {
           final scheme = Theme.of(context).colorScheme;
           return DecoratedBox(
-              decoration: BoxDecoration(color: scheme.surfaceContainerHigh));
+            decoration: BoxDecoration(color: scheme.surfaceContainerHigh),
+          );
         }
         final resolvedUrl = snapshot.data;
         if (resolvedUrl == null || resolvedUrl.isEmpty) {
           final scheme = Theme.of(context).colorScheme;
           return DecoratedBox(
-              decoration: BoxDecoration(color: scheme.surfaceContainerHigh));
+            decoration: BoxDecoration(color: scheme.surfaceContainerHigh),
+          );
         }
         return Image.network(
           resolvedUrl,
           fit: BoxFit.cover,
+          cacheWidth: tileWidthPx,
+          cacheHeight: tileHeightPx,
           errorBuilder: (context, error, stackTrace) {
             final scheme = Theme.of(context).colorScheme;
             return DecoratedBox(
-                decoration: BoxDecoration(color: scheme.surfaceContainerHigh));
+              decoration: BoxDecoration(color: scheme.surfaceContainerHigh),
+            );
           },
         );
       },

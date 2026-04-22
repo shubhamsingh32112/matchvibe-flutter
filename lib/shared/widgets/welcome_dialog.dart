@@ -5,11 +5,9 @@ import 'app_toast.dart';
 /// Welcome bottom sheet that appears on first app launch, first login, or after reinstall
 class WelcomeBottomSheet extends StatelessWidget {
   final Future<void> Function() onAgree;
+  final VoidCallback? onNotNow;
 
-  const WelcomeBottomSheet({
-    super.key,
-    required this.onAgree,
-  });
+  const WelcomeBottomSheet({super.key, required this.onAgree, this.onNotNow});
 
   @override
   Widget build(BuildContext context) {
@@ -20,6 +18,7 @@ class WelcomeBottomSheet extends StatelessWidget {
       builder: (context, scrollController) => _WelcomeBottomSheetContent(
         scrollController: scrollController,
         onAgree: onAgree,
+        onNotNow: onNotNow,
       ),
     );
   }
@@ -28,17 +27,21 @@ class WelcomeBottomSheet extends StatelessWidget {
 class _WelcomeBottomSheetContent extends StatefulWidget {
   final ScrollController scrollController;
   final Future<void> Function() onAgree;
+  final VoidCallback? onNotNow;
 
   const _WelcomeBottomSheetContent({
     required this.scrollController,
     required this.onAgree,
+    this.onNotNow,
   });
 
   @override
-  State<_WelcomeBottomSheetContent> createState() => _WelcomeBottomSheetContentState();
+  State<_WelcomeBottomSheetContent> createState() =>
+      _WelcomeBottomSheetContentState();
 }
 
-class _WelcomeBottomSheetContentState extends State<_WelcomeBottomSheetContent> {
+class _WelcomeBottomSheetContentState
+    extends State<_WelcomeBottomSheetContent> {
   bool _isProcessing = false;
 
   Future<void> _handleAgree() async {
@@ -58,21 +61,26 @@ class _WelcomeBottomSheetContentState extends State<_WelcomeBottomSheetContent> 
       await widget.onAgree().timeout(
         const Duration(seconds: 5),
         onTimeout: () {
-          debugPrint('⚠️  [WELCOME] onAgree callback timed out after 5 seconds');
-          throw TimeoutException('Operation timed out', const Duration(seconds: 5));
+          debugPrint(
+            '⚠️  [WELCOME] onAgree callback timed out after 5 seconds',
+          );
+          throw TimeoutException(
+            'Operation timed out',
+            const Duration(seconds: 5),
+          );
         },
       );
-      
+
       debugPrint('✅ [WELCOME] onAgree callback completed successfully');
     } catch (e) {
       debugPrint('❌ [WELCOME] Error in onAgree callback: $e');
-      
+
       // ✅ TASK 2: Always reset processing state on error to prevent stuck button
       if (mounted) {
         setState(() {
           _isProcessing = false;
         });
-        
+
         // Show user-friendly error message
         AppToast.showErrorWithAction(
           context,
@@ -153,7 +161,7 @@ class _WelcomeBottomSheetContentState extends State<_WelcomeBottomSheetContent> 
                     ),
                   ),
                   const SizedBox(height: 16),
-                  
+
                   // Title
                   const Text(
                     'Welcome to Match Vibe',
@@ -164,7 +172,7 @@ class _WelcomeBottomSheetContentState extends State<_WelcomeBottomSheetContent> 
                     ),
                   ),
                   const SizedBox(height: 8),
-                  
+
                   // Subtitle
                   const Text(
                     'We aim to create a safe and respectful environment for everyone.',
@@ -175,18 +183,20 @@ class _WelcomeBottomSheetContentState extends State<_WelcomeBottomSheetContent> 
                     ),
                   ),
                   const SizedBox(height: 24),
-                  
+
                   // Guidelines
                   _buildGuideline(
                     icon: Icons.handshake,
                     title: 'Stay respectful',
-                    description: 'Treat others the way you\'d like to be treated.',
+                    description:
+                        'Treat others the way you\'d like to be treated.',
                   ),
                   const SizedBox(height: 16),
                   _buildGuideline(
                     icon: Icons.shield,
                     title: 'Protect yourself',
-                    description: 'Be cautious about sharing personal information.',
+                    description:
+                        'Be cautious about sharing personal information.',
                   ),
                   const SizedBox(height: 16),
                   _buildGuideline(
@@ -195,7 +205,7 @@ class _WelcomeBottomSheetContentState extends State<_WelcomeBottomSheetContent> 
                     description: 'Always report inappropriate behaviour.',
                   ),
                   const SizedBox(height: 24),
-                  
+
                   // Agreement text
                   RichText(
                     text: const TextSpan(
@@ -206,7 +216,8 @@ class _WelcomeBottomSheetContentState extends State<_WelcomeBottomSheetContent> 
                       ),
                       children: [
                         TextSpan(
-                          text: 'By using Match Vibe, you\'re agreeing to adhere to our values as well as our ',
+                          text:
+                              'By using Match Vibe, you\'re agreeing to adhere to our values as well as our ',
                         ),
                         TextSpan(
                           text: 'guidelines',
@@ -215,28 +226,30 @@ class _WelcomeBottomSheetContentState extends State<_WelcomeBottomSheetContent> 
                             decoration: TextDecoration.underline,
                           ),
                         ),
-                        TextSpan(
-                          text: '.',
-                        ),
+                        TextSpan(text: '.'),
                       ],
                     ),
                   ),
                   const SizedBox(height: 24),
-                  
+
                   // I agree button
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
                       onPressed: _isProcessing ? null : _handleAgree,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFE8B4CB), // Light pink/purple
+                        backgroundColor: const Color(
+                          0xFFE8B4CB,
+                        ), // Light pink/purple
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
                         elevation: 0,
-                        disabledBackgroundColor: const Color(0xFFE8B4CB).withOpacity(0.6),
+                        disabledBackgroundColor: const Color(
+                          0xFFE8B4CB,
+                        ).withOpacity(0.6),
                       ),
                       child: _isProcessing
                           ? const SizedBox(
@@ -244,7 +257,9 @@ class _WelcomeBottomSheetContentState extends State<_WelcomeBottomSheetContent> 
                               height: 20,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.white,
+                                ),
                               ),
                             )
                           : const Text(
@@ -256,6 +271,21 @@ class _WelcomeBottomSheetContentState extends State<_WelcomeBottomSheetContent> 
                             ),
                     ),
                   ),
+                  if (widget.onNotNow != null) ...[
+                    const SizedBox(height: 8),
+                    Center(
+                      child: TextButton(
+                        onPressed: _isProcessing ? null : widget.onNotNow,
+                        child: const Text(
+                          'Not now',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                   // Bottom padding for safe area
                   SizedBox(height: MediaQuery.of(context).padding.bottom),
                 ],
@@ -282,11 +312,7 @@ class _WelcomeBottomSheetContentState extends State<_WelcomeBottomSheetContent> 
             color: Colors.white.withOpacity(0.2),
             shape: BoxShape.circle,
           ),
-          child: Icon(
-            icon,
-            color: Colors.white,
-            size: 24,
-          ),
+          child: Icon(icon, color: Colors.white, size: 24),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -324,10 +350,7 @@ class _WelcomeBottomSheetContentState extends State<_WelcomeBottomSheetContent> 
 class WelcomeDialog extends StatelessWidget {
   final Future<void> Function() onAgree;
 
-  const WelcomeDialog({
-    super.key,
-    required this.onAgree,
-  });
+  const WelcomeDialog({super.key, required this.onAgree});
 
   @override
   Widget build(BuildContext context) {

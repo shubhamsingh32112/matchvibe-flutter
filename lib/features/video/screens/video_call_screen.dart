@@ -78,7 +78,9 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
 
         case CallConnectionPhase.failed:
           return _CallFailedView(
-              error: callState.error, isOutgoing: callState.isOutgoing);
+            error: callState.error,
+            isOutgoing: callState.isOutgoing,
+          );
 
         case CallConnectionPhase.idle:
         case CallConnectionPhase.disconnecting:
@@ -95,13 +97,14 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
 
     // Wrap with PopScope to intercept back button
     return PopScope(
-      canPop: callState.phase == CallConnectionPhase.idle || 
-              callState.phase == CallConnectionPhase.disconnecting,
+      canPop:
+          callState.phase == CallConnectionPhase.idle ||
+          callState.phase == CallConnectionPhase.disconnecting,
       onPopInvokedWithResult: (didPop, result) async {
         if (!didPop) {
           // Back button pressed - end call if active
           final phase = callState.phase;
-          if (phase != CallConnectionPhase.idle && 
+          if (phase != CallConnectionPhase.idle &&
               phase != CallConnectionPhase.disconnecting) {
             debugPrint('🔙 [CALL] Back button pressed - ending call');
             await ref.read(callConnectionControllerProvider.notifier).endCall();
@@ -123,10 +126,7 @@ class _OutgoingCallView extends ConsumerStatefulWidget {
   final bool isOutgoing;
   final Call? call;
 
-  const _OutgoingCallView({
-    required this.isOutgoing,
-    required this.call,
-  });
+  const _OutgoingCallView({required this.isOutgoing, required this.call});
 
   @override
   ConsumerState<_OutgoingCallView> createState() => _OutgoingCallViewState();
@@ -181,7 +181,8 @@ class _OutgoingCallViewState extends ConsumerState<_OutgoingCallView>
           if (phase == CallConnectionPhase.preparing ||
               phase == CallConnectionPhase.joining) {
             debugPrint(
-                '🔙 [CALL] Back button pressed during $phase - ending call');
+              '🔙 [CALL] Back button pressed during $phase - ending call',
+            );
             await ref.read(callConnectionControllerProvider.notifier).endCall();
           }
         }
@@ -189,29 +190,39 @@ class _OutgoingCallViewState extends ConsumerState<_OutgoingCallView>
       child: Scaffold(
         backgroundColor: Colors.black54,
         body: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: ClipRRect(
-                borderRadius: const BorderRadius.vertical(
-                  bottom: Radius.circular(28),
-                ),
-                child: CallDialCard(
-                  nameLine: display.nameLine,
-                  country: display.country,
-                  imageUrl: photoUrl,
-                  statusText: statusText,
-                  showConnectingBar: true,
-                  connectingBarAnimation: _barController,
-                  onHangUp: () {
-                    ref
-                        .read(callConnectionControllerProvider.notifier)
-                        .endCall();
-                  },
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          child: Column(
+            children: [
+              const _CallOverlayHeader(title: 'Video Call'),
+              Expanded(
+                child: Center(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    child: ClipRRect(
+                      borderRadius: const BorderRadius.vertical(
+                        bottom: Radius.circular(28),
+                      ),
+                      child: CallDialCard(
+                        nameLine: display.nameLine,
+                        country: display.country,
+                        imageUrl: photoUrl,
+                        statusText: statusText,
+                        showConnectingBar: true,
+                        connectingBarAnimation: _barController,
+                        onHangUp: () {
+                          ref
+                              .read(callConnectionControllerProvider.notifier)
+                              .endCall();
+                        },
+                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                      ),
+                    ),
+                  ),
                 ),
               ),
-            ),
+            ],
           ),
         ),
       ),
@@ -234,10 +245,7 @@ class _CallFailedView extends ConsumerWidget {
     final reason = callState.failureReason;
     final safeDetail = error == null
         ? null
-        : UserMessageMapper.fromString(
-            error!,
-            fallback: 'Please try again.',
-          );
+        : UserMessageMapper.fromString(error!, fallback: 'Please try again.');
 
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
@@ -265,8 +273,8 @@ class _CallFailedView extends ConsumerWidget {
                   safeDetail,
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ],
               const SizedBox(height: 24),
@@ -296,9 +304,7 @@ class _CallFailedView extends ConsumerWidget {
               // Always show Go Back
               TextButton.icon(
                 onPressed: () {
-                  ref
-                      .read(callConnectionControllerProvider.notifier)
-                      .endCall();
+                  ref.read(callConnectionControllerProvider.notifier).endCall();
                 },
                 icon: const Icon(Icons.arrow_back),
                 label: const Text('Go Back'),
@@ -329,6 +335,38 @@ class _CallFailedView extends ConsumerWidget {
   }
 }
 
+class _CallOverlayHeader extends StatelessWidget {
+  final String title;
+
+  const _CallOverlayHeader({required this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.28),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+        ),
+        child: SizedBox(
+          height: 46,
+          child: Center(
+            child: Text(
+              title,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Connected content (preserves security & max-participant checks)
 // ---------------------------------------------------------------------------
@@ -349,20 +387,56 @@ class _VideoCallScreenContentState
     extends ConsumerState<_VideoCallScreenContent> {
   bool _isScreenCaptured = false;
   bool _forceEndDialogShown = false;
+  bool _durationLimitHandled = false;
   StreamSubscription<int>? _participantsSubscription;
+  Timer? _durationLimitTimer;
 
   @override
   void initState() {
     super.initState();
     _setupSecurity();
     _listenForParticipants();
+    _startDurationLimitWatchdog();
   }
 
   @override
   void dispose() {
     _participantsSubscription?.cancel();
+    _durationLimitTimer?.cancel();
     SecurityService.clearOnScreenCaptureChanged();
     super.dispose();
+  }
+
+  void _startDurationLimitWatchdog() {
+    _durationLimitTimer?.cancel();
+    final billing = ref.read(callBillingProvider);
+    final limit = billing.durationLimit;
+    final startMs = billing.callStartTimeMs;
+    if (limit == null || limit <= 0 || startMs == null) return;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final elapsed = ((nowMs - startMs) / 1000).floor();
+    final remaining = (limit - elapsed).clamp(0, limit);
+    _durationLimitTimer = Timer(Duration(seconds: remaining), () {
+      _enforceDurationLimitIfNeeded();
+    });
+  }
+
+  void _enforceDurationLimitIfNeeded() {
+    if (_durationLimitHandled) return;
+    final billing = ref.read(callBillingProvider);
+    final limit = billing.durationLimit;
+    final startMs = billing.callStartTimeMs;
+    if (limit == null || limit <= 0 || startMs == null) return;
+
+    final elapsedSeconds =
+        ((DateTime.now().millisecondsSinceEpoch - startMs) / 1000).floor();
+    if (elapsedSeconds < limit) return;
+
+    _durationLimitHandled = true;
+    debugPrint(
+      '⏱️ [CALL] Local duration watchdog reached ${elapsedSeconds}s (limit: ${limit}s) — ending call',
+    );
+    ref.read(callConnectionControllerProvider.notifier).endCall();
   }
 
   // ──── Phase 4: partial-state optimisation ────
@@ -373,13 +447,12 @@ class _VideoCallScreenContentState
     _participantsSubscription = widget.call
         .partialState((s) => s.callParticipants.length)
         .listen((count) {
-      if (count > 2) {
-        debugPrint(
-            '🚨 [CALL] Max participants exceeded: $count (max: 2)');
-        debugPrint('   Leaving call immediately for security');
-        _handleMaxParticipantsExceeded();
-      }
-    });
+          if (count > 2) {
+            debugPrint('🚨 [CALL] Max participants exceeded: $count (max: 2)');
+            debugPrint('   Leaving call immediately for security');
+            _handleMaxParticipantsExceeded();
+          }
+        });
   }
 
   // ──── Max participants enforcement (double lock) ────
@@ -389,7 +462,8 @@ class _VideoCallScreenContentState
   Future<void> _handleMaxParticipantsExceeded() async {
     try {
       debugPrint(
-          '❌ [CALL] SECURITY VIOLATION: More than 2 participants detected');
+        '❌ [CALL] SECURITY VIOLATION: More than 2 participants detected',
+      );
       ref.read(callConnectionControllerProvider.notifier).endCall();
 
       if (mounted) {
@@ -416,7 +490,8 @@ class _VideoCallScreenContentState
 
         if (isCaptured) {
           debugPrint(
-              '🚫 [SECURITY] Screen recording detected — disconnecting call');
+            '🚫 [SECURITY] Screen recording detected — disconnecting call',
+          );
           _handleScreenCaptureDetected();
         }
       }
@@ -430,10 +505,7 @@ class _VideoCallScreenContentState
       ref.read(callConnectionControllerProvider.notifier).endCall();
 
       if (mounted) {
-        AppToast.showError(
-          context,
-          'Call ended: screen recording detected',
-        );
+        AppToast.showError(context, 'Call ended: screen recording detected');
       }
     } catch (e) {
       debugPrint('❌ [SECURITY] Error handling screen capture: $e');
@@ -448,7 +520,8 @@ class _VideoCallScreenContentState
     final authState = ref.watch(authProvider);
     final callConnectionState = ref.watch(callConnectionControllerProvider);
     final materialTheme = Theme.of(context);
-    final baseStreamTheme = materialTheme.extension<StreamVideoTheme>() ??
+    final baseStreamTheme =
+        materialTheme.extension<StreamVideoTheme>() ??
         StreamVideoTheme.fromTheme(materialTheme);
     final transparentCallContentTheme = baseStreamTheme.copyWith(
       callContentTheme: baseStreamTheme.callContentTheme.copyWith(
@@ -465,15 +538,26 @@ class _VideoCallScreenContentState
     );
     final isCreator =
         authState.user?.role == 'creator' || authState.user?.role == 'admin';
+    final showBillingOverlay =
+        callConnectionState.phase == CallConnectionPhase.connected;
+    final showBillingSyncing =
+        callConnectionState.phase == CallConnectionPhase.connected &&
+        !billingState.isActive &&
+        billingState.callStartTimeMs == null;
 
     // ── Force-end handling (billing is server-driven; UI only reacts) ──
     ref.listen<CallBillingState>(callBillingProvider, (prev, next) {
+      final prevStart = prev?.callStartTimeMs;
+      final prevLimit = prev?.durationLimit;
+      if (next.callStartTimeMs != prevStart ||
+          next.durationLimit != prevLimit) {
+        _startDurationLimitWatchdog();
+      }
       if (next.forceEnded && !_forceEndDialogShown) {
         _forceEndDialogShown = true;
         ref.read(callConnectionControllerProvider.notifier).endCall();
         final role = ref.read(authProvider).user?.role;
-        final showPurchase =
-            role != 'creator' && role != 'admin';
+        final showPurchase = role != 'creator' && role != 'admin';
         if (showPurchase) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
@@ -492,121 +576,133 @@ class _VideoCallScreenContentState
           // Back button pressed - end call for both parties
           final phase = callConnectionState.phase;
           if (phase == CallConnectionPhase.connected) {
-            debugPrint('🔙 [CALL] Back button pressed during connected call - ending call for both parties');
+            debugPrint(
+              '🔙 [CALL] Back button pressed during connected call - ending call for both parties',
+            );
             await ref.read(callConnectionControllerProvider.notifier).endCall();
           }
         }
       },
       child: Scaffold(
-      body: Stack(
-        children: [
-          if (remoteImageUrl != null)
-            Positioned.fill(
-              child: Image.network(
-                remoteImageUrl,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) =>
-                    Container(color: Colors.black),
-              ),
-            )
-          else
-            const Positioned.fill(
-              child: ColoredBox(color: Colors.black),
-            ),
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.black.withValues(alpha: 0.2),
-                    Colors.black.withValues(alpha: 0.45),
-                  ],
+        body: Stack(
+          children: [
+            if (remoteImageUrl != null)
+              Positioned.fill(
+                child: Image.network(
+                  remoteImageUrl,
+                  fit: BoxFit.cover,
+                  cacheWidth:
+                      (MediaQuery.of(context).size.width *
+                              MediaQuery.of(context).devicePixelRatio)
+                          .round(),
+                  cacheHeight:
+                      (MediaQuery.of(context).size.height *
+                              MediaQuery.of(context).devicePixelRatio)
+                          .round(),
+                  errorBuilder: (context, error, stackTrace) =>
+                      Container(color: Colors.black),
                 ),
-              ),
-            ),
-          ),
-          Theme(
-            data: materialTheme.copyWith(
-              extensions: <ThemeExtension<dynamic>>[
-                transparentCallContentTheme,
-              ],
-            ),
-            child: StreamCallContainer(
-              call: widget.call,
-              callConnectOptions: CallConnectOptions(
-                camera: TrackOption.enabled(),
-                microphone: TrackOption.enabled(),
-                screenShare: TrackOption.disabled(),
-              ),
-              onCallDisconnected: (CallDisconnectedProperties properties) {
-                debugPrint('📞 [CALL] Call disconnected');
-                debugPrint('   Reason: ${properties.reason}');
-                ref
-                    .read(callConnectionControllerProvider.notifier)
-                    .endCall();
-              },
-            ),
-          ),
-
-          if (billingState.isActive)
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: SafeArea(
-                minimum: const EdgeInsets.only(top: 8, left: 12, right: 12),
-                child: Align(
-                  alignment: Alignment.topCenter,
-                  child: LiveBillingOverlay(
-                    billing: billingState,
-                    isCreator: isCreator,
+              )
+            else
+              const Positioned.fill(child: ColoredBox(color: Colors.black)),
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withValues(alpha: 0.2),
+                      Colors.black.withValues(alpha: 0.45),
+                    ],
                   ),
                 ),
               ),
             ),
-
-          // Server `billing:update` coins — show when balance is 10 or below (still in call).
-          if (!isCreator &&
-              billingState.isActive &&
-              billingState.userCoins > 0 &&
-              billingState.userCoins <= 10)
-            _LowBalanceHeartbeatBorder(),
-
-          // Show overlay if screen capture detected (iOS)
-          if (_isScreenCaptured)
-            ColoredBox(
-              color: materialTheme.colorScheme.surface.withValues(alpha: 0.97),
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.security,
-                        size: 64, color: materialTheme.colorScheme.primary),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Screen recording detected',
-                      style: TextStyle(
-                        color: materialTheme.colorScheme.onSurface,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Call will be disconnected',
-                      style: TextStyle(
-                        color: materialTheme.colorScheme.onSurfaceVariant,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ],
+            Theme(
+              data: materialTheme.copyWith(
+                extensions: <ThemeExtension<dynamic>>[
+                  transparentCallContentTheme,
+                ],
+              ),
+              child: StreamCallContainer(
+                call: widget.call,
+                callConnectOptions: CallConnectOptions(
+                  camera: TrackOption.enabled(),
+                  microphone: TrackOption.enabled(),
+                  screenShare: TrackOption.disabled(),
                 ),
+                onCallDisconnected: (CallDisconnectedProperties properties) {
+                  debugPrint('📞 [CALL] Call disconnected');
+                  debugPrint('   Reason: ${properties.reason}');
+                  ref.read(callConnectionControllerProvider.notifier).endCall();
+                },
               ),
             ),
-        ],
-      ),
+
+            if (showBillingOverlay)
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: SafeArea(
+                  minimum: const EdgeInsets.only(top: 8, left: 12, right: 12),
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: LiveBillingOverlay(
+                      billing: billingState,
+                      isCreator: isCreator,
+                      showSyncingHint: showBillingSyncing,
+                    ),
+                  ),
+                ),
+              ),
+
+            // Server `billing:update` coins — show when balance is 10 or below (still in call).
+            if (!isCreator &&
+                billingState.isActive &&
+                billingState.userCoins > 0 &&
+                billingState.userCoins <= 10)
+              const RepaintBoundary(child: _LowBalanceHeartbeatBorder()),
+
+            // Show overlay if screen capture detected (iOS)
+            if (_isScreenCaptured)
+              ColoredBox(
+                color: materialTheme.colorScheme.surface.withValues(
+                  alpha: 0.97,
+                ),
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.security,
+                        size: 64,
+                        color: materialTheme.colorScheme.primary,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Screen recording detected',
+                        style: TextStyle(
+                          color: materialTheme.colorScheme.onSurface,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Call will be disconnected',
+                        style: TextStyle(
+                          color: materialTheme.colorScheme.onSurfaceVariant,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

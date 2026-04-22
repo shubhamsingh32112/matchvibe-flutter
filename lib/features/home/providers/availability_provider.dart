@@ -6,10 +6,30 @@ import '../../auth/providers/auth_provider.dart';
 import '../../wallet/providers/wallet_pricing_provider.dart';
 import '../../user/providers/user_availability_provider.dart';
 // 🔥 CRITICAL FIX: Import socket service provider to update creator's own status
-import '../../../core/services/availability_socket_service.dart' as socket_service;
+import '../../../core/services/availability_socket_service.dart'
+    as socket_service;
 
 // ── Enum ──────────────────────────────────────────────────────────────────
 enum CreatorAvailability { online, busy }
+
+class _AvailabilityPerfProbe {
+  static int _eventCount = 0;
+  static DateTime _windowStart = DateTime.now();
+
+  static void recordEvent(int count) {
+    if (kReleaseMode || count <= 0) return;
+    _eventCount += count;
+    final now = DateTime.now();
+    final elapsedMs = now.difference(_windowStart).inMilliseconds;
+    if (elapsedMs < 5000) return;
+    final eventsPerSecond = (_eventCount * 1000) / elapsedMs;
+    debugPrint(
+      '📈 [AVAILABILITY PERF] eventsPerSecond=${eventsPerSecond.toStringAsFixed(1)} windowMs=$elapsedMs',
+    );
+    _eventCount = 0;
+    _windowStart = now;
+  }
+}
 
 // ── Notifier ──────────────────────────────────────────────────────────────
 class CreatorAvailabilityNotifier
@@ -17,43 +37,59 @@ class CreatorAvailabilityNotifier
   CreatorAvailabilityNotifier() : super({});
 
   /// Bulk-update from an [availability:batch] socket event (Redis snapshot).
-  /// Socket-first: does not overwrite keys already set by live [creator:status].
+  /// Socket batch is authoritative snapshot and should overwrite stale seeded values.
   void updateBatch(Map<String, String> data) {
-    final newState = Map<String, CreatorAvailability>.from(state);
+    Map<String, CreatorAvailability>? newState;
+    var changes = 0;
     for (final entry in data.entries) {
       final v = entry.value == 'online'
           ? CreatorAvailability.online
           : CreatorAvailability.busy;
-      newState.putIfAbsent(entry.key, () => v);
+      if (state[entry.key] == v) continue;
+      newState ??= Map<String, CreatorAvailability>.from(state);
+      newState[entry.key] = v;
+      changes++;
     }
-    state = newState;
+    if (newState != null) {
+      state = newState;
+      _AvailabilityPerfProbe.recordEvent(changes);
+    }
   }
 
   /// Single update from a [creator:status] socket event.
   void updateSingle(String creatorId, String status) {
-    final newState = Map<String, CreatorAvailability>.from(state);
-    final newAvailability = status == 'online' 
-        ? CreatorAvailability.online 
+    final newAvailability = status == 'online'
+        ? CreatorAvailability.online
         : CreatorAvailability.busy;
-    
+
     // Only update if status actually changed (prevents unnecessary rebuilds)
-    if (newState[creatorId] != newAvailability) {
+    if (state[creatorId] != newAvailability) {
+      final newState = Map<String, CreatorAvailability>.from(state);
       newState[creatorId] = newAvailability;
       state = newState;
-      debugPrint('📡 [AVAILABILITY] Updated creator status: $creatorId → $status');
+      _AvailabilityPerfProbe.recordEvent(1);
+      debugPrint(
+        '📡 [AVAILABILITY] Updated creator status: $creatorId → $status',
+      );
     } else {
-      debugPrint('📡 [AVAILABILITY] Creator status unchanged: $creatorId → $status (skipping update)');
+      debugPrint(
+        '📡 [AVAILABILITY] Creator status unchanged: $creatorId → $status (skipping update)',
+      );
     }
   }
 
   /// Seed from REST (Redis-backed API). Never overwrites live socket map entries.
   void seedFromApi(Map<String, CreatorAvailability> data) {
     if (data.isEmpty) return;
-    final newState = Map<String, CreatorAvailability>.from(state);
+    Map<String, CreatorAvailability>? newState;
     for (final e in data.entries) {
-      newState.putIfAbsent(e.key, () => e.value);
+      if (state.containsKey(e.key)) continue;
+      newState ??= Map<String, CreatorAvailability>.from(state);
+      newState[e.key] = e.value;
     }
-    state = newState;
+    if (newState != null) {
+      state = newState;
+    }
   }
 
   /// Get availability for one creator. **Default = busy**.
@@ -68,9 +104,26 @@ class CreatorAvailabilityNotifier
 /// The reactive availability map: `{ firebaseUid → online | busy }`.
 /// Widgets that call `ref.watch(creatorAvailabilityProvider)` will rebuild
 /// whenever a batch or incremental update arrives via Socket.IO.
-final creatorAvailabilityProvider = StateNotifierProvider<
-    CreatorAvailabilityNotifier, Map<String, CreatorAvailability>>((ref) {
-  return CreatorAvailabilityNotifier();
+final creatorAvailabilityProvider =
+    StateNotifierProvider<
+      CreatorAvailabilityNotifier,
+      Map<String, CreatorAvailability>
+    >((ref) {
+      return CreatorAvailabilityNotifier();
+    });
+
+final creatorStatusProvider = Provider.family<CreatorAvailability, String?>((
+  ref,
+  creatorId,
+) {
+  if (creatorId == null || creatorId.isEmpty) {
+    return CreatorAvailability.busy;
+  }
+  return ref.watch(
+    creatorAvailabilityProvider.select(
+      (map) => map[creatorId] ?? CreatorAvailability.busy,
+    ),
+  );
 });
 
 /// Global [SocketService] instance wired to the availability notifier.
@@ -82,7 +135,7 @@ final socketServiceProvider = Provider<SocketService>((ref) {
   service.onAvailabilityBatch = (data) {
     // Update provider from availability_provider.dart (for user homepage)
     ref.read(creatorAvailabilityProvider.notifier).updateBatch(data);
-    
+
     // 🔥 CRITICAL FIX: Also update provider from availability_socket_service.dart
     // This ensures creator's own status updates instantly when SocketService receives batch events
     try {
@@ -92,20 +145,32 @@ final socketServiceProvider = Provider<SocketService>((ref) {
             ? socket_service.CreatorAvailability.online
             : socket_service.CreatorAvailability.busy;
       }
-      ref.read(socket_service.creatorAvailabilityProvider.notifier).updateAll(batchMap);
-      debugPrint('✅ [SOCKET→PROVIDER] Successfully updated socket service provider with batch');
+      ref
+          .read(socket_service.creatorAvailabilityProvider.notifier)
+          .updateAll(batchMap);
+      debugPrint(
+        '✅ [SOCKET→PROVIDER] Successfully updated socket service provider with batch',
+      );
     } catch (e) {
-      debugPrint('⚠️  [SOCKET→PROVIDER] Could not update socket service provider batch: $e');
+      debugPrint(
+        '⚠️  [SOCKET→PROVIDER] Could not update socket service provider batch: $e',
+      );
       // Non-critical - AvailabilitySocketService will also handle the event if connected
     }
   };
   service.onCreatorStatus = (creatorId, status) {
-    debugPrint('📡 [SOCKET→PROVIDER] Received creator:status event: $creatorId → $status');
+    debugPrint(
+      '📡 [SOCKET→PROVIDER] Received creator:status event: $creatorId → $status',
+    );
     try {
       // Update provider from availability_provider.dart (for user homepage)
-      ref.read(creatorAvailabilityProvider.notifier).updateSingle(creatorId, status);
-      debugPrint('✅ [SOCKET→PROVIDER] Successfully updated home provider for $creatorId');
-      
+      ref
+          .read(creatorAvailabilityProvider.notifier)
+          .updateSingle(creatorId, status);
+      debugPrint(
+        '✅ [SOCKET→PROVIDER] Successfully updated home provider for $creatorId',
+      );
+
       // 🔥 CRITICAL FIX: Also update provider from availability_socket_service.dart
       // This ensures creator's own status updates instantly when SocketService receives events
       // This is especially important if AvailabilitySocketService is not connected or initialized
@@ -113,11 +178,16 @@ final socketServiceProvider = Provider<SocketService>((ref) {
         final statusEnum = status == 'online'
             ? socket_service.CreatorAvailability.online
             : socket_service.CreatorAvailability.busy;
-        ref.read(socket_service.creatorAvailabilityProvider.notifier)
+        ref
+            .read(socket_service.creatorAvailabilityProvider.notifier)
             .update(creatorId, statusEnum);
-        debugPrint('✅ [SOCKET→PROVIDER] Successfully updated socket service provider for $creatorId');
+        debugPrint(
+          '✅ [SOCKET→PROVIDER] Successfully updated socket service provider for $creatorId',
+        );
       } catch (e) {
-        debugPrint('⚠️  [SOCKET→PROVIDER] Could not update socket service provider: $e');
+        debugPrint(
+          '⚠️  [SOCKET→PROVIDER] Could not update socket service provider: $e',
+        );
         // Non-critical - AvailabilitySocketService will also handle the event if connected
       }
     } catch (e) {
@@ -138,7 +208,9 @@ final socketServiceProvider = Provider<SocketService>((ref) {
 
   // ── Creator data sync: invalidate dashboard + refresh user on data_updated ──
   service.onCreatorDataUpdated = (data) {
-    debugPrint('📊 [SOCKET→PROVIDER] creator:data_updated received, reason: ${data['reason']}');
+    debugPrint(
+      '📊 [SOCKET→PROVIDER] creator:data_updated received, reason: ${data['reason']}',
+    );
     // Invalidate the central dashboard provider so all watchers get fresh data
     // This updates earnings, tasks, and stats (but NOT coins - handled separately)
     ref.invalidate(creatorDashboardProvider);
@@ -156,7 +228,7 @@ final socketServiceProvider = Provider<SocketService>((ref) {
         ref.read(authProvider.notifier).updateCoinsOptimistically(coins);
       }
     }
-    
+
     // For other data changes (earnings, tasks), dashboard invalidation is sufficient
     // No need for full auth refresh - saves API calls and improves performance
   };
@@ -172,7 +244,9 @@ final socketServiceProvider = Provider<SocketService>((ref) {
       debugPrint('✅ [SOCKET→PROVIDER] Coins updated instantly: $coins');
     } else {
       // Fallback: full refresh if coins not provided
-      debugPrint('⚠️  [SOCKET→PROVIDER] coins_updated missing coins, falling back to refresh');
+      debugPrint(
+        '⚠️  [SOCKET→PROVIDER] coins_updated missing coins, falling back to refresh',
+      );
       ref.read(authProvider.notifier).refreshUser();
     }
   };

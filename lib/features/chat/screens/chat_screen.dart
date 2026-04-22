@@ -22,10 +22,7 @@ class _CreatorImageAttachmentBuilder extends StreamAttachmentWidgetBuilder {
   const _CreatorImageAttachmentBuilder();
 
   @override
-  bool canHandle(
-    Message message,
-    Map<String, List<Attachment>> attachments,
-  ) {
+  bool canHandle(Message message, Map<String, List<Attachment>> attachments) {
     final senderRole = message.user?.extraData['appRole'] as String?;
     final isCreatorSender = senderRole == 'creator' || senderRole == 'admin';
     final imageAttachments = attachments['image'];
@@ -41,7 +38,8 @@ class _CreatorImageAttachmentBuilder extends StreamAttachmentWidgetBuilder {
     Map<String, List<Attachment>> attachments,
   ) {
     final imageAttachment = attachments['image']!.first;
-    final imageUrl = imageAttachment.imageUrl ??
+    final imageUrl =
+        imageAttachment.imageUrl ??
         imageAttachment.assetUrl ??
         imageAttachment.thumbUrl;
 
@@ -66,6 +64,14 @@ class _CreatorImageAttachmentBuilder extends StreamAttachmentWidgetBuilder {
                       child: Image.network(
                         imageUrl,
                         fit: BoxFit.contain,
+                        cacheWidth:
+                            (MediaQuery.of(context).size.width *
+                                    MediaQuery.of(context).devicePixelRatio)
+                                .round(),
+                        cacheHeight:
+                            (MediaQuery.of(context).size.height *
+                                    MediaQuery.of(context).devicePixelRatio)
+                                .round(),
                       ),
                     ),
                   ),
@@ -94,6 +100,9 @@ class _CreatorImageAttachmentBuilder extends StreamAttachmentWidgetBuilder {
           child: Image.network(
             imageUrl,
             fit: BoxFit.cover,
+            cacheWidth: (280 * MediaQuery.of(context).devicePixelRatio).round(),
+            cacheHeight: (360 * MediaQuery.of(context).devicePixelRatio)
+                .round(),
           ),
         ),
       ),
@@ -111,10 +120,7 @@ class _CreatorImageAttachmentBuilder extends StreamAttachmentWidgetBuilder {
 class ChatScreen extends ConsumerStatefulWidget {
   final String channelId;
 
-  const ChatScreen({
-    super.key,
-    required this.channelId,
-  });
+  const ChatScreen({super.key, required this.channelId});
 
   @override
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
@@ -132,7 +138,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final ApiClient _apiClient = ApiClient();
   bool _isInitiatingCall = false;
   bool _isBlocking = false;
-  bool? _isCreatorBlocked; // null = unknown, true = blocked, false = not blocked
+  bool?
+  _isCreatorBlocked; // null = unknown, true = blocked, false = not blocked
 
   // Quota state
   int _freeRemaining = 3;
@@ -142,6 +149,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   StreamSubscription? _channelPresentationSub;
   StreamSubscription? _clientUserUpdatedSub;
+  ProviderSubscription<CallConnectionState>? _callStateSub;
 
   @override
   void initState() {
@@ -149,11 +157,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Tell PushNotificationService which channel is currently open
     // so it suppresses notifications for this channel.
     PushNotificationService.activeChannelId = widget.channelId;
+    _callStateSub = ref.listenManual<CallConnectionState>(
+      callConnectionControllerProvider,
+      (previous, next) {
+        if (!mounted) return;
+        if (next.phase == CallConnectionPhase.idle && _isInitiatingCall) {
+          setState(() {
+            _isInitiatingCall = false;
+          });
+        }
+      },
+    );
     _initializeChannel();
   }
 
   @override
   void dispose() {
+    _callStateSub?.close();
     _channelPresentationSub?.cancel();
     _clientUserUpdatedSub?.cancel();
     // Clear active channel so notifications resume for this channel
@@ -222,19 +242,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   void _attachOtherUserPresentationListeners(Channel channel) {
     _channelPresentationSub?.cancel();
-    _channelPresentationSub = channel.on(
-      EventType.userUpdated,
-      EventType.memberUpdated,
-      EventType.memberAdded,
-      EventType.channelUpdated,
-    ).listen((_) {
-      if (mounted) _syncOtherUserPresentationFromChannel(channel);
-    });
+    _channelPresentationSub = channel
+        .on(
+          EventType.userUpdated,
+          EventType.memberUpdated,
+          EventType.memberAdded,
+          EventType.channelUpdated,
+        )
+        .listen((_) {
+          if (mounted) _syncOtherUserPresentationFromChannel(channel);
+        });
 
     final client = channel.client;
     _clientUserUpdatedSub?.cancel();
-    _clientUserUpdatedSub =
-        client.on(EventType.userUpdated).listen((event) {
+    _clientUserUpdatedSub = client.on(EventType.userUpdated).listen((event) {
       final id = event.user?.id;
       if (!mounted || id == null || id != _otherUserFirebaseUid) return;
       _syncOtherUserPresentationFromChannel(channel);
@@ -253,8 +274,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
       // Fallback: when Stream state is incomplete, fetch from backend
       if (otherUser == null) {
-        debugPrint('📞 [CHAT] Stream state incomplete; fetching other member from backend');
-        final fallback = await _chatService.getOtherMemberInfo(widget.channelId);
+        debugPrint(
+          '📞 [CHAT] Stream state incomplete; fetching other member from backend',
+        );
+        final fallback = await _chatService.getOtherMemberInfo(
+          widget.channelId,
+        );
         if (fallback != null && mounted) {
           final displayName = fallback['displayName'] as String?;
           final image = fallback['image'] as String?;
@@ -263,13 +288,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           final creatorMongoId = fallback['creatorMongoId'] as String?;
           final appRole = fallback['appRole'] as String?;
           final authState = ref.read(authProvider);
-          final isCreator = authState.user?.role == 'creator' ||
+          final isCreator =
+              authState.user?.role == 'creator' ||
               authState.user?.role == 'admin';
           if (mounted) {
             setState(() {
               _channel = channel;
-              _otherUserName =
-                  displayName?.trim().isNotEmpty == true ? displayName : 'User';
+              _otherUserName = displayName?.trim().isNotEmpty == true
+                  ? displayName
+                  : 'User';
               _otherUserImage = image;
               _otherUserFirebaseUid = firebaseUid;
               // Prefer creatorMongoId (Creator._id) for video call when other is creator
@@ -321,8 +348,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
       // Determine if the current user is a creator
       final authState = ref.read(authProvider);
-      final isCreator = authState.user?.role == 'creator' ||
-          authState.user?.role == 'admin';
+      final isCreator =
+          authState.user?.role == 'creator' || authState.user?.role == 'admin';
 
       if (mounted) {
         setState(() {
@@ -424,8 +451,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final actionLabel = _isInitiatingCall
         ? 'Calling...'
         : isCreatorOnline
-            ? 'Call again'
-            : 'Creator offline';
+        ? 'Call again'
+        : 'Creator offline';
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -492,8 +519,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 ? Icons.call_made_rounded
                                 : Icons.do_not_disturb_alt_rounded,
                             size: 14,
-                            color: scheme.onTertiaryContainer
-                                .withValues(alpha: isCreatorOnline ? 0.9 : 0.7),
+                            color: scheme.onTertiaryContainer.withValues(
+                              alpha: isCreatorOnline ? 0.9 : 0.7,
+                            ),
                           ),
                         const SizedBox(width: 6),
                         Text(
@@ -501,8 +529,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
-                            color: scheme.onTertiaryContainer
-                                .withValues(alpha: isCreatorOnline ? 1 : 0.8),
+                            color: scheme.onTertiaryContainer.withValues(
+                              alpha: isCreatorOnline ? 1 : 0.8,
+                            ),
                           ),
                         ),
                       ],
@@ -521,7 +550,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        icon: Icon(Icons.block, color: Theme.of(ctx).colorScheme.error, size: 48),
+        icon: Icon(
+          Icons.block,
+          color: Theme.of(ctx).colorScheme.error,
+          size: 48,
+        ),
         title: const Text('Not Allowed'),
         content: const Text('This action is not allowed.'),
         actions: [
@@ -538,12 +571,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        icon: Icon(Icons.image_not_supported,
-            color: Theme.of(ctx).colorScheme.error, size: 48),
-        title: const Text('Attachment Not Allowed'),
-        content: const Text(
-          'Only creators can send images or videos in chat.',
+        icon: Icon(
+          Icons.image_not_supported,
+          color: Theme.of(ctx).colorScheme.error,
+          size: 48,
         ),
+        title: const Text('Attachment Not Allowed'),
+        content: const Text('Only creators can send images or videos in chat.'),
         actions: [
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(),
@@ -577,31 +611,35 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Optimize: For free messages, we can be more lenient with timeout
       // For paid messages, we need to ensure the check completes
       final hasFreeRemaining = _freeRemaining > 0;
-      
+
       // Send message.id as idempotency key to prevent double-charge on retries
       // Reduced timeout to 5 seconds (Redis cache makes most requests < 100ms)
       // Only cache misses take longer (~200-500ms), so 5s is safe
-      final result = await _chatService.preSendMessage(
-        widget.channelId,
-        messageId: message.id,
-      ).timeout(
-        const Duration(seconds: 5),
-        onTimeout: () {
-          // If timeout and we have free remaining, allow send optimistically
-          // Backend will handle quota when message arrives
-          if (hasFreeRemaining) {
-            debugPrint('⚠️ [CHAT] Pre-send timeout, allowing send (free remaining)');
-            return {
-              'canSend': true,
-              'freeRemaining': _freeRemaining - 1,
-              'coinsCharged': 0,
-              'userCoins': _userCoins,
-            };
-          }
-          // For paid messages, fail on timeout to prevent double charge
-          throw TimeoutException('Pre-send check timed out', const Duration(seconds: 5));
-        },
-      );
+      final result = await _chatService
+          .preSendMessage(widget.channelId, messageId: message.id)
+          .timeout(
+            const Duration(seconds: 5),
+            onTimeout: () {
+              // If timeout and we have free remaining, allow send optimistically
+              // Backend will handle quota when message arrives
+              if (hasFreeRemaining) {
+                debugPrint(
+                  '⚠️ [CHAT] Pre-send timeout, allowing send (free remaining)',
+                );
+                return {
+                  'canSend': true,
+                  'freeRemaining': _freeRemaining - 1,
+                  'coinsCharged': 0,
+                  'userCoins': _userCoins,
+                };
+              }
+              // For paid messages, fail on timeout to prevent double charge
+              throw TimeoutException(
+                'Pre-send check timed out',
+                const Duration(seconds: 5),
+              );
+            },
+          );
 
       final canSend = result['canSend'] as bool? ?? false;
 
@@ -651,15 +689,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Widget _buildCallAction(ColorScheme colorScheme, bool isOnline) {
     return IconButton(
-      onPressed: _initiateVideoCall, // Always enabled - will check online status inside
+      onPressed:
+          _initiateVideoCall, // Always enabled - will check online status inside
       icon: _isInitiatingCall
           ? SizedBox(
               width: 20,
               height: 20,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                valueColor:
-                    AlwaysStoppedAnimation<Color>(colorScheme.primary),
+                valueColor: AlwaysStoppedAnimation<Color>(colorScheme.primary),
               ),
             )
           : Icon(
@@ -680,7 +718,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return _otherUserFirebaseUid != null;
   }
 
-
   bool get _canReportCreatorFromChat {
     if (_isCreator) return false;
     final otherRole = _otherUserAppRole;
@@ -689,12 +726,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Future<void> _checkIfCreatorBlocked() async {
     if (_otherUserMongoId == null || _isCreator) return;
-    
+
     try {
       // For now, we'll check when blocking - this is simpler
       // We can optimize later by storing blocked list in user model
       setState(() {
-        _isCreatorBlocked = false; // Default to not blocked, will update on block action
+        _isCreatorBlocked =
+            false; // Default to not blocked, will update on block action
       });
     } catch (e) {
       debugPrint('⚠️ [CHAT] Failed to check blocked status: $e');
@@ -702,7 +740,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _toggleBlockCreator() async {
-    if ((_otherUserMongoId == null && _otherUserFirebaseUid == null) || _isCreator || _isBlocking) return;
+    if ((_otherUserMongoId == null && _otherUserFirebaseUid == null) ||
+        _isCreator ||
+        _isBlocking)
+      return;
 
     setState(() => _isBlocking = true);
 
@@ -711,14 +752,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final response = await _apiClient.post(
         '/user/block-creator',
         data: {
-          if (_otherUserFirebaseUid != null) 'firebaseUid': _otherUserFirebaseUid,
+          if (_otherUserFirebaseUid != null)
+            'firebaseUid': _otherUserFirebaseUid,
           if (_otherUserMongoId != null) 'userId': _otherUserMongoId,
         },
       );
 
       if (response.statusCode == 200 && response.data['success'] == true) {
         final isBlocked = response.data['data']['isBlocked'] as bool? ?? false;
-        
+
         if (mounted) {
           setState(() {
             _isCreatorBlocked = isBlocked;
@@ -790,8 +832,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               _toggleBlockCreator();
             },
             style: FilledButton.styleFrom(
-              backgroundColor:
-                  isBlocked ? AppPalette.success : AppPalette.primaryRed,
+              backgroundColor: isBlocked
+                  ? AppPalette.success
+                  : AppPalette.primaryRed,
             ),
             child: Text(isBlocked ? 'Unblock' : 'Block'),
           ),
@@ -871,7 +914,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           context,
                           UserMessageMapper.userMessageFor(
                             e,
-                            fallback: 'Couldn\'t send report. Please try again.',
+                            fallback:
+                                'Couldn\'t send report. Please try again.',
                           ),
                         );
                         setDialogState(() => isSubmitting = false);
@@ -891,7 +935,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     ).whenComplete(() {
       // Delay disposal to avoid transient "used after disposed" during route
       // transition / IME teardown on some Android builds.
-      Future<void>.delayed(const Duration(milliseconds: 250), controller.dispose);
+      Future<void>.delayed(
+        const Duration(milliseconds: 250),
+        controller.dispose,
+      );
     });
   }
 
@@ -913,7 +960,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           if (creatorMongoId != null) {
             setState(() {
               _otherUserMongoId = creatorMongoId;
-              if (creatorFirebaseUid != null) _otherUserFirebaseUid = creatorFirebaseUid;
+              if (creatorFirebaseUid != null)
+                _otherUserFirebaseUid = creatorFirebaseUid;
             });
           }
         }
@@ -930,8 +978,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     // Check if creator is online
     final availabilityMap = ref.read(creatorAvailabilityProvider);
-    final isCreatorOnline = (availabilityMap[creatorFirebaseUid!] ??
-            CreatorAvailability.busy) ==
+    final isCreatorOnline =
+        (availabilityMap[creatorFirebaseUid!] ?? CreatorAvailability.busy) ==
         CreatorAvailability.online;
 
     if (!isCreatorOnline) {
@@ -950,7 +998,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final user = authState.user;
     if (user != null && user.coins < 10) {
       if (mounted) {
-        _showInsufficientCoinsDialog('Minimum 10 coins required to start a call.\nYou currently have ${user.coins} coins.');
+        _showInsufficientCoinsDialog(
+          'Minimum 10 coins required to start a call.\nYou currently have ${user.coins} coins.',
+        );
       }
       return;
     }
@@ -1006,8 +1056,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         color: scheme.primaryContainer.withValues(alpha: 0.3),
         child: Row(
           children: [
-            Icon(Icons.chat_bubble_outline,
-                size: 14, color: scheme.onPrimaryContainer),
+            Icon(
+              Icons.chat_bubble_outline,
+              size: 14,
+              color: scheme.onPrimaryContainer,
+            ),
             const SizedBox(width: 6),
             Text(
               '$_freeRemaining free message${_freeRemaining == 1 ? '' : 's'} remaining',
@@ -1042,10 +1095,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           const Spacer(),
           Text(
             'Balance: $_userCoins',
-            style: TextStyle(
-              fontSize: 12,
-              color: scheme.onSurfaceVariant,
-            ),
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
           ),
         ],
       ),
@@ -1061,24 +1111,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       );
     }
 
-    // Watch call connection state to ensure button visibility updates after calls
-    final callState = ref.watch(callConnectionControllerProvider);
-    // Reset _isInitiatingCall when call state returns to idle
-    if (callState.phase == CallConnectionPhase.idle && _isInitiatingCall) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          setState(() {
-            _isInitiatingCall = false;
-          });
-        }
-      });
-    }
+    // Keep widget reactive to call phase for action visibility/state.
+    ref.watch(callConnectionControllerProvider);
 
     final colorScheme = Theme.of(context).colorScheme;
     final availabilityMap = ref.watch(creatorAvailabilityProvider);
-    final isCreatorOnline = _otherUserFirebaseUid != null &&
-        (availabilityMap[_otherUserFirebaseUid!] ??
-                CreatorAvailability.busy) ==
+    final isCreatorOnline =
+        _otherUserFirebaseUid != null &&
+        (availabilityMap[_otherUserFirebaseUid!] ?? CreatorAvailability.busy) ==
             CreatorAvailability.online;
     final canCallFromChat = _showCallButton;
     final canReportFromChat = _canReportCreatorFromChat;
@@ -1111,13 +1151,33 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 CircleAvatar(
                   radius: 18,
                   backgroundColor: colorScheme.primaryContainer,
-                  backgroundImage: _otherUserImage != null
-                      ? NetworkImage(_otherUserImage!)
-                      : null,
-                  child: _otherUserImage == null
-                      ? Icon(Icons.person,
-                          size: 20, color: colorScheme.onPrimaryContainer)
-                      : null,
+                  child: ClipOval(
+                    child: SizedBox(
+                      width: 36,
+                      height: 36,
+                      child: _otherUserImage != null
+                          ? Image.network(
+                              _otherUserImage!,
+                              fit: BoxFit.cover,
+                              cacheWidth:
+                                  (36 * MediaQuery.of(context).devicePixelRatio)
+                                      .round(),
+                              cacheHeight:
+                                  (36 * MediaQuery.of(context).devicePixelRatio)
+                                      .round(),
+                              errorBuilder: (_, __, ___) => Icon(
+                                Icons.person,
+                                size: 20,
+                                color: colorScheme.onPrimaryContainer,
+                              ),
+                            )
+                          : Icon(
+                              Icons.person,
+                              size: 20,
+                              color: colorScheme.onPrimaryContainer,
+                            ),
+                    ),
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -1130,7 +1190,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
             actions: [
               // Block creator button (only for regular users chatting with creators)
-              if (!_isCreator && (_otherUserAppRole == 'creator' || _otherUserAppRole == 'admin'))
+              if (!_isCreator &&
+                  (_otherUserAppRole == 'creator' ||
+                      _otherUserAppRole == 'admin'))
                 IconButton(
                   onPressed: _isBlocking ? null : _showBlockCreatorDialog,
                   icon: _isBlocking
@@ -1140,12 +1202,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : Icon(
-                          _isCreatorBlocked == true ? Icons.block : Icons.block_outlined,
+                          _isCreatorBlocked == true
+                              ? Icons.block
+                              : Icons.block_outlined,
                           color: _isCreatorBlocked == true
                               ? colorScheme.error
                               : null,
                         ),
-                  tooltip: _isCreatorBlocked == true ? 'Unblock Creator' : 'Block Creator',
+                  tooltip: _isCreatorBlocked == true
+                      ? 'Unblock Creator'
+                      : 'Block Creator',
                 ),
               if (canReportFromChat)
                 IconButton(
@@ -1164,30 +1230,31 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 child: StreamMessageListView(
                   messageBuilder:
                       (context, details, messageList, defaultMessageWidget) {
-                    if (_isCallActivityMessage(details.message)) {
-                      return _buildCallActivityCard(
-                        context,
-                        details.message,
-                        showCallAgain: canCallFromChat,
-                        isCreatorOnline: isCreatorOnline,
-                      );
-                    }
+                        if (_isCallActivityMessage(details.message)) {
+                          return _buildCallActivityCard(
+                            context,
+                            details.message,
+                            showCallAgain: canCallFromChat,
+                            isCreatorOnline: isCreatorOnline,
+                          );
+                        }
 
-                    final senderRole =
-                        details.message.user?.extraData['appRole'] as String?;
-                    final isCreatorSender =
-                        senderRole == 'creator' || senderRole == 'admin';
+                        final senderRole =
+                            details.message.user?.extraData['appRole']
+                                as String?;
+                        final isCreatorSender =
+                            senderRole == 'creator' || senderRole == 'admin';
 
-                    if (!isCreatorSender) {
-                      return defaultMessageWidget;
-                    }
+                        if (!isCreatorSender) {
+                          return defaultMessageWidget;
+                        }
 
-                    return defaultMessageWidget.copyWith(
-                      attachmentBuilders: const [
-                        _CreatorImageAttachmentBuilder(),
-                      ],
-                    );
-                  },
+                        return defaultMessageWidget.copyWith(
+                          attachmentBuilders: const [
+                            _CreatorImageAttachmentBuilder(),
+                          ],
+                        );
+                      },
                   threadBuilder: (_, parentMessage) {
                     return const SizedBox.shrink();
                   },

@@ -67,14 +67,14 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         title: Text(
           'Log Out',
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurface,
-              ),
+            color: Theme.of(context).colorScheme.onSurface,
+          ),
         ),
         content: Text(
           'Are you sure you want to log out?',
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
         ),
         actions: [
           TextButton(
@@ -85,9 +85,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
             onPressed: () => Navigator.pop(context, true),
             child: Text(
               'Log Out',
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.error,
-              ),
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           ),
         ],
@@ -109,8 +107,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     if (!mounted) return;
 
     final updatedRole = ref.read(authProvider).user?.role;
-    final becameCreator =
-        previousRole != 'creator' && updatedRole == 'creator';
+    final becameCreator = previousRole != 'creator' && updatedRole == 'creator';
 
     if (becameCreator) {
       AppToast.showSuccess(
@@ -195,8 +192,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     final user = authState.user;
     final scheme = Theme.of(context).colorScheme;
     final topInset = MediaQuery.paddingOf(context).top;
-    final isCreator =
-        user?.role == 'creator' || user?.role == 'admin';
+    final isCreator = user?.role == 'creator' || user?.role == 'admin';
     final isPlainUser = user?.role == 'user';
     final billingState = ref.watch(callBillingProvider);
     final coins = billingState.isActive && !isCreator
@@ -204,8 +200,9 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         : (user?.coins ?? 0);
     final unreadAsync = ref.watch(chatUnreadCountProvider);
     final unread = unreadAsync.valueOrNull ?? 0;
-    final dashboardAsync =
-        isCreator ? ref.watch(creatorDashboardProvider) : null;
+    final dashboardAsync = isCreator
+        ? ref.watch(creatorDashboardProvider)
+        : null;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light.copyWith(
@@ -240,24 +237,40 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                     ),
                     SliverPadding(
                       padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
-                      sliver: SliverGrid(
-                        gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          mainAxisSpacing: 10,
-                          crossAxisSpacing: 10,
-                          childAspectRatio: 1.58,
-                        ),
-                        delegate: SliverChildListDelegate(
-                          _exploreTiles(
-                            context: context,
-                            user: user,
-                            isCreator: isCreator,
-                            isPlainUser: isPlainUser,
-                            coins: coins,
-                            dashboardAsync: dashboardAsync,
-                          ),
-                        ),
+                      sliver: SliverLayoutBuilder(
+                        builder: (context, constraints) {
+                          int count = 2;
+                          double ratio = 1.58;
+                          if (constraints.crossAxisExtent >= 1200) {
+                            count = 5;
+                            ratio = 1.8;
+                          } else if (constraints.crossAxisExtent >= 900) {
+                            count = 4;
+                            ratio = 1.75;
+                          } else if (constraints.crossAxisExtent >= 640) {
+                            count = 3;
+                            ratio = 1.65;
+                          }
+                          return SliverGrid(
+                            gridDelegate:
+                                SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: count,
+                                  mainAxisSpacing: 10,
+                                  crossAxisSpacing: 10,
+                                  childAspectRatio: ratio,
+                                ),
+                            delegate: SliverChildListDelegate(
+                              _exploreTiles(
+                                context: context,
+                                user: user,
+                                isCreator: isCreator,
+                                isPlainUser: isPlainUser,
+                                coins: coins,
+                                dashboardAsync: dashboardAsync,
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ),
                     SliverPadding(
@@ -320,16 +333,21 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
           decoration: const BoxDecoration(
             gradient: AppBrandGradients.accountMenuHeaderGradient,
           ),
-          padding: EdgeInsets.fromLTRB(16, topInset + 8, 16, _headerOverlap + 20),
+          padding: EdgeInsets.fromLTRB(
+            16,
+            topInset + 8,
+            16,
+            _headerOverlap + 20,
+          ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Text(
                 'Menu',
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const Spacer(),
               // Bell → chat list (no separate notifications screen yet).
@@ -349,8 +367,10 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                 onTap: () => _showWalletBottomSheet(context),
                 borderRadius: BorderRadius.circular(20),
                 child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 6,
+                  ),
                   child: Row(
                     children: [
                       const GemIcon(size: 20),
@@ -420,12 +440,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                   gradient: AppBrandGradients.avatarRing,
                   border: Border.all(color: Colors.white, width: 2),
                 ),
-                child: ClipOval(
-                  child: AvatarWidget(
-                    user: user,
-                    size: 64,
-                  ),
-                ),
+                child: ClipOval(child: AvatarWidget(user: user, size: 64)),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -437,9 +452,9 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: const Color(0xFF1A1A1A),
-                          ),
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF1A1A1A),
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -447,8 +462,8 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: AppPalette.subtitle,
-                          ),
+                        color: AppPalette.subtitle,
+                      ),
                     ),
                   ],
                 ),
@@ -486,8 +501,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
               ),
             ],
           ),
-          if (user?.referralCode != null &&
-              user!.referralCode!.isNotEmpty) ...[
+          if (user?.referralCode != null && user!.referralCode!.isNotEmpty) ...[
             const SizedBox(height: 12),
             GestureDetector(
               onTap: () async {
@@ -497,8 +511,10 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                 AppToast.showSuccess(context, 'Referral code copied');
               },
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: AppBrandGradients.accountMenuPageBackground,
                   borderRadius: BorderRadius.circular(12),
@@ -509,8 +525,11 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.card_giftcard_outlined,
-                        size: 16, color: AppBrandGradients.accountMenuIconTint),
+                    Icon(
+                      Icons.card_giftcard_outlined,
+                      size: 16,
+                      color: AppBrandGradients.accountMenuIconTint,
+                    ),
                     const SizedBox(width: 6),
                     Text(
                       user.referralCode!,
@@ -559,9 +578,9 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     return Text(
       text,
       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w700,
-            color: const Color(0xFF2D2D2D),
-          ),
+        fontWeight: FontWeight.w700,
+        color: const Color(0xFF2D2D2D),
+      ),
     );
   }
 
@@ -606,8 +625,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         context: context,
         icon: Icons.card_giftcard_outlined,
         title: 'Referral',
-        subtitle: (user?.referralCode != null &&
-                user!.referralCode!.isNotEmpty)
+        subtitle: (user?.referralCode != null && user!.referralCode!.isNotEmpty)
             ? user.referralCode!
             : 'Get your code',
         onTap: () => _showReferralBottomSheet(context),
@@ -694,9 +712,9 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: const Color(0xFF1A1A1A),
-                          ),
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF1A1A1A),
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -704,8 +722,8 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: AppPalette.subtitle,
-                          ),
+                        color: AppPalette.subtitle,
+                      ),
                     ),
                   ],
                 ),
@@ -747,9 +765,9 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                 child: Text(
                   title,
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: color,
-                      ),
+                    fontWeight: FontWeight.w600,
+                    color: color,
+                  ),
                 ),
               ),
               Icon(
@@ -770,10 +788,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         RichText(
           textAlign: TextAlign.center,
           text: TextSpan(
-            style: TextStyle(
-              color: scheme.onSurfaceVariant,
-              fontSize: 12,
-            ),
+            style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
             children: [
               const TextSpan(text: 'Need Help? Please contact '),
               TextSpan(
@@ -792,10 +807,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
           _appVersion != null && _buildNumber != null
               ? 'Version $_appVersion ($_buildNumber)'
               : 'Version 1.0.0 (1)',
-          style: TextStyle(
-            color: scheme.onSurfaceVariant,
-            fontSize: 12,
-          ),
+          style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
         ),
       ],
     );
@@ -839,9 +851,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
       decoration: BoxDecoration(
         color: AppBrandGradients.accountMenuPageBackground,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: scheme.outlineVariant.withValues(alpha: 0.5),
-        ),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.5)),
       ),
       padding: const EdgeInsets.all(14),
       child: Column(
@@ -909,10 +919,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: isOnline ? Colors.green : Colors.grey,
-                      border: Border.all(
-                        color: scheme.surface,
-                        width: 2,
-                      ),
+                      border: Border.all(color: scheme.surface, width: 2),
                     ),
                   ),
                 ],
@@ -929,9 +936,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
       decoration: BoxDecoration(
         color: AppBrandGradients.accountMenuPageBackground,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: scheme.outlineVariant.withValues(alpha: 0.5),
-        ),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.5)),
       ),
       padding: const EdgeInsets.all(14),
       child: Column(
@@ -1001,7 +1006,9 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
           decoration: BoxDecoration(
-            color: isActive ? activeColor : scheme.surface.withValues(alpha: 0.1),
+            color: isActive
+                ? activeColor
+                : scheme.surface.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
               color: isActive
@@ -1016,17 +1023,13 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
               Icon(
                 icon,
                 size: 16,
-                color: isActive
-                    ? scheme.onPrimary
-                    : scheme.onSurfaceVariant,
+                color: isActive ? scheme.onPrimary : scheme.onSurfaceVariant,
               ),
               const SizedBox(width: 6),
               Text(
                 label,
                 style: TextStyle(
-                  color: isActive
-                      ? scheme.onPrimary
-                      : scheme.onSurfaceVariant,
+                  color: isActive ? scheme.onPrimary : scheme.onSurfaceVariant,
                   fontSize: 12,
                   fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
                 ),

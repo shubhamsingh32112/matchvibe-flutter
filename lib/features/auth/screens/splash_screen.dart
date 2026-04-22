@@ -19,6 +19,7 @@ class SplashScreen extends ConsumerStatefulWidget {
 
 class _SplashScreenState extends ConsumerState<SplashScreen>
     with SingleTickerProviderStateMixin {
+  final DateTime _splashStart = DateTime.now();
   double _progress = 0;
   static const double _progressCap = 0.92;
   Timer? _progressTimer;
@@ -36,11 +37,11 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   }
 
   void _startProgressTicker() {
-    _progressTimer = Timer.periodic(const Duration(milliseconds: 120), (_) {
+    _progressTimer = Timer.periodic(const Duration(milliseconds: 300), (_) {
       if (!mounted) return;
       if (_progress >= _progressCap) return;
       setState(() {
-        _progress = (_progress + 0.018).clamp(0.0, _progressCap);
+        _progress = (_progress + 0.032).clamp(0.0, _progressCap);
       });
     });
   }
@@ -68,18 +69,15 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     await Future.delayed(const Duration(milliseconds: 180));
     if (!mounted) return;
     await navigate();
+    debugPrint(
+      '⏱️ [SPLASH] Interactive in ${DateTime.now().difference(_splashStart).inMilliseconds}ms',
+    );
   }
 
   /// Waits for Firebase restore + backend sync so we do not send users to /login
   /// while [AuthState.isAuthenticated] is still false only because sync is in flight.
   Future<void> _checkAuthState() async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    if (!mounted) return;
-
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (!mounted) return;
-
-    const poll = Duration(milliseconds: 200);
+    const poll = Duration(milliseconds: 500);
     final deadline = DateTime.now().add(const Duration(seconds: 20));
 
     try {
@@ -183,9 +181,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
             ),
             child: const SizedBox.expand(),
           ),
-          const Positioned.fill(
-            child: LoaderBgWordmarkCover(),
-          ),
+          const Positioned.fill(child: LoaderBgWordmarkCover()),
           Positioned(
             left: 0,
             right: 0,
@@ -245,8 +241,7 @@ class _SplashProgressBar extends StatelessWidget {
                   final w = constraints.maxWidth * progress.clamp(0.0, 1.0);
                   return Align(
                     alignment: Alignment.centerLeft,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 100),
+                    child: Container(
                       width: w,
                       height: height,
                       decoration: BoxDecoration(

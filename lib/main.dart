@@ -22,21 +22,23 @@ import 'features/video/widgets/outgoing_call_overlay.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // Load environment file based on build mode
   // Detect build mode: kReleaseMode is true in release builds, false in debug/profile
   final bool isProduction = kReleaseMode;
   final envFile = isProduction ? ".env.production" : ".env.development";
-  
+
   if (kDebugMode) {
     debugPrint('═══════════════════════════════════════════════════════');
     debugPrint('🔧 [ENV] Loading environment configuration');
     debugPrint('═══════════════════════════════════════════════════════');
-    debugPrint('   📦 Build Mode: ${isProduction ? "PRODUCTION" : "DEVELOPMENT"}');
+    debugPrint(
+      '   📦 Build Mode: ${isProduction ? "PRODUCTION" : "DEVELOPMENT"}',
+    );
     debugPrint('   📄 Env File: $envFile');
     debugPrint('═══════════════════════════════════════════════════════');
   }
-  
+
   await dotenv.load(fileName: envFile);
 
   // Release builds: debugPrint is stripped; use developer.log for adb logcat.
@@ -44,7 +46,9 @@ void main() async {
   if (kReleaseMode) {
     final api = (dotenv.env['API_BASE_URL'] ?? '').trim();
     final socket = (dotenv.env['SOCKET_URL'] ?? '').trim();
-    final hasGoogleWeb = (dotenv.env['GOOGLE_WEB_CLIENT_ID'] ?? '').trim().isNotEmpty;
+    final hasGoogleWeb = (dotenv.env['GOOGLE_WEB_CLIENT_ID'] ?? '')
+        .trim()
+        .isNotEmpty;
     final apiHost = Uri.tryParse(api)?.host ?? '';
     final socketHost = Uri.tryParse(socket)?.host ?? '';
     developer.log(
@@ -56,7 +60,9 @@ void main() async {
 
   if (kDebugMode) {
     debugPrint('✅ [ENV] Environment loaded successfully');
-    debugPrint('   🌐 API_BASE_URL: ${dotenv.env['API_BASE_URL'] ?? "NOT SET"}');
+    debugPrint(
+      '   🌐 API_BASE_URL: ${dotenv.env['API_BASE_URL'] ?? "NOT SET"}',
+    );
     debugPrint('   🔌 SOCKET_URL: ${dotenv.env['SOCKET_URL'] ?? "NOT SET"}');
   }
   if (isProduction) {
@@ -66,7 +72,9 @@ void main() async {
       'SOCKET_URL',
       'WEBSITE_BASE_URL',
     ];
-    final missing = requiredKeys.where((k) => (dotenv.env[k] ?? '').trim().isEmpty).toList();
+    final missing = requiredKeys
+        .where((k) => (dotenv.env[k] ?? '').trim().isEmpty)
+        .toList();
     final baseUrl = (dotenv.env['API_BASE_URL'] ?? '').trim();
     if (missing.isNotEmpty || baseUrl.contains('localhost')) {
       // Always print this warning, even in release builds
@@ -82,27 +90,40 @@ void main() async {
     }
   }
 
-  // Enforce app-wide screenshot/screen recording/screen-share protection.
-  await SecurityService.initializeAppSecurity();
-  
-  // Initialize Firebase
-  // Note: You'll need to add your firebase_options.dart file
-  // Run: flutterfire configure
+  final localNotifications = FlutterLocalNotificationsPlugin();
+  final initFutures = <Future<void>>[
+    SecurityService.initializeAppSecurity(),
+    _initializeFirebaseSafely(),
+    _initializeLocalNotifications(localNotifications),
+  ];
+  await Future.wait(initFutures);
+
+  // Inject the single instance into PushNotificationService
+  PushNotificationService().setNotificationsPlugin(localNotifications);
+
+  // Register FCM background message handler (must be top-level function)
+  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+
+  runApp(const ProviderScope(child: MyApp()));
+}
+
+Future<void> _initializeFirebaseSafely() async {
   try {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
     debugPrint('✅ Firebase initialized successfully');
   } catch (e) {
     debugPrint('❌ Firebase initialization error: $e');
     debugPrint('⚠️  Please run: flutterfire configure');
     debugPrint('⚠️  App will continue but authentication will not work');
-    // Continue anyway - will show error in UI
   }
+}
 
-  // ─── Initialize local notifications plugin ONCE, globally, early ───
-  final localNotifications = FlutterLocalNotificationsPlugin();
-
-  const androidSettings =
-      AndroidInitializationSettings('@mipmap/ic_launcher');
+Future<void> _initializeLocalNotifications(
+  FlutterLocalNotificationsPlugin localNotifications,
+) async {
+  const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
   const iosSettings = DarwinInitializationSettings(
     requestAlertPermission: false,
     requestBadgePermission: false,
@@ -118,7 +139,6 @@ void main() async {
     onDidReceiveNotificationResponse: onLocalNotificationTap,
   );
 
-  // Create the Android notification channel
   if (Platform.isAndroid) {
     const channel = AndroidNotificationChannel(
       'chat_messages',
@@ -128,23 +148,12 @@ void main() async {
     );
     await localNotifications
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
+          AndroidFlutterLocalNotificationsPlugin
+        >()
         ?.createNotificationChannel(channel);
   }
 
   debugPrint('✅ Local notifications plugin initialized globally');
-
-  // Inject the single instance into PushNotificationService
-  PushNotificationService().setNotificationsPlugin(localNotifications);
-
-  // Register FCM background message handler (must be top-level function)
-  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-  
-  runApp(
-    const ProviderScope(
-      child: MyApp(),
-    ),
-  );
 }
 
 class MyApp extends StatelessWidget {
@@ -197,7 +206,7 @@ class _StreamChatBuilder extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final streamClient = ref.watch(streamChatNotifierProvider);
-    
+
     // CRITICAL: Always wrap with StreamChat widget
     // Client is initialized immediately in provider, so it's always available
     // This ensures StreamChat is in the widget tree for ALL routes (including ChatScreen)

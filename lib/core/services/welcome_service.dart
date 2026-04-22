@@ -3,11 +3,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 class WelcomeService {
   static const String _keyHasSeenWelcome = 'has_seen_welcome';
   static const String _keyBonusDialogShown = 'welcome_bonus_dialog_shown';
+  static String _welcomeKey(String firebaseUid) =>
+      '${_keyHasSeenWelcome}_$firebaseUid';
 
   /// Check if user has seen the welcome dialog
-  static Future<bool> hasSeenWelcome() async {
+  static Future<bool> hasSeenWelcome([String? firebaseUid]) async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      if (firebaseUid != null && firebaseUid.isNotEmpty) {
+        return prefs.getBool(_welcomeKey(firebaseUid)) ?? false;
+      }
       return prefs.getBool(_keyHasSeenWelcome) ?? false;
     } catch (e) {
       // If there's an error, assume they haven't seen it
@@ -16,9 +21,12 @@ class WelcomeService {
   }
 
   /// Mark that user has seen the welcome dialog
-  static Future<void> markWelcomeAsSeen() async {
+  static Future<void> markWelcomeAsSeen([String? firebaseUid]) async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      if (firebaseUid != null && firebaseUid.isNotEmpty) {
+        await prefs.setBool(_welcomeKey(firebaseUid), true);
+      }
       await prefs.setBool(_keyHasSeenWelcome, true);
     } catch (e) {
       // Ignore errors

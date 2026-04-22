@@ -11,36 +11,35 @@ import '../models/profile_model.dart';
 class AvatarWidget extends StatelessWidget {
   /// Size of the avatar (diameter)
   final double size;
-  
+
   /// User model (for user avatars)
   final UserModel? user;
-  
+
   /// Creator model (for creator photos)
   final CreatorModel? creator;
-  
+
   /// User profile model (for user avatars in profile context)
   final UserProfileModel? userProfile;
-  
-  
+
   /// Direct avatar string (for cases where we just have the avatar string)
   /// Can be a URL (http/https/data:) or a premade avatar filename
   final String? avatar;
-  
+
   /// Username for fallback initials
   final String? username;
-  
+
   /// Name for fallback initials (used for creators)
   final String? name;
-  
+
   /// Gender for premade avatar selection
   final String? gender;
-  
+
   /// Role hint to determine creator/admin context.
   final String? role;
-  
+
   /// Background color for fallback avatar
   final Color? backgroundColor;
-  
+
   /// Border radius (use 0 for circular, or a value for rounded corners)
   final double? borderRadius;
 
@@ -68,8 +67,9 @@ class AvatarWidget extends StatelessWidget {
       if (_isNetworkLike(creator!.photo)) {
         return _buildNetworkAvatar(
           url: creator!.photo,
-          fallbackText:
-              creator!.name.isNotEmpty ? creator!.name[0].toUpperCase() : 'C',
+          fallbackText: creator!.name.isNotEmpty
+              ? creator!.name[0].toUpperCase()
+              : 'C',
         );
       }
       // Creators must use Firebase/network images only.
@@ -135,10 +135,7 @@ class AvatarWidget extends StatelessWidget {
         return _buildFallbackAvatar();
       }
       // Otherwise, treat as premade avatar
-      return _buildAssetAvatar(
-        avatar: avatarStr,
-        gender: gender ?? 'male',
-      );
+      return _buildAssetAvatar(avatar: avatarStr, gender: gender ?? 'male');
     }
 
     // Priority 7: Fallback to initials
@@ -159,6 +156,8 @@ class AvatarWidget extends StatelessWidget {
         width: size,
         height: size,
         fit: BoxFit.cover,
+        cacheWidth: size.round(),
+        cacheHeight: size.round(),
         errorBuilder: (context, error, stackTrace) {
           return _buildFallbackContainer(fallbackText, bgColor, radius);
         },
@@ -170,10 +169,7 @@ class AvatarWidget extends StatelessWidget {
     );
   }
 
-  Widget _buildAssetAvatar({
-    required String avatar,
-    required String gender,
-  }) {
+  Widget _buildAssetAvatar({required String avatar, required String gender}) {
     final safeGender = gender == 'female' ? 'female' : 'male';
     final radius = borderRadius ?? size / 2;
     final fallbackText = _getFallbackText();
@@ -197,6 +193,8 @@ class AvatarWidget extends StatelessWidget {
             width: size,
             height: size,
             fit: BoxFit.cover,
+            cacheWidth: size.round(),
+            cacheHeight: size.round(),
             errorBuilder: (context, error, stackTrace) {
               return _buildFallbackContainer(fallbackText, bgColor, radius);
             },

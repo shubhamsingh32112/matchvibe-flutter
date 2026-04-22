@@ -12,6 +12,8 @@ import '../../shared/widgets/coin_purchase_popup.dart';
 import '../../shared/widgets/app_modal_bottom_sheet.dart';
 import '../../shared/widgets/app_toast.dart';
 import '../../core/constants/app_constants.dart';
+import '../../core/services/modal_coordinator_service.dart';
+import '../../shared/providers/coin_purchase_popup_provider.dart';
 
 /// Widget that wraps the app and handles lifecycle events.
 ///
@@ -23,10 +25,7 @@ import '../../core/constants/app_constants.dart';
 class AppLifecycleWrapper extends ConsumerStatefulWidget {
   final Widget child;
 
-  const AppLifecycleWrapper({
-    super.key,
-    required this.child,
-  });
+  const AppLifecycleWrapper({super.key, required this.child});
 
   @override
   ConsumerState<AppLifecycleWrapper> createState() =>
@@ -35,26 +34,106 @@ class AppLifecycleWrapper extends ConsumerStatefulWidget {
 
 class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     with WidgetsBindingObserver {
-  static const String _lastHandledPaymentDeepLinkKey = 'last_handled_payment_deep_link';
+  static const String _lastHandledPaymentDeepLinkKey =
+      'last_handled_payment_deep_link';
   AppLinks? _appLinks;
   StreamSubscription<Uri>? _deepLinkSub;
   bool _coinPopupShownThisSession = false;
+  bool _isDrainingModalQueue = false;
+  ProviderSubscription<ModalCoordinatorState>? _modalQueueSub;
+  ProviderSubscription<CoinPopupIntent?>? _coinPopupSub;
+  ProviderSubscription<AuthState>? _authSub;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initDeepLinks();
+    _setupProviderListeners();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _ensureCreatorOnline();
+      _maybeShowCoinPopupForCurrentState();
     });
   }
 
   @override
   void dispose() {
+    _modalQueueSub?.close();
+    _coinPopupSub?.close();
+    _authSub?.close();
     _deepLinkSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  void _setupProviderListeners() {
+    _modalQueueSub = ref.listenManual<ModalCoordinatorState>(
+      modalCoordinatorProvider,
+      (prev, next) {
+        if (next.queue.isNotEmpty && !next.isPresenting) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _drainModalQueue();
+          });
+        }
+      },
+    );
+
+    _coinPopupSub = ref.listenManual<CoinPopupIntent?>(
+      coinPurchasePopupProvider,
+      (prev, next) {
+        if (next == null) return;
+        final shouldSuppress = ref
+            .read(modalCoordinatorProvider)
+            .onboardingInProgress;
+        if (shouldSuppress) return;
+        final id = ref
+            .read(modalCoordinatorProvider.notifier)
+            .nextRequestId('coin');
+        ref
+            .read(modalCoordinatorProvider.notifier)
+            .enqueue<void>(
+              AppModalRequest<void>(
+                id: id,
+                priority: AppModalPriority.normal,
+                dedupeKey: next.dedupeKey,
+                present: (ctx, _) => showAppModalBottomSheet<void>(
+                  context: ctx,
+                  builder: (_) => const CoinPurchaseBottomSheet(),
+                ),
+                onCompleted: (_) {
+                  ref.read(coinPurchasePopupProvider.notifier).state = null;
+                },
+              ),
+            );
+      },
+    );
+
+    _authSub = ref.listenManual<AuthState>(authProvider, (prev, next) {
+      final user = next.user;
+      final isCreator =
+          user != null && (user.role == 'creator' || user.role == 'admin');
+      if (next.isAuthenticated && isCreator) {
+        _ensureCreatorOnline();
+      }
+
+      if (prev != null &&
+          next.isAuthenticated &&
+          !_coinPopupShownThisSession &&
+          user != null &&
+          user.role == 'user') {
+        _showCoinPurchasePopupOnAppOpen();
+      }
+    });
+  }
+
+  void _maybeShowCoinPopupForCurrentState() {
+    final authState = ref.read(authProvider);
+    if (authState.isAuthenticated &&
+        !_coinPopupShownThisSession &&
+        authState.user != null &&
+        authState.user!.role == 'user') {
+      _showCoinPurchasePopupOnAppOpen();
+    }
   }
 
   Future<void> _initDeepLinks() async {
@@ -101,7 +180,8 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     if (uri.scheme != 'zztherapy') return;
     if (uri.host != 'wallet') return;
 
-    final paymentStatus = uri.queryParameters['payment'];
+    final paymentStatus =
+        uri.queryParameters['status'] ?? uri.queryParameters['payment'];
     if (paymentStatus == null || paymentStatus.isEmpty) return;
 
     if (!await _shouldHandlePaymentDeepLink(uri, paymentStatus)) {
@@ -109,7 +189,13 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       return;
     }
 
-    final coinsAdded = int.tryParse(uri.queryParameters['coinsAdded'] ?? '0') ?? 0;
+    final coinsAdded =
+        int.tryParse(
+          uri.queryParameters['walletDelta'] ??
+              uri.queryParameters['coinsAdded'] ??
+              '0',
+        ) ??
+        0;
     final deepLinkMessage = uri.queryParameters['message'];
 
     if (paymentStatus == 'success') {
@@ -121,26 +207,22 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       if (deepLinkMessage != null && deepLinkMessage.isNotEmpty) {
         params['message'] = deepLinkMessage;
       }
-      appRouter.go(Uri(
-        path: '/wallet/payment-status',
-        queryParameters: params,
-      ).toString());
+      appRouter.go(
+        Uri(path: '/wallet/payment-status', queryParameters: params).toString(),
+      );
       return;
     }
 
     if (paymentStatus == 'failed') {
-      final params = <String, String>{
-        'payment': 'failed',
-      };
+      final params = <String, String>{'payment': 'failed'};
       if (deepLinkMessage != null && deepLinkMessage.isNotEmpty) {
         params['message'] = deepLinkMessage;
       } else {
         params['message'] = 'Payment failed or cancelled. Please try again.';
       }
-      appRouter.go(Uri(
-        path: '/wallet/payment-status',
-        queryParameters: params,
-      ).toString());
+      appRouter.go(
+        Uri(path: '/wallet/payment-status', queryParameters: params).toString(),
+      );
     }
   }
 
@@ -176,12 +258,15 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     });
   }
 
-  Future<bool> _shouldHandlePaymentDeepLink(Uri uri, String paymentStatus) async {
+  Future<bool> _shouldHandlePaymentDeepLink(
+    Uri uri,
+    String paymentStatus,
+  ) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final orderId = uri.queryParameters['orderId'];
-      final dedupeId = (orderId != null && orderId.isNotEmpty)
-          ? '$paymentStatus:$orderId'
+      final sessionId = uri.queryParameters['sessionId'];
+      final dedupeId = (sessionId != null && sessionId.isNotEmpty)
+          ? '$paymentStatus:$sessionId'
           : uri.toString();
 
       final lastHandled = prefs.getString(_lastHandledPaymentDeepLinkKey);
@@ -192,7 +277,9 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       await prefs.setString(_lastHandledPaymentDeepLinkKey, dedupeId);
       return true;
     } catch (e) {
-      debugPrint('⚠️  [APP LINKS] Failed to persist deep link dedupe state: $e');
+      debugPrint(
+        '⚠️  [APP LINKS] Failed to persist deep link dedupe state: $e',
+      );
       // Fail open so genuine payments are not blocked.
       return true;
     }
@@ -205,11 +292,10 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     final user = authState.user;
 
     // ── Controller-aware active-call check ──
-    final controllerPhase =
-        ref.read(callConnectionControllerProvider).phase;
+    final controllerPhase = ref.read(callConnectionControllerProvider).phase;
     final hasActiveCall =
         controllerPhase != CallConnectionPhase.idle &&
-            controllerPhase != CallConnectionPhase.failed;
+        controllerPhase != CallConnectionPhase.failed;
 
     if (state == AppLifecycleState.resumed) {
       // 🔥 Firebase ID token expires ~1hr: refresh proactively on app resume
@@ -221,42 +307,43 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       // Only log / refresh data.  Navigation is owned by CallConnectionController.
       if (hasActiveCall) {
         debugPrint(
-            '📱 [APP LIFECYCLE] App resumed with active call (phase: $controllerPhase)');
-        debugPrint(
-            '   Call screen should already be visible — not navigating');
+          '📱 [APP LIFECYCLE] App resumed with active call (phase: $controllerPhase)',
+        );
+        debugPrint('   Call screen should already be visible — not navigating');
       }
 
       // Refresh home feed + profile when app resumes (promotion to creator syncs role)
       if (user != null && user.role == 'user') {
         debugPrint(
-            '📱 [APP LIFECYCLE] App resumed — refreshing home feed + user for user');
+          '📱 [APP LIFECYCLE] App resumed — refreshing home feed + user for user',
+        );
         ref.invalidate(homeFeedProvider);
         unawaited(ref.read(authProvider.notifier).refreshUser());
       }
 
       // Creators / admins: refresh profile (profileRevision toast) + dashboard
-      if (user != null &&
-          (user.role == 'creator' || user.role == 'admin')) {
+      if (user != null && (user.role == 'creator' || user.role == 'admin')) {
         debugPrint(
-            '📱 [APP LIFECYCLE] App resumed — refreshing user + creator dashboard');
+          '📱 [APP LIFECYCLE] App resumed — refreshing user + creator dashboard',
+        );
         unawaited(_onCreatorOrAdminResumed());
       }
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       // Keep creators online while app is alive, including background.
       // Socket connection remains active, so creator stays online
-      if (user != null &&
-          (user.role == 'creator' || user.role == 'admin')) {
+      if (user != null && (user.role == 'creator' || user.role == 'admin')) {
         debugPrint(
-            '📱 [APP LIFECYCLE] App backgrounded — socket keeps creator online');
+          '📱 [APP LIFECYCLE] App backgrounded — socket keeps creator online',
+        );
       }
     } else if (state == AppLifecycleState.detached) {
       // App closed — socket disconnect will automatically mark creator offline
       // Backend socket handler handles this automatically
-      if (user != null &&
-          (user.role == 'creator' || user.role == 'admin')) {
+      if (user != null && (user.role == 'creator' || user.role == 'admin')) {
         debugPrint(
-            '📱 [APP LIFECYCLE] App closed — socket disconnect will auto-set creator offline');
+          '📱 [APP LIFECYCLE] App closed — socket disconnect will auto-set creator offline',
+        );
       }
     }
   }
@@ -270,8 +357,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     final user = authState.user;
 
     // Only creators/admins have availability state.
-    if (user == null ||
-        (user.role != 'creator' && user.role != 'admin')) {
+    if (user == null || (user.role != 'creator' && user.role != 'admin')) {
       return;
     }
 
@@ -279,7 +365,9 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     // When socket connects, backend sets creator online automatically
     // When socket disconnects, backend sets creator offline automatically
     // No manual status setting needed
-    debugPrint('✅ [APP LIFECYCLE] Socket connection handles creator status automatically');
+    debugPrint(
+      '✅ [APP LIFECYCLE] Socket connection handles creator status automatically',
+    );
   }
 
   /// Show coin purchase popup once per app session when app opens.
@@ -298,52 +386,36 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     // Mark as shown immediately to prevent duplicate displays
     _coinPopupShownThisSession = true;
 
-    // Show popup immediately (no delay)
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final context = this.context;
-      if (!context.mounted) return;
-      
-      showAppModalBottomSheet(
-        context: context,
-        builder: (context) => const CoinPurchaseBottomSheet(),
-      );
-    });
+    ref.read(coinPurchasePopupProvider.notifier).state = const CoinPopupIntent(
+      reason: 'session_start',
+      dedupeKey: 'coin-session-start',
+    );
+  }
+
+  Future<void> _drainModalQueue() async {
+    if (_isDrainingModalQueue || !mounted) return;
+    _isDrainingModalQueue = true;
+    try {
+      while (mounted) {
+        final state = ref.read(modalCoordinatorProvider);
+        if (state.isPresenting || state.queue.isEmpty) break;
+        final request = ref.read(modalCoordinatorProvider.notifier).takeNext();
+        if (request == null) break;
+        final result = await request.present(context, ref);
+        if (!mounted) break;
+        ref
+            .read(modalCoordinatorProvider.notifier)
+            .complete(request.id, result, dedupeKey: request.dedupeKey);
+        request.onCompleted?.call(result);
+      }
+    } finally {
+      _isDrainingModalQueue = false;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    // Check initial auth state (in case user is already authenticated when app opens)
-    final authState = ref.watch(authProvider);
-    if (authState.isAuthenticated && 
-        !_coinPopupShownThisSession && 
-        authState.user != null && 
-        authState.user!.role == 'user') {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _showCoinPurchasePopupOnAppOpen();
-      });
-    }
-    
-    ref.listen<AuthState>(authProvider, (prev, next) {
-      final user = next.user;
-      final isCreator =
-          user != null && (user.role == 'creator' || user.role == 'admin');
-      if (next.isAuthenticated && isCreator) {
-        _ensureCreatorOnline();
-      }
-      
-      // Show coin purchase popup once per app session when user becomes authenticated
-      // (only if not already shown in this session and user is a regular user)
-      // Only trigger on state change (prev != next), not on initial build
-      if (prev != null && 
-          next.isAuthenticated && 
-          !_coinPopupShownThisSession && 
-          user != null && 
-          user.role == 'user') {
-        _showCoinPurchasePopupOnAppOpen();
-      }
-    });
-
+    ref.watch(authProvider);
     return widget.child;
   }
 }

@@ -323,7 +323,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         _creatorGalleryImages = images;
         _pendingGalleryPreviewBytes = null;
       });
-      ref.invalidate(creatorsProvider);
+      ref.read(creatorsProvider.notifier).refreshFeed();
     } catch (e) {
       if (!mounted) return;
       AppToast.showError(
@@ -352,7 +352,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       setState(() {
         _creatorGalleryImages = images;
       });
-      ref.invalidate(creatorsProvider);
+      ref.read(creatorsProvider.notifier).refreshFeed();
     } catch (e) {
       if (!mounted) return;
       AppToast.showError(
@@ -516,8 +516,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       debugPrint('✅ [EDIT PROFILE] Profile saved successfully');
 
       await ref.read(authProvider.notifier).refreshUser();
-      ref.invalidate(creatorsProvider);
-      ref.invalidate(usersProvider);
+      await ref.read(creatorsProvider.notifier).refreshFeed();
+      await ref.read(usersProvider.notifier).refreshFeed();
 
       if (mounted) {
         AppToast.showSuccess(context, 'Profile updated successfully');

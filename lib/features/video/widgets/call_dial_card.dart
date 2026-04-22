@@ -78,24 +78,21 @@ class CallDialCard extends StatelessWidget {
                               nameLine,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleLarge
+                              style: Theme.of(context).textTheme.titleLarge
                                   ?.copyWith(
                                     fontWeight: FontWeight.w800,
                                     color: AppPalette.onSurface,
                                     letterSpacing: 0.2,
                                   ),
                             ),
-                            if (country != null && country!.trim().isNotEmpty) ...[
+                            if (country != null &&
+                                country!.trim().isNotEmpty) ...[
                               const SizedBox(height: 4),
                               Text(
                                 country!.trim(),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodyMedium
+                                style: Theme.of(context).textTheme.bodyMedium
                                     ?.copyWith(
                                       color: AppPalette.subtitle,
                                       fontWeight: FontWeight.w500,
@@ -118,9 +115,7 @@ class CallDialCard extends StatelessWidget {
                                   tagline,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodyMedium
+                                  style: Theme.of(context).textTheme.bodyMedium
                                       ?.copyWith(
                                         color: Colors.white,
                                         fontWeight: FontWeight.w600,
@@ -132,10 +127,7 @@ class CallDialCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      CallDialProfilePhoto(
-                        size: photoSize,
-                        imageUrl: imageUrl,
-                      ),
+                      CallDialProfilePhoto(size: photoSize, imageUrl: imageUrl),
                     ],
                   ),
                   const SizedBox(height: 14),
@@ -143,12 +135,11 @@ class CallDialCard extends StatelessWidget {
                     statusText,
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: AppPalette.onSurface,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      color: AppPalette.onSurface,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                  if (showConnectingBar &&
-                      connectingBarAnimation != null) ...[
+                  if (showConnectingBar && connectingBarAnimation != null) ...[
                     const SizedBox(height: 12),
                     CallDialConnectingBar(
                       animation: connectingBarAnimation!,
@@ -171,8 +162,9 @@ class CallDialCard extends StatelessWidget {
                             shape: BoxShape.circle,
                             boxShadow: [
                               BoxShadow(
-                                color: AppPalette.primaryRed
-                                    .withValues(alpha: 0.45),
+                                color: AppPalette.primaryRed.withValues(
+                                  alpha: 0.45,
+                                ),
                                 blurRadius: 16,
                                 spreadRadius: 1,
                               ),
@@ -201,11 +193,7 @@ class CallDialProfilePhoto extends StatelessWidget {
   final double size;
   final String? imageUrl;
 
-  const CallDialProfilePhoto({
-    super.key,
-    required this.size,
-    this.imageUrl,
-  });
+  const CallDialProfilePhoto({super.key, required this.size, this.imageUrl});
 
   @override
   Widget build(BuildContext context) {
@@ -233,6 +221,8 @@ class CallDialProfilePhoto extends StatelessWidget {
                   fit: BoxFit.cover,
                   width: size,
                   height: size,
+                  cacheWidth: size.round(),
+                  cacheHeight: size.round(),
                   errorBuilder: (_, _, _) => _placeholder(size),
                 )
               : _placeholder(size),
@@ -244,11 +234,7 @@ class CallDialProfilePhoto extends StatelessWidget {
   Widget _placeholder(double s) {
     return ColoredBox(
       color: AppPalette.beige,
-      child: Icon(
-        Icons.person,
-        size: s * 0.45,
-        color: AppPalette.subtitle,
-      ),
+      child: Icon(Icons.person, size: s * 0.45, color: AppPalette.subtitle),
     );
   }
 }

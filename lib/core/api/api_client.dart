@@ -48,6 +48,7 @@ class ApiClient {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
+          options.extra['requestStartedAtUs'] = DateTime.now().microsecondsSinceEpoch;
           if (kDebugMode) {
             debugPrint(
               '📤 [API] ${options.method} ${options.baseUrl}${options.path}',
@@ -79,6 +80,15 @@ class ApiClient {
           return handler.next(options);
         },
         onResponse: (response, handler) {
+          final startedAtUs = response.requestOptions.extra['requestStartedAtUs'];
+          if (startedAtUs is int && !kReleaseMode) {
+            final elapsedUs = DateTime.now().microsecondsSinceEpoch - startedAtUs;
+            final elapsedMs = elapsedUs / 1000;
+            final category = _latencyCategory(response.requestOptions.path);
+            debugPrint(
+              '📈 [API PERF] category=$category latencyMs=${elapsedMs.toStringAsFixed(1)} path=${response.requestOptions.path}',
+            );
+          }
           if (kDebugMode) {
             debugPrint(
               '📥 [API] Response: ${response.statusCode} ${response.statusMessage}',
@@ -407,5 +417,12 @@ class ApiClient {
     if (Platform.isMacOS) return 'macOS';
     if (Platform.isLinux) return 'Linux';
     return 'Unknown';
+  }
+
+  static String _latencyCategory(String path) {
+    if (path.startsWith('/creator')) return 'creator_page';
+    if (path.startsWith('/user/list')) return 'user_page';
+    if (path.startsWith('/user/favorites/creators')) return 'favorites_page';
+    return 'other';
   }
 }

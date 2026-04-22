@@ -16,11 +16,13 @@ String formatBillingMmSs(int seconds) {
 class LiveBillingOverlay extends StatefulWidget {
   final CallBillingState billing;
   final bool isCreator;
+  final bool showSyncingHint;
 
   const LiveBillingOverlay({
     super.key,
     required this.billing,
     required this.isCreator,
+    this.showSyncingHint = false,
   });
 
   @override
@@ -33,7 +35,7 @@ class _LiveBillingOverlayState extends State<LiveBillingOverlay> {
   @override
   void initState() {
     super.initState();
-    _tick = Timer.periodic(const Duration(milliseconds: 400), (_) {
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
   }
@@ -48,9 +50,25 @@ class _LiveBillingOverlayState extends State<LiveBillingOverlay> {
   Widget build(BuildContext context) {
     final b = widget.billing;
     final scheme = Theme.of(context).colorScheme;
-    final timeLabel = formatBillingMmSs(b.elapsedSeconds);
     final nowMs = DateTime.now().millisecondsSinceEpoch;
-    final stale = b.lastServerTimestampMs != null &&
+    var displayElapsedSeconds = b.elapsedSeconds;
+    if (b.callStartTimeMs != null) {
+      final wallClockElapsed = ((nowMs - b.callStartTimeMs!) / 1000).floor();
+      if (wallClockElapsed > displayElapsedSeconds) {
+        displayElapsedSeconds = wallClockElapsed;
+      }
+    } else if (b.lastServerTimestampMs != null) {
+      final driftSeconds = ((nowMs - b.lastServerTimestampMs!) / 1000).floor();
+      if (driftSeconds > 0) {
+        displayElapsedSeconds += driftSeconds;
+      }
+    }
+    if (b.durationLimit != null && displayElapsedSeconds > b.durationLimit!) {
+      displayElapsedSeconds = b.durationLimit!;
+    }
+    final timeLabel = formatBillingMmSs(displayElapsedSeconds);
+    final stale =
+        b.lastServerTimestampMs != null &&
         nowMs - b.lastServerTimestampMs! > 3500;
 
     final accent = scheme.primary;
@@ -107,8 +125,21 @@ class _LiveBillingOverlayState extends State<LiveBillingOverlay> {
               ],
               if (stale) ...[
                 const SizedBox(width: 8),
-                Icon(Icons.cloud_off_outlined,
-                    size: 16, color: scheme.error.withValues(alpha: 0.95)),
+                Icon(
+                  Icons.cloud_off_outlined,
+                  size: 16,
+                  color: scheme.error.withValues(alpha: 0.95),
+                ),
+              ] else if (widget.showSyncingHint) ...[
+                const SizedBox(width: 8),
+                Text(
+                  'Syncing billing...',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
               ],
             ],
           ),
@@ -119,11 +150,10 @@ class _LiveBillingOverlayState extends State<LiveBillingOverlay> {
     final semanticsLabel = widget.isCreator
         ? 'Billed time $timeLabel, earnings ${_formatEarnings(b.estimatedCreatorEarningsDisplay)} coins'
         : 'Billed time $timeLabel, ${b.estimatedUserCoins} coins in wallet'
-            '${b.remainingSeconds != null ? ', about ${b.remainingSeconds} seconds of call time remaining' : ''}';
+              '${b.remainingSeconds != null ? ', about ${b.remainingSeconds} seconds of call time remaining' : ''}';
 
-    return Semantics(
-      label: semanticsLabel,
-      child: child,
+    return RepaintBoundary(
+      child: Semantics(label: semanticsLabel, child: child),
     );
   }
 }

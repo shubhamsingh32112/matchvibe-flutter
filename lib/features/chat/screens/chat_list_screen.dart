@@ -306,6 +306,30 @@ class _OnlineUsersTab extends ConsumerStatefulWidget {
 
 class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
   final Set<String> _loadingUserIds = {};
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onUserListScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController
+      ..removeListener(_onUserListScroll)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _onUserListScroll() {
+    if (!_scrollController.hasClients) return;
+    if (_scrollController.position.extentAfter > 500) return;
+    final meta = ref.read(usersFeedMetaProvider);
+    if (meta.hasMore && !meta.isLoadingMore) {
+      ref.read(usersProvider.notifier).loadMore();
+    }
+  }
 
   Future<void> _openChat(UserProfileModel user) async {
     if (_loadingUserIds.contains(user.id)) return;
@@ -340,13 +364,24 @@ class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
   @override
   Widget build(BuildContext context) {
     final usersAsync = ref.watch(usersProvider);
+    final usersMeta = ref.watch(usersFeedMetaProvider);
     final userAvailabilityMap = ref.watch(userAvailabilityProvider);
     final scheme = Theme.of(context).colorScheme;
 
     return usersAsync.when(
       data: (users) {
+        final dedupedUsersByKey = <String, UserProfileModel>{};
+        for (final user in users) {
+          final key = user.id.isNotEmpty
+              ? user.id
+              : (user.firebaseUid ?? '');
+          if (key.isEmpty) continue;
+          dedupedUsersByKey[key] = user;
+        }
+        final dedupedUsers = dedupedUsersByKey.values.toList(growable: false);
+
         // Only users with explicit socket state "online" (Redis/API does not add rows here).
-        final onlineUsers = users.where((user) {
+        final onlineUsers = dedupedUsers.where((user) {
           if (user.firebaseUid == null) return false;
           return userAvailabilityMap[user.firebaseUid] ==
               UserAvailability.online;
@@ -379,13 +414,20 @@ class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
         }
 
         return RefreshIndicator(
-          onRefresh: () async => ref.invalidate(usersProvider),
+          onRefresh: () async => ref.read(usersProvider.notifier).refreshFeed(),
           child: ListView.separated(
+            controller: _scrollController,
             padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: onlineUsers.length,
+            itemCount: onlineUsers.length + (usersMeta.hasMore ? 1 : 0),
             separatorBuilder: (_, __) =>
                 Divider(height: 1, color: scheme.outlineVariant.withValues(alpha: 0.3)),
             itemBuilder: (context, index) {
+              if (index >= onlineUsers.length) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 14),
+                  child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                );
+              }
               final user = onlineUsers[index];
               final isLoading = _loadingUserIds.contains(user.id);
 
@@ -479,7 +521,7 @@ class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
             ),
             const SizedBox(height: 12),
             FilledButton(
-              onPressed: () => ref.invalidate(usersProvider),
+              onPressed: () => ref.read(usersProvider.notifier).refreshFeed(),
               child: const Text('Retry'),
             ),
           ],
