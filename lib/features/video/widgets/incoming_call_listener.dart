@@ -351,18 +351,14 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
     final incomingCall = _incomingCall;
 
     if (incomingCall != null && !_handledCallIds.contains(incomingCall.id)) {
-      // Call is still ringing — show overlay
+      // Call is still ringing — show top-sheet style UI that keeps app header visible.
       return Stack(
         children: [
           widget.child,
-          // Full-screen overlay for incoming call
-          Material(
-            color: Colors.black54,
-            child: IncomingCallWidget(
-              incomingCall: incomingCall,
-              fallbackImageUrl: _incomingFallbackImageByCallId[incomingCall.id],
-              onDismiss: () => _dismissIncomingCall(incomingCall.id),
-            ),
+          IncomingCallWidget(
+            incomingCall: incomingCall,
+            fallbackImageUrl: _incomingFallbackImageByCallId[incomingCall.id],
+            onDismiss: () => _dismissIncomingCall(incomingCall.id),
           ),
         ],
       );

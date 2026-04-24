@@ -129,42 +129,43 @@ class _IncomingCallWidgetState extends ConsumerState<IncomingCallWidget>
             ],
           );
 
-    return Material(
-      color: Colors.black54,
-      child: SafeArea(
-        bottom: false,
-        child: Column(
-          children: [
-            Align(
-              alignment: Alignment.topCenter,
-              child: ClipRRect(
-                borderRadius: const BorderRadius.vertical(
-                  bottom: Radius.circular(28),
-                ),
-                child: CallDialCard(
-                  nameLine: display.nameLine,
-                  country: display.country,
-                  imageUrl: photoUrl,
-                  statusText:
-                      isProcessing ? 'Connecting...' : 'Awaiting response...',
-                  showConnectingBar: isProcessing,
-                  connectingBarAnimation: _barController,
-                  showHangUpButton: isProcessing,
-                  onHangUp: isProcessing
-                      ? () {
-                          ref
-                              .read(callConnectionControllerProvider.notifier)
-                              .endCall();
-                        }
-                      : null,
-                  bottomSectionReplacement: footer,
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-                ),
+    return SafeArea(
+      bottom: false,
+      child: Column(
+        children: [
+          Align(
+            alignment: Alignment.topCenter,
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                bottom: Radius.circular(28),
+              ),
+              child: CallDialCard(
+                nameLine: display.nameLine,
+                country: display.country,
+                imageUrl: photoUrl,
+                statusText: isProcessing ? 'Connecting...' : 'Awaiting response...',
+                showConnectingBar: isProcessing,
+                connectingBarAnimation: _barController,
+                showHangUpButton: isProcessing,
+                onHangUp: isProcessing
+                    ? () {
+                        ref.read(callConnectionControllerProvider.notifier).endCall();
+                      }
+                    : null,
+                bottomSectionReplacement: footer,
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
               ),
             ),
-            const Expanded(child: SizedBox.shrink()),
-          ],
-        ),
+          ),
+          Expanded(
+            child: IgnorePointer(
+              child: ColoredBox(
+                color: Colors.transparent,
+                child: const SizedBox.expand(),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

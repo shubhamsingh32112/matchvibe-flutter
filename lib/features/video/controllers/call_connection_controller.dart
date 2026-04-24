@@ -116,6 +116,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
   final Ref _ref;
   StreamSubscription<CallStatus>? _statusSubscription;
   Timer? _watchdog;
+  static const _leaveTimeout = Duration(seconds: 3);
 
   /// True when creator has accepted (status transitioned to Connecting).
   /// Used for two-phase watchdog: ring (15s) vs join (30s after accept).
@@ -512,6 +513,8 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       outgoingCreatorCountry: state.outgoingCreatorCountry,
       creatorAcceptedForOutgoing: state.creatorAcceptedForOutgoing,
     );
+    // Route transition must not wait on SDK teardown.
+    CallNavigationService.navigateToHome();
 
     _cancelSubscriptions(); // stop status listener first
 
@@ -534,8 +537,12 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
 
     if (call != null) {
       try {
-        await call.leave();
+        await call.leave().timeout(_leaveTimeout);
         debugPrint('✅ [CALL CTRL] call.leave() completed');
+      } on TimeoutException {
+        debugPrint(
+          '⚠️ [CALL CTRL] call.leave() timeout after ${_leaveTimeout.inSeconds}s; continuing cleanup',
+        );
       } catch (e) {
         debugPrint('❌ [CALL CTRL] endCall leave error: $e');
       }
@@ -674,6 +681,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
               }
             }
           } else {
+            CallNavigationService.navigateToHome();
             _feedbackNavigateCoinAfterCall(
               wasConnected: wasConnected,
               activeUserFirebaseUidSnapshot: activeUserFirebaseUidSnapshot,
@@ -824,7 +832,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     } catch (_) {}
   }
 
-  /// Post-call feedback (paying user only) + home navigation + coin-offer popup.
+  /// Post-call feedback (paying user only) + coin-offer popup.
   void _feedbackNavigateCoinAfterCall({
     required bool wasConnected,
     required String? activeUserFirebaseUidSnapshot,
@@ -849,8 +857,6 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
         call: call,
       );
     }
-
-    CallNavigationService.navigateToHome();
 
     if (wasConnected && isRegularUser && mounted) {
       Future.delayed(const Duration(milliseconds: 500), () {

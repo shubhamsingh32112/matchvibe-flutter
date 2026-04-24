@@ -37,6 +37,17 @@ class VideoCallScreen extends ConsumerStatefulWidget {
 }
 
 class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
+  Widget _buildTransitionView() {
+    return const Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Center(
+          child: CircularProgressIndicator(),
+        ),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -78,7 +89,6 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
           );
 
         case CallConnectionPhase.idle:
-        case CallConnectionPhase.disconnecting:
           // Call ended — navigate to home (handled by controller via GoRouter)
           // This is a fallback in case the widget is still mounted
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -86,7 +96,9 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
               context.go('/home');
             }
           });
-          return const SizedBox.shrink();
+          return _buildTransitionView();
+        case CallConnectionPhase.disconnecting:
+          return _buildTransitionView();
       }
     }
 
@@ -574,6 +586,7 @@ class _VideoCallScreenContentState
         }
       },
       child: Scaffold(
+        backgroundColor: Colors.black,
         body: Stack(
           children: [
             if (remoteImageUrl != null)
