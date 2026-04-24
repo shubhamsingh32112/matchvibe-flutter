@@ -11,13 +11,13 @@ import '../services/permission_service.dart';
 import '../services/security_service.dart';
 import '../utils/call_remote_image_resolver.dart';
 import '../utils/call_remote_participant_display.dart';
+import '../utils/call_overlay_rules.dart';
 import '../widgets/call_dial_card.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/app_toast.dart';
-import '../../../shared/widgets/coin_purchase_popup.dart';
-import '../../../shared/widgets/app_modal_bottom_sheet.dart';
+import '../../../shared/providers/coin_purchase_popup_provider.dart';
 
 /// Screen for active video call — **pure renderer**.
 ///
@@ -187,10 +187,11 @@ class _OutgoingCallViewState extends ConsumerState<_OutgoingCallView>
       child: Scaffold(
         backgroundColor: Colors.black54,
         body: SafeArea(
+          bottom: false,
           child: Column(
             children: [
-              Expanded(
-                flex: 11,
+              Align(
+                alignment: Alignment.topCenter,
                 child: ClipRRect(
                   borderRadius: const BorderRadius.vertical(
                     bottom: Radius.circular(28),
@@ -209,7 +210,7 @@ class _OutgoingCallViewState extends ConsumerState<_OutgoingCallView>
                   ),
                 ),
               ),
-              const Expanded(flex: 9, child: SizedBox.shrink()),
+              const Expanded(child: SizedBox.shrink()),
             ],
           ),
         ),
@@ -344,6 +345,9 @@ class _VideoCallScreenContentState
   bool _isScreenCaptured = false;
   bool _forceEndDialogShown = false;
   bool _durationLimitHandled = false;
+  String? _lastHandledForceEndCallId;
+  bool _loggedHeartbeatLast10 = false;
+  bool _loggedSecurityOverlay = false;
   StreamSubscription<int>? _participantsSubscription;
   Timer? _durationLimitTimer;
 
@@ -500,6 +504,26 @@ class _VideoCallScreenContentState
         callConnectionState.phase == CallConnectionPhase.connected &&
         !billingState.isActive &&
         billingState.callStartTimeMs == null;
+    final showHeartbeatBorder = shouldShowLastTenSecondsHeartbeat(
+      isCreator: isCreator,
+      billing: billingState,
+    );
+    if (!showHeartbeatBorder) {
+      _loggedHeartbeatLast10 = false;
+    } else if (!_loggedHeartbeatLast10) {
+      _loggedHeartbeatLast10 = true;
+      debugPrint(
+        '📉 [CALL_OVERLAY] heartbeat_last_10s_shown callId=${billingState.callId} remainingSeconds=${billingState.remainingSeconds}',
+      );
+    }
+    if (!_isScreenCaptured) {
+      _loggedSecurityOverlay = false;
+    } else if (!_loggedSecurityOverlay) {
+      _loggedSecurityOverlay = true;
+      debugPrint(
+        '🔒 [CALL_OVERLAY] security_overlay_shown callId=${billingState.callId}',
+      );
+    }
 
     // ── Force-end handling (billing is server-driven; UI only reacts) ──
     ref.listen<CallBillingState>(callBillingProvider, (prev, next) {
@@ -510,16 +534,26 @@ class _VideoCallScreenContentState
         _startDurationLimitWatchdog();
       }
       if (next.forceEnded && !_forceEndDialogShown) {
+        final forceEndCallId = next.callId;
+        if (forceEndCallId != null &&
+            forceEndCallId == _lastHandledForceEndCallId) {
+          return;
+        }
+        _lastHandledForceEndCallId = forceEndCallId;
         _forceEndDialogShown = true;
+        debugPrint(
+          '🚨 [CALL_OVERLAY] force_end_prompt_shown callId=${next.callId} reason=${next.forceEndReason}',
+        );
         ref.read(callConnectionControllerProvider.notifier).endCall();
         final role = ref.read(authProvider).user?.role;
         final showPurchase = role != 'creator' && role != 'admin';
         if (showPurchase) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              _showOutOfCoinsDialog(context);
-            }
-          });
+          ref.read(callBillingProvider.notifier).reset();
+          ref.read(authProvider.notifier).refreshUser();
+          ref.read(coinPurchasePopupProvider.notifier).state = CoinPopupIntent(
+            reason: 'force_end_out_of_coins',
+            dedupeKey: 'coin-force-end-${next.callId ?? 'unknown'}',
+          );
         }
       }
     });
@@ -614,11 +648,8 @@ class _VideoCallScreenContentState
                 ),
               ),
 
-            // Server `billing:update` coins — show when balance is 10 or below (still in call).
-            if (!isCreator &&
-                billingState.isActive &&
-                billingState.userCoins > 0 &&
-                billingState.userCoins <= 10)
+            // Show heartbeat warning for true last 10 seconds.
+            if (showHeartbeatBorder)
               const RepaintBoundary(child: _LowBalanceHeartbeatBorder()),
 
             // Show overlay if screen capture detected (iOS)
@@ -660,16 +691,6 @@ class _VideoCallScreenContentState
           ],
         ),
       ),
-    );
-  }
-
-  void _showOutOfCoinsDialog(BuildContext context) {
-    ref.read(callBillingProvider.notifier).reset();
-    ref.read(authProvider.notifier).refreshUser();
-    // Show coin purchase pop-up as bottom sheet
-    showAppModalBottomSheet(
-      context: context,
-      builder: (context) => const CoinPurchaseBottomSheet(),
     );
   }
 }

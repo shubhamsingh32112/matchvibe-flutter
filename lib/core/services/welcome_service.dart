@@ -64,4 +64,12 @@ class WelcomeService {
       // Ignore errors
     }
   }
+
+  static Future<void> clearWelcomeStatusForUser(String firebaseUid) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_welcomeKey(firebaseUid));
+      await prefs.remove('${_keyBonusDialogShown}_$firebaseUid');
+    } catch (_) {}
+  }
 }

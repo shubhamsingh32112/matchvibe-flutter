@@ -44,7 +44,7 @@ class CallDialCard extends StatelessWidget {
     this.showHangUpButton = true,
     this.onHangUp,
     this.bottomSectionReplacement,
-    this.padding = const EdgeInsets.fromLTRB(20, 12, 20, 20),
+    this.padding = const EdgeInsets.fromLTRB(20, 20, 20, 18),
     this.reserveStatusBarSpace = true,
   });
 
@@ -63,7 +63,7 @@ class CallDialCard extends StatelessWidget {
           child: LayoutBuilder(
             builder: (context, constraints) {
               final maxW = constraints.maxWidth;
-              final photoSize = (maxW * 0.34).clamp(108.0, 156.0);
+              final photoSize = (maxW * 0.33).clamp(102.0, 150.0);
 
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -82,7 +82,7 @@ class CallDialCard extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                               style: Theme.of(context).textTheme.titleLarge
                                   ?.copyWith(
-                                    fontWeight: FontWeight.w800,
+                                    fontWeight: FontWeight.w700,
                                     color: AppPalette.onSurface,
                                     letterSpacing: 0.2,
                                   ),
@@ -120,7 +120,7 @@ class CallDialCard extends StatelessWidget {
                                   style: Theme.of(context).textTheme.bodyMedium
                                       ?.copyWith(
                                         color: Colors.white,
-                                        fontWeight: FontWeight.w600,
+                                      fontWeight: FontWeight.w700,
                                       ),
                                 ),
                               ),
@@ -132,24 +132,29 @@ class CallDialCard extends StatelessWidget {
                       CallDialProfilePhoto(size: photoSize, imageUrl: imageUrl),
                     ],
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 16),
                   Text(
                     statusText,
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       color: AppPalette.onSurface,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                   const SizedBox(height: 12),
                   AnimatedSwitcher(
                     duration: const Duration(milliseconds: 220),
                     child: showConnectingBar && connectingBarAnimation != null
-                        ? CallDialConnectingBar(
+                        ? Align(
                             key: const ValueKey('dial-connecting-bar'),
-                            animation: connectingBarAnimation!,
-                            trackColor: CallDialCardColors.progressTrack,
-                            fillColor: CallDialCardColors.pillAndProgress,
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 230),
+                              child: CallDialConnectingBar(
+                                animation: connectingBarAnimation!,
+                                trackColor: CallDialCardColors.progressTrack,
+                                fillColor: CallDialCardColors.pillAndProgress,
+                              ),
+                            ),
                           )
                         : (reserveStatusBarSpace
                               ? const SizedBox(
@@ -208,7 +213,7 @@ class CallDialProfilePhoto extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final radius = (size * 0.18).clamp(18.0, 28.0);
+    final radius = (size * 0.16).clamp(16.0, 22.0);
     return SizedBox(
       width: size,
       height: size,
@@ -271,8 +276,8 @@ class CallDialConnectingBar extends StatelessWidget {
         return LayoutBuilder(
           builder: (context, constraints) {
             final maxW = constraints.maxWidth;
-            const height = 8.0;
-            final segmentW = maxW * 0.42;
+            const height = 7.0;
+            final segmentW = maxW * 0.45;
             final travel = maxW + segmentW;
             final left = (animation.value * travel) - segmentW;
 

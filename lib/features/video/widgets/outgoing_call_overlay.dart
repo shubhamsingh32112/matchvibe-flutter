@@ -76,41 +76,41 @@ class _OutgoingCallOverlayState extends ConsumerState<OutgoingCallOverlay>
           await ref.read(callConnectionControllerProvider.notifier).endCall();
         }
       },
-      child: Column(
-        children: [
-          Expanded(
-            flex: 11,
-            child: ClipRRect(
-              borderRadius: const BorderRadius.vertical(
-                bottom: Radius.circular(28),
-              ),
-              child: CallDialCard(
-                nameLine: nameLine,
-                country: country,
-                imageUrl: imageUrl,
-                statusText: connecting
-                    ? 'Connecting...'
-                    : 'Awaiting response...',
-                showConnectingBar: connecting,
-                connectingBarAnimation: _barController,
-                onHangUp: () {
-                  ref
-                      .read(callConnectionControllerProvider.notifier)
-                      .endCall();
-                },
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 9,
-            child: IgnorePointer(
-              child: ColoredBox(
-                color: Colors.transparent,
-                child: SizedBox.expand(),
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            Align(
+              alignment: Alignment.topCenter,
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(
+                  bottom: Radius.circular(28),
+                ),
+                child: CallDialCard(
+                  nameLine: nameLine,
+                  country: country,
+                  imageUrl: imageUrl,
+                  statusText: connecting
+                      ? 'Connecting...'
+                      : 'Awaiting response...',
+                  showConnectingBar: connecting,
+                  connectingBarAnimation: _barController,
+                  onHangUp: () {
+                    ref.read(callConnectionControllerProvider.notifier).endCall();
+                  },
+                ),
               ),
             ),
-          ),
-        ],
+            Expanded(
+              child: IgnorePointer(
+                child: ColoredBox(
+                  color: Colors.transparent,
+                  child: SizedBox.expand(),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

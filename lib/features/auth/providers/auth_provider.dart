@@ -33,6 +33,7 @@ class AuthState {
   final String? verificationId;
   final int? resendToken;
   final String? phoneNumber;
+  final bool createdNow;
 
   AuthState({
     this.firebaseUser,
@@ -42,6 +43,7 @@ class AuthState {
     this.verificationId,
     this.resendToken,
     this.phoneNumber,
+    this.createdNow = false,
   });
 
   bool get isAuthenticated => firebaseUser != null && user != null;
@@ -54,6 +56,7 @@ class AuthState {
     String? verificationId,
     int? resendToken,
     String? phoneNumber,
+    bool? createdNow,
   }) {
     return AuthState(
       firebaseUser: firebaseUser ?? this.firebaseUser,
@@ -63,6 +66,7 @@ class AuthState {
       verificationId: verificationId ?? this.verificationId,
       resendToken: resendToken ?? this.resendToken,
       phoneNumber: phoneNumber ?? this.phoneNumber,
+      createdNow: createdNow ?? this.createdNow,
     );
   }
 }
@@ -423,6 +427,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         referralDispositionFinalized = true;
 
         // Check if this is a creator login (flat structure) or regular user (nested structure)
+        final createdNow = responseData['createdNow'] == true;
         UserModel user;
         if (responseData.containsKey('user')) {
           // Regular user login - nested structure
@@ -470,6 +475,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
                 : null,
             profileRevision:
                 (creatorData['profileRevision'] as num?)?.toInt() ?? 0,
+            onboardingStage:
+                (creatorData['onboarding'] as Map<String, dynamic>?)?['stage']
+                    as String?,
           );
           debugPrint('🎭 [AUTH] Creator login detected');
           debugPrint('   👤 Creator Name: ${creatorData['name']}');
@@ -508,6 +516,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
           firebaseUser: firebaseUser,
           user: user,
           isLoading: false,
+          createdNow: createdNow,
         );
         debugPrint('✅ [AUTH] User authenticated and synced successfully');
         debugPrint('   🎉 Ready for app usage');
@@ -608,6 +617,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         firebaseUser: firebaseUser,
         isLoading: false,
         error: errorMessage,
+        createdNow: false,
       );
       debugPrint('   💾 Error state updated with message: $errorMessage');
       if (pendingReferralForLogin != null && !referralDispositionFinalized) {
@@ -1426,6 +1436,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
                 : null,
             profileRevision:
                 (responseData['profileRevision'] as num?)?.toInt() ?? 0,
+            onboardingStage:
+                (responseData['onboarding'] as Map<String, dynamic>?)?['stage']
+                    as String?,
           );
           debugPrint('✅ [AUTH] User data refreshed (creator)');
         }
@@ -1476,5 +1489,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
         error: 'No user authenticated. Please sign in again.',
       );
     }
+  }
+
+  void clearCreatedNowFlag() {
+    if (!state.createdNow) return;
+    state = state.copyWith(createdNow: false);
   }
 }

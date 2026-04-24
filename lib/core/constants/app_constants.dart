@@ -27,6 +27,9 @@ class AppConstants {
   /// Required for reliable Google Sign-In → Firebase [idToken] on Android/iOS.
   static String get googleWebClientId =>
       (dotenv.env['GOOGLE_WEB_CLIENT_ID'] ?? '').trim();
+  static bool get enableServerOnboardingFlow =>
+      (dotenv.env['ENABLE_SERVER_ONBOARDING_FLOW'] ?? 'true').toLowerCase() ==
+      'true';
   
   // Health check URL (derived from socket URL)
   static String get healthCheckUrl => '$socketUrl/health';

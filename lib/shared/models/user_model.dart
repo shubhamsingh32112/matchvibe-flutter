@@ -26,6 +26,7 @@ class UserModel extends Equatable {
   final DateTime? updatedAt;
   /// Incremented when admin updates profile; app shows a one-time toast when this increases.
   final int profileRevision;
+  final String? onboardingStage;
 
   const UserModel({
     required this.id,
@@ -50,6 +51,7 @@ class UserModel extends Equatable {
     this.createdAt,
     this.updatedAt,
     this.profileRevision = 0,
+    this.onboardingStage,
   });
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
@@ -83,6 +85,8 @@ class UserModel extends Equatable {
           ? DateTime.parse(json['updatedAt'] as String)
           : null,
       profileRevision: (json['profileRevision'] as num?)?.toInt() ?? 0,
+      onboardingStage: (json['onboarding'] as Map<String, dynamic>?)?['stage']
+          as String?,
     );
   }
 
@@ -110,6 +114,7 @@ class UserModel extends Equatable {
       'createdAt': createdAt?.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
       'profileRevision': profileRevision,
+      'onboarding': onboardingStage != null ? {'stage': onboardingStage} : null,
     };
   }
 
@@ -136,6 +141,7 @@ class UserModel extends Equatable {
     DateTime? createdAt,
     DateTime? updatedAt,
     int? profileRevision,
+    String? onboardingStage,
   }) {
     return UserModel(
       id: id ?? this.id,
@@ -163,6 +169,7 @@ class UserModel extends Equatable {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       profileRevision: profileRevision ?? this.profileRevision,
+      onboardingStage: onboardingStage ?? this.onboardingStage,
     );
   }
 
@@ -190,5 +197,6 @@ class UserModel extends Equatable {
         createdAt,
         updatedAt,
         profileRevision,
+        onboardingStage,
       ];
 }

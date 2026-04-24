@@ -45,7 +45,8 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen> {
+class _HomeScreenState extends ConsumerState<HomeScreen>
+    with WidgetsBindingObserver {
   bool _welcomeDialogShown = false;
   final SupportService _supportService = SupportService();
   String? _lastHandledFeedbackCallId;
@@ -53,10 +54,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _homeBuildCount = 0;
   ProviderSubscription<String?>? _creatorBusyToastSub;
   ProviderSubscription<CallFeedbackPrompt?>? _feedbackPromptSub;
+  ProviderSubscription<AuthState>? _authSub;
   TimingsCallback? _homeTimingsCallback;
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _checkAndShowWelcomeDialog();
     // Note: Permission onboarding is now requested after welcome bonus accept
     // Connect Socket.IO and hydrate creator availability from Redis
@@ -70,8 +73,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _creatorBusyToastSub?.close();
     _feedbackPromptSub?.close();
+    _authSub?.close();
     if (_homeTimingsCallback != null) {
       WidgetsBinding.instance.removeTimingsCallback(_homeTimingsCallback!);
     }
@@ -82,6 +87,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   void _setupReactiveListeners() {
+    _authSub = ref.listenManual<AuthState>(authProvider, (previous, next) {
+      if (!mounted || !next.isAuthenticated || next.user == null) return;
+      final userBecameReady = previous?.user == null && next.user != null;
+      final stageChanged =
+          previous?.user?.onboardingStage != next.user?.onboardingStage;
+      if (userBecameReady || stageChanged) {
+        unawaited(_checkAndShowWelcomeDialog());
+      }
+    });
+
     _creatorBusyToastSub = ref.listenManual<String?>(
       creatorBusyToastProvider,
       (previous, next) {
@@ -114,6 +129,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             );
       },
     );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_checkAndShowWelcomeDialog());
+    }
   }
 
   void _startFrameTimingSampling() {
@@ -215,8 +237,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // ✅ TASK 1: Wait for creators to load before showing welcome dialog
     // Only show welcome dialog when user can actually see creators on homepage
     final user = authState.user;
-    if (user?.role == 'user' ||
-        (user?.role == 'admin' &&
+    final firebaseUid = authState.firebaseUser?.uid;
+    if (firebaseUid == null) return;
+    if (user == null) return;
+    if (authState.createdNow) {
+      await OnboardingFlowService.clearLocalFlags(firebaseUid);
+      await WelcomeService.clearWelcomeStatusForUser(firebaseUid);
+      await PermissionPromptService.clearPermissionPromptForUser(firebaseUid);
+      ref.read(authProvider.notifier).clearCreatedNowFlag();
+      debugPrint('🧹 [ONBOARDING] createdNow=true, local flags cleared');
+    }
+    if (user.role == 'user' ||
+        (user.role == 'admin' &&
             ref.read(adminViewModeProvider) != AdminViewMode.creator)) {
       // For regular users (or admin viewing as user), wait for creators to load
       final creatorsLoaded = await _waitForCreatorsToLoad();
@@ -232,14 +264,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       }
     }
 
-    final firebaseUid = authState.firebaseUser?.uid;
-    if (firebaseUid == null) return;
     final nextStep = await OnboardingFlowService.nextStep(
       firebaseUid: firebaseUid,
-      bonusAlreadyClaimed: user?.welcomeBonusClaimed ?? false,
+      bonusAlreadyClaimed: user.welcomeBonusClaimed,
+      serverStage: user.onboardingStage,
     );
     if (!mounted) return;
     if (nextStep == OnboardingStep.completed) {
+      debugPrint('⏭️  [ONBOARDING] skipped: server/local stage=completed');
       ref
           .read(modalCoordinatorProvider.notifier)
           .setOnboardingInProgress(false);
@@ -247,15 +279,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
     ref.read(modalCoordinatorProvider.notifier).setOnboardingInProgress(true);
     if (nextStep == OnboardingStep.welcome && !_welcomeDialogShown) {
+      debugPrint('✅ [ONBOARDING] showing welcome popup');
       _welcomeDialogShown = true;
       _showWelcomeDialog();
       return;
     }
     if (nextStep == OnboardingStep.bonus) {
+      debugPrint('✅ [ONBOARDING] showing bonus popup');
       _checkAndShowBonusDialog();
       return;
     }
-    if (nextStep == OnboardingStep.permissionsIntro) {
+    if (nextStep == OnboardingStep.permission) {
+      debugPrint('✅ [ONBOARDING] showing permissions popup');
       _checkAndRequestOnboardingPermissions();
     }
   }
@@ -348,7 +383,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   await _markWelcomeAsSeenWithRetry();
                   final firebaseUid = ref.read(authProvider).firebaseUser?.uid;
                   if (firebaseUid != null) {
-                    await OnboardingFlowService.markWelcomeSeen(firebaseUid);
+                    try {
+                      await OnboardingFlowService.markWelcomeSeen(firebaseUid);
+                    } catch (_) {
+                      if (sheetContext.mounted) {
+                        AppToast.showError(
+                          sheetContext,
+                          'Please check internet and try again.',
+                        );
+                      }
+                      return;
+                    }
                   }
                   if (sheetContext.mounted) {
                     Navigator.of(sheetContext).pop();
@@ -358,7 +403,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   final firebaseUid = ref.read(authProvider).firebaseUser?.uid;
                   await WelcomeService.markWelcomeAsSeen(firebaseUid);
                   if (firebaseUid != null) {
-                    await OnboardingFlowService.markWelcomeSeen(firebaseUid);
+                    try {
+                      await OnboardingFlowService.markWelcomeSeen(firebaseUid);
+                    } catch (_) {
+                      if (sheetContext.mounted) {
+                        AppToast.showError(
+                          sheetContext,
+                          'Please check internet and try again.',
+                        );
+                      }
+                      return;
+                    }
                   }
                   if (sheetContext.mounted) {
                     Navigator.of(sheetContext).pop();
@@ -384,9 +439,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     // Only for regular users who haven't claimed
     if (user == null || user.role != 'user' || user.welcomeBonusClaimed) {
+      debugPrint(
+        '⏭️  [ONBOARDING] bonus popup blocked role=${user?.role} claimed=${user?.welcomeBonusClaimed}',
+      );
       final firebaseUid = authState.firebaseUser?.uid;
       if (firebaseUid != null) {
-        await OnboardingFlowService.markBonusSeen(firebaseUid);
+        try {
+          await OnboardingFlowService.markBonusSeen(firebaseUid);
+        } catch (_) {}
       }
       return;
     }
@@ -398,7 +458,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final alreadyShown = await WelcomeService.hasBonusDialogBeenShown(
       firebaseUid,
     );
-    if (alreadyShown) {
+    final serverWantsBonus = user.onboardingStage == 'bonus';
+    if (alreadyShown && !serverWantsBonus) {
+      debugPrint('⏭️  [ONBOARDING] bonus popup blocked localAlreadyShown=true');
       await OnboardingFlowService.markBonusSeen(firebaseUid);
       _scheduleOnboardingPermissionRequest();
       return;
@@ -472,7 +534,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           .firebaseUser
                           ?.uid;
                       if (firebaseUid != null) {
-                        await OnboardingFlowService.markBonusSeen(firebaseUid);
+                        try {
+                          await OnboardingFlowService.markBonusSeen(firebaseUid);
+                        } catch (_) {
+                          if (ctx.mounted) {
+                            AppToast.showError(
+                              ctx,
+                              'Please check internet and try again.',
+                            );
+                          }
+                          return;
+                        }
                       }
                       _scheduleOnboardingPermissionRequest();
                     }
@@ -483,7 +555,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         .firebaseUser
                         ?.uid;
                     if (firebaseUid != null) {
-                      await OnboardingFlowService.markBonusSeen(firebaseUid);
+                      try {
+                        await OnboardingFlowService.markBonusSeen(firebaseUid);
+                      } catch (_) {
+                        if (ctx.mounted) {
+                          AppToast.showError(
+                            ctx,
+                            'Please check internet and try again.',
+                          );
+                        }
+                        return;
+                      }
                     }
                     if (ctx.mounted) {
                       Navigator.of(ctx).pop();
@@ -518,6 +600,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     final firebaseUid = authState.firebaseUser?.uid;
     if (firebaseUid == null) return;
+    final serverWantsPermissions = user.onboardingStage == 'permission';
 
     // Check user-scoped persistent flag (prevents cross-account leakage on shared devices).
     final hasShownPrompt =
@@ -525,8 +608,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     if (!mounted) return;
 
-    if (hasShownPrompt) {
-      debugPrint('⏭️  [HOME] Permission prompt already shown (persisted)');
+    if (hasShownPrompt && !serverWantsPermissions) {
+      debugPrint('⏭️  [ONBOARDING] permission popup blocked localAlreadyShown=true');
       return;
     }
 
@@ -574,8 +657,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     final agreed = await completer.future;
     if (agreed != true || !mounted) {
-      await PermissionPromptService.markPermissionPromptAsShown(userId);
-      await OnboardingFlowService.markPermissionsSeen(userId);
+      try {
+        await PermissionPromptService.markPermissionPromptAsShown(userId);
+        await OnboardingFlowService.markPermissionsSeen(userId);
+      } catch (_) {}
       ref
           .read(modalCoordinatorProvider.notifier)
           .setOnboardingInProgress(false);

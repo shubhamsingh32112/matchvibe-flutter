@@ -132,10 +132,11 @@ class _IncomingCallWidgetState extends ConsumerState<IncomingCallWidget>
     return Material(
       color: Colors.black54,
       child: SafeArea(
+        bottom: false,
         child: Column(
           children: [
-            Expanded(
-              flex: 11,
+            Align(
+              alignment: Alignment.topCenter,
               child: ClipRRect(
                 borderRadius: const BorderRadius.vertical(
                   bottom: Radius.circular(28),
@@ -161,7 +162,7 @@ class _IncomingCallWidgetState extends ConsumerState<IncomingCallWidget>
                 ),
               ),
             ),
-            const Expanded(flex: 9, child: SizedBox.shrink()),
+            const Expanded(child: SizedBox.shrink()),
           ],
         ),
       ),

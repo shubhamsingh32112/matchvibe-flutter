@@ -33,7 +33,7 @@ void main() {
         firebaseUid: uid,
         bonusAlreadyClaimed: false,
       );
-      expect(third, OnboardingStep.permissionsIntro);
+      expect(third, OnboardingStep.permission);
     },
   );
 
