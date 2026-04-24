@@ -45,6 +45,13 @@ class UserMessageMapper {
       return networkFallback;
     }
 
+    if (error.contains('STREAM_USER_RECOVERY_FAILED')) {
+      return 'Chat is temporarily recovering. Please retry in a moment.';
+    }
+    if (error.contains('STREAM_SERVICE_UNAVAILABLE')) {
+      return 'Chat service is temporarily unavailable. Please retry shortly.';
+    }
+
     if (error.contains('network') ||
         error.contains('Network') ||
         error.contains('connection') ||
@@ -183,6 +190,9 @@ class UserMessageMapper {
           }
         }
         if (apiMsg != null) return apiMsg;
+        if (code == 503) {
+          return 'Chat is temporarily recovering. Please retry in a moment.';
+        }
         if (code >= 500) return 'Server error. Please try again later.';
         if (code == 401 || code == 403) {
           return 'Session expired. Please sign in again.';

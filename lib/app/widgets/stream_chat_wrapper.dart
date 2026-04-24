@@ -11,6 +11,7 @@ import '../../features/home/providers/home_provider.dart';
 import '../../features/home/services/presence_hydration_service.dart';
 import '../../features/video/providers/stream_video_provider.dart';
 import '../../core/services/availability_socket_service.dart';
+import '../../core/utils/user_message_mapper.dart';
 
 /// Wraps app with StreamChat widget and handles user connection
 class StreamChatWrapper extends ConsumerStatefulWidget {
@@ -79,7 +80,11 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
         }
         debugPrint('✅ [STREAM WRAPPER] Stream Chat connected');
       } catch (e) {
-        debugPrint('❌ [STREAM WRAPPER] Failed to connect to Stream Chat: $e');
+        final readable = UserMessageMapper.userMessageFor(
+          e,
+          fallback: 'Chat is temporarily unavailable. Please retry shortly.',
+        );
+        debugPrint('❌ [STREAM WRAPPER] Failed to connect to Stream Chat: $readable');
       }
     }();
 

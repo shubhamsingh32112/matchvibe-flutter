@@ -498,7 +498,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
           // For now, we'll handle this in a separate widget that watches auth state
           debugPrint('✅ [AUTH] Stream Chat token received');
         } catch (e) {
-          debugPrint('⚠️  [AUTH] Failed to connect to Stream Chat: $e');
+          final readable = UserMessageMapper.userMessageFor(
+            e,
+            fallback: 'Chat is temporarily unavailable. Please retry shortly.',
+          );
+          debugPrint('⚠️  [AUTH] Failed to connect to Stream Chat: $readable');
           // Don't block login if Stream Chat fails
         }
         

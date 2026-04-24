@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
+import 'package:dio/dio.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/utils/user_message_mapper.dart';
 
 class ChatService {
   final ApiClient _apiClient = ApiClient();
@@ -20,7 +22,24 @@ class ChatService {
       }
     } catch (e) {
       debugPrint('❌ [CHAT] Error getting token: $e');
-      rethrow;
+      if (e is DioException) {
+        final data = e.response?.data;
+        if (data is Map<String, dynamic>) {
+          final apiError = '${data['error'] ?? ''}';
+          if (apiError.contains('STREAM_USER_RECOVERY_FAILED')) {
+            throw Exception('STREAM_USER_RECOVERY_FAILED');
+          }
+          if (apiError.contains('STREAM_SERVICE_UNAVAILABLE')) {
+            throw Exception('STREAM_SERVICE_UNAVAILABLE');
+          }
+        }
+      }
+      throw Exception(
+        UserMessageMapper.userMessageFor(
+          e,
+          fallback: 'Failed to get chat token',
+        ),
+      );
     }
   }
 
