@@ -5,6 +5,8 @@ import '../../creator/providers/creator_dashboard_provider.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../wallet/providers/wallet_pricing_provider.dart';
 import '../../user/providers/user_availability_provider.dart';
+import '../../../shared/models/app_update_model.dart';
+import '../../../shared/providers/app_update_popup_provider.dart';
 // 🔥 CRITICAL FIX: Import socket service provider to update creator's own status
 import '../../../core/services/availability_socket_service.dart'
     as socket_service;
@@ -254,6 +256,13 @@ final socketServiceProvider = Provider<SocketService>((ref) {
   service.onWalletPricingUpdated = (data) {
     debugPrint('💳 [SOCKET→PROVIDER] wallet_pricing_updated received: $data');
     ref.invalidate(walletPricingProvider);
+  };
+
+  service.onAppUpdatePublished = (data) {
+    debugPrint('🆕 [SOCKET→PROVIDER] app_update:published received');
+    ref.read(appUpdatePopupProvider.notifier).setPendingUpdate(
+          AppUpdateModel.fromJson(data),
+        );
   };
 
   ref.onDispose(() {

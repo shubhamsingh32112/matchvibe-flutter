@@ -15,6 +15,8 @@ class ApplyReferralException implements Exception {
   String toString() => message;
 }
 
+enum ReferralPreviewMode { signup, lateAttach }
+
 class ReferralService {
   final ApiClient _apiClient = ApiClient();
 
@@ -23,13 +25,20 @@ class ReferralService {
     final response = await _apiClient.get('/user/referrals');
 
     if (response.statusCode == 200 && response.data['success'] == true) {
-      return ReferralData.fromJson(response.data['data'] as Map<String, dynamic>);
+      return ReferralData.fromJson(
+        response.data['data'] as Map<String, dynamic>,
+      );
     }
-    throw Exception(response.data['error'] as String? ?? 'Failed to load referrals');
+    throw Exception(
+      response.data['error'] as String? ?? 'Failed to load referrals',
+    );
   }
 
   /// Pre-login validation (`GET /referral/preview?code=`). Returns normalized code.
-  Future<String> previewReferralCode(String rawCode) async {
+  Future<String> previewReferralCode(
+    String rawCode, {
+    ReferralPreviewMode mode = ReferralPreviewMode.signup,
+  }) async {
     final c = rawCode.trim().toUpperCase();
     if (!ReferralCodeFormat.isValid(c)) {
       throw ApplyReferralException(
@@ -40,14 +49,22 @@ class ReferralService {
     try {
       final response = await _apiClient.get(
         '/referral/preview',
-        queryParameters: {'code': c},
+        queryParameters: {
+          'code': c,
+          'mode': mode == ReferralPreviewMode.lateAttach
+              ? 'late_attach'
+              : 'signup',
+        },
       );
       if (response.statusCode == 200 && response.data['success'] == true) {
         final data = response.data['data'] as Map<String, dynamic>?;
         final code = data?['code'] as String?;
         if (code != null && code.isNotEmpty) return code;
       }
-      throw ApplyReferralException('Invalid referral code', errorCode: 'NOT_FOUND');
+      throw ApplyReferralException(
+        'Invalid referral code',
+        errorCode: 'NOT_FOUND',
+      );
     } on DioException catch (e) {
       final data = e.response?.data;
       if (data is Map<String, dynamic>) {

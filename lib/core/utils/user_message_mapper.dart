@@ -12,10 +12,7 @@ class UserMessageMapper {
       'Network error, no connection please try again.';
 
   /// Primary entry: any thrown object from catch blocks.
-  static String userMessageFor(
-    Object? error, {
-    String? fallback,
-  }) {
+  static String userMessageFor(Object? error, {String? fallback}) {
     final fb = fallback ?? genericFallback;
     if (error == null) return fb;
 
@@ -33,10 +30,7 @@ class UserMessageMapper {
   }
 
   /// Firebase/auth/network heuristics for string errors (e.g. from state.error).
-  static String fromString(
-    String raw, {
-    String? fallback,
-  }) {
+  static String fromString(String raw, {String? fallback}) {
     final fb = fallback ?? genericFallback;
     final error = raw.trim();
     if (error.isEmpty) return fb;
@@ -191,7 +185,14 @@ class UserMessageMapper {
         }
         if (apiMsg != null) return apiMsg;
         if (code == 503) {
-          return 'Chat is temporarily recovering. Please retry in a moment.';
+          final path = e.requestOptions.path.toLowerCase();
+          if (path.contains('/chat') || path.contains('/stream')) {
+            return 'Chat is temporarily recovering. Please retry in a moment.';
+          }
+          if (path.contains('/auth') || path.contains('/referral')) {
+            return 'Sign-in service is temporarily busy. Please retry in a moment.';
+          }
+          return 'Service is temporarily unavailable. Please retry in a moment.';
         }
         if (code >= 500) return 'Server error. Please try again later.';
         if (code == 401 || code == 403) {

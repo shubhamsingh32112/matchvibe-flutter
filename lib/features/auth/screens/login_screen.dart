@@ -30,6 +30,14 @@ class LoginScreen extends ConsumerStatefulWidget {
 
 class _LoginScreenState extends ConsumerState<LoginScreen>
     with WidgetsBindingObserver {
+  static const double _loginSectionHorizontalPadding = 28;
+  static const double _loginSectionTopPadding = 12;
+  static const double _loginSectionBottomPadding = 8;
+  static const double _referralFieldGap = 8;
+  static const double _referralApplyGap = 10;
+  static const double _referralToGoogleGap = 14;
+  static const double _socialButtonsGap = 12;
+
   final _referralController = TextEditingController();
   final _referralFocusNode = FocusNode();
   final _referralService = ReferralService();
@@ -49,6 +57,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
   String? _referralInlineError;
   bool _previewLoading = false;
+  int _previewRequestId = 0;
+  int _activePreviewId = 0;
 
   @override
   void initState() {
@@ -73,6 +83,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   }
 
   Future<void> _runReferralPreview({String? rawOverride}) async {
+    final requestId = ++_previewRequestId;
+    _activePreviewId = requestId;
     final raw = (rawOverride ?? _referralController.text).trim();
     if (raw.isEmpty) {
       setState(() {
@@ -97,7 +109,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     });
 
     try {
-      final normalized = await _referralService.previewReferralCode(raw);
+      final previewMode = ref.read(authProvider).isAuthenticated
+          ? ReferralPreviewMode.lateAttach
+          : ReferralPreviewMode.signup;
+      final normalized = await _referralService.previewReferralCode(
+        raw,
+        mode: previewMode,
+      );
+      if (requestId != _activePreviewId) return;
       await ref.read(authProvider.notifier).setPendingReferralCode(normalized);
       if (!mounted) return;
       setState(() {
@@ -107,6 +126,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         _referralInlineError = null;
       });
     } on ApplyReferralException catch (e) {
+      if (requestId != _activePreviewId) return;
       await ref.read(authProvider.notifier).setPendingReferralCode(null);
       if (!mounted) return;
       setState(() {
@@ -115,6 +135,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         _referralInlineError = e.message;
       });
     } on DioException catch (e) {
+      if (requestId != _activePreviewId) return;
       await ref.read(authProvider.notifier).setPendingReferralCode(null);
       if (!mounted) return;
       setState(() {
@@ -125,6 +146,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         );
       });
     } catch (e) {
+      if (requestId != _activePreviewId) return;
       await ref.read(authProvider.notifier).setPendingReferralCode(null);
       if (!mounted) return;
       setState(() {
@@ -206,6 +228,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   }
 
   bool _referralReadyForSignIn() {
+    if (_previewLoading) return false;
     final typed = _referralController.text.trim();
     if (typed.isEmpty) return true;
     final staged = _stagedReferralDisplay;
@@ -233,9 +256,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     }
 
     setState(() => _googlePressed = true);
-    await ref.read(authProvider.notifier).setPendingReferralCode(
-          refCode.isEmpty ? null : refCode.toUpperCase(),
-        );
+    await ref
+        .read(authProvider.notifier)
+        .setPendingReferralCode(refCode.isEmpty ? null : refCode.toUpperCase());
     await ref.read(authProvider.notifier).signInWithGoogle();
     if (mounted && !ref.read(authProvider).isLoading) {
       setState(() => _googlePressed = false);
@@ -344,7 +367,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                               ),
                             ),
                             style: const TextStyle(color: Colors.white),
-                            dropdownTextStyle: const TextStyle(color: Colors.white),
+                            dropdownTextStyle: const TextStyle(
+                              color: Colors.white,
+                            ),
                             flagsButtonPadding: const EdgeInsets.only(left: 8),
                             initialCountryCode: 'IN',
                             enabled: !isSending,
@@ -375,8 +400,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                       );
                                       return;
                                     }
-                                    final refCode =
-                                        _referralController.text.trim();
+                                    final refCode = _referralController.text
+                                        .trim();
                                     if (refCode.isNotEmpty &&
                                         !ReferralCodeFormat.isValid(refCode)) {
                                       AppToast.showInfo(
@@ -393,15 +418,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                     await ref
                                         .read(authProvider.notifier)
                                         .setPendingReferralCode(
-                                          refCode.isEmpty ? null : refCode.toUpperCase(),
+                                          refCode.isEmpty
+                                              ? null
+                                              : refCode.toUpperCase(),
                                         );
-                                    await ref
+                                    final result = await ref
                                         .read(authProvider.notifier)
                                         .signInWithPhone(phone);
 
                                     if (!sheetContext.mounted) return;
-                                    final s = ref.read(authProvider);
-                                    if (s.error != null) {
+                                    if (!result.success) {
                                       setModalState(() => isSending = false);
                                       if (rootContext.mounted) {
                                         setState(() => _phoneSending = false);
@@ -458,7 +484,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
   void _showNetworkErrorDialog(BuildContext context, String errorMessage) {
     final scheme = Theme.of(context).colorScheme;
-    final isNoRouteToHost = errorMessage.toLowerCase().contains('no route to host') ||
+    final isNoRouteToHost =
+        errorMessage.toLowerCase().contains('no route to host') ||
         errorMessage.toLowerCase().contains('errno: 113');
 
     showDialog(
@@ -469,9 +496,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
           children: [
             Icon(Icons.wifi_off, color: scheme.error),
             const SizedBox(width: 12),
-            const Expanded(
-              child: Text('Network Error'),
-            ),
+            const Expanded(child: Text('Network Error')),
           ],
         ),
         content: SingleChildScrollView(
@@ -559,10 +584,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Row(
             children: [
-              if (showSpinner)
-                const SizedBox(width: 36)
-              else
-                leading,
+              if (showSpinner) const SizedBox(width: 36) else leading,
               Expanded(
                 child: showSpinner
                     ? Row(
@@ -619,7 +641,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
             fontWeight: FontWeight.w600,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: _referralFieldGap),
         TextField(
           controller: _referralController,
           focusNode: _referralFocusNode,
@@ -636,7 +658,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(16),
-              borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
+              borderSide: BorderSide(
+                color: Colors.white.withValues(alpha: 0.2),
+              ),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(16),
@@ -655,8 +679,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
           textCapitalization: TextCapitalization.characters,
           maxLength: 8,
           onChanged: (_) {
+            _activePreviewId = ++_previewRequestId;
             if (_stagedReferralDisplay != null) {
-              unawaited(ref.read(authProvider.notifier).setPendingReferralCode(null));
+              unawaited(
+                ref.read(authProvider.notifier).setPendingReferralCode(null),
+              );
               setState(() {
                 _stagedReferralDisplay = null;
                 _referralInlineError = null;
@@ -664,7 +691,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
             }
           },
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: _referralApplyGap),
         SizedBox(
           height: 48,
           child: OutlinedButton(
@@ -713,14 +740,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.check_circle, color: Colors.green.shade300, size: 22),
+                Icon(
+                  Icons.check_circle,
+                  color: Colors.green.shade300,
+                  size: 22,
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Referral applied: ${_stagedReferralDisplay!}',
+                        'Referral validated: ${_stagedReferralDisplay!}',
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w700,
@@ -729,7 +760,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'You can continue with Google or phone.',
+                        'Continue with Google or phone to finish sign-in.',
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: 0.78),
                           fontSize: 13,
@@ -742,15 +773,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                   onPressed: pillsEnabled ? _clearStagedReferral : null,
                   child: Text(
                     'Change',
-                    style: TextStyle(color: Colors.white.withValues(alpha: 0.9)),
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.9),
+                    ),
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 12),
-          Divider(height: 1, color: Colors.white.withValues(alpha: 0.25)),
-          const SizedBox(height: 12),
         ],
       ],
     );
@@ -782,13 +812,26 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
           if (nav.canPop()) {
             nav.pop();
           }
-          context.push('/otp', extra: {
-            'phoneNumber': next.phoneNumber!,
-            'verificationId': next.verificationId!,
-          });
+          context.push(
+            '/otp',
+            extra: {
+              'phoneNumber': next.phoneNumber!,
+              'verificationId': next.verificationId!,
+            },
+          );
         });
       }
-      if (next.isAuthenticated && mounted && previous?.isAuthenticated != true) {
+      if (_phoneSending &&
+          mounted &&
+          !next.isLoading &&
+          next.error == null &&
+          next.verificationId == null &&
+          next.isAuthenticated) {
+        setState(() => _phoneSending = false);
+      }
+      if (next.isAuthenticated &&
+          mounted &&
+          previous?.isAuthenticated != true) {
         debugPrint('✅ [UI] User authenticated, navigating...');
         if (next.user?.gender == null || next.user!.gender!.isEmpty) {
           Future.delayed(const Duration(milliseconds: 300), () {
@@ -930,13 +973,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                       ),
                     ),
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(28, 12, 28, 8),
+                    padding: const EdgeInsets.fromLTRB(
+                      _loginSectionHorizontalPadding,
+                      _loginSectionTopPadding,
+                      _loginSectionHorizontalPadding,
+                      _loginSectionBottomPadding,
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         _referralBlock(pillsEnabled),
+                        const SizedBox(height: _referralToGoogleGap),
                         _pillButton(
-                          onPressed: pillsEnabled ? _handleGoogleLogin : null,
+                          onPressed: pillsEnabled && !_previewLoading
+                              ? _handleGoogleLogin
+                              : null,
                           leading: const Icon(
                             Icons.g_mobiledata,
                             size: 36,
@@ -946,10 +997,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                           busyLabel: 'Signing in…',
                           showSpinner: showGoogleSpinner,
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: _socialButtonsGap),
                         _pillButton(
-                          onPressed:
-                              pillsEnabled ? _showPhoneLoginSheet : null,
+                          onPressed: pillsEnabled && !_previewLoading
+                              ? _showPhoneLoginSheet
+                              : null,
                           leading: const Icon(
                             Icons.phone_android_rounded,
                             size: 26,
@@ -978,13 +1030,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                 crossAxisAlignment: WrapCrossAlignment.center,
                                 children: [
                                   GestureDetector(
-                                    onTap: () => _openUrl(
-                                        AppConstants.privacyPolicyUrl),
+                                    onTap: () =>
+                                        _openUrl(AppConstants.privacyPolicyUrl),
                                     child: Text(
                                       'Privacy Policy',
                                       style: TextStyle(
-                                        color:
-                                            Colors.white.withValues(alpha: 0.95),
+                                        color: Colors.white.withValues(
+                                          alpha: 0.95,
+                                        ),
                                         fontSize: 12,
                                         fontWeight: FontWeight.w600,
                                         decoration: TextDecoration.underline,
@@ -996,18 +1049,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                   Text(
                                     ' and ',
                                     style: TextStyle(
-                                      color: Colors.white.withValues(alpha: 0.88),
+                                      color: Colors.white.withValues(
+                                        alpha: 0.88,
+                                      ),
                                       fontSize: 12,
                                     ),
                                   ),
                                   GestureDetector(
-                                    onTap: () => _openUrl(
-                                        AppConstants.termsOfUseUrl),
+                                    onTap: () =>
+                                        _openUrl(AppConstants.termsOfUseUrl),
                                     child: Text(
                                       'Terms of Use',
                                       style: TextStyle(
-                                        color:
-                                            Colors.white.withValues(alpha: 0.95),
+                                        color: Colors.white.withValues(
+                                          alpha: 0.95,
+                                        ),
                                         fontSize: 12,
                                         fontWeight: FontWeight.w600,
                                         decoration: TextDecoration.underline,
@@ -1019,8 +1075,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                   Text(
                                     '.',
                                     style: TextStyle(
-                                      color:
-                                          Colors.white.withValues(alpha: 0.88),
+                                      color: Colors.white.withValues(
+                                        alpha: 0.88,
+                                      ),
                                       fontSize: 12,
                                     ),
                                   ),

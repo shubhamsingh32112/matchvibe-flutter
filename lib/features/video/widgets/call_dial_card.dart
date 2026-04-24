@@ -30,6 +30,7 @@ class CallDialCard extends StatelessWidget {
   final Widget? bottomSectionReplacement;
 
   final EdgeInsetsGeometry padding;
+  final bool reserveStatusBarSpace;
 
   const CallDialCard({
     super.key,
@@ -44,6 +45,7 @@ class CallDialCard extends StatelessWidget {
     this.onHangUp,
     this.bottomSectionReplacement,
     this.padding = const EdgeInsets.fromLTRB(20, 12, 20, 20),
+    this.reserveStatusBarSpace = true,
   });
 
   @override
@@ -61,7 +63,7 @@ class CallDialCard extends StatelessWidget {
           child: LayoutBuilder(
             builder: (context, constraints) {
               final maxW = constraints.maxWidth;
-              final photoSize = (maxW * 0.42).clamp(120.0, 200.0);
+              final photoSize = (maxW * 0.34).clamp(108.0, 156.0);
 
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -126,11 +128,11 @@ class CallDialCard extends StatelessWidget {
                           ],
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 12),
                       CallDialProfilePhoto(size: photoSize, imageUrl: imageUrl),
                     ],
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 18),
                   Text(
                     statusText,
                     textAlign: TextAlign.center,
@@ -139,14 +141,23 @@ class CallDialCard extends StatelessWidget {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  if (showConnectingBar && connectingBarAnimation != null) ...[
-                    const SizedBox(height: 12),
-                    CallDialConnectingBar(
-                      animation: connectingBarAnimation!,
-                      trackColor: CallDialCardColors.progressTrack,
-                      fillColor: CallDialCardColors.pillAndProgress,
-                    ),
-                  ],
+                  const SizedBox(height: 12),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    child: showConnectingBar && connectingBarAnimation != null
+                        ? CallDialConnectingBar(
+                            key: const ValueKey('dial-connecting-bar'),
+                            animation: connectingBarAnimation!,
+                            trackColor: CallDialCardColors.progressTrack,
+                            fillColor: CallDialCardColors.pillAndProgress,
+                          )
+                        : (reserveStatusBarSpace
+                              ? const SizedBox(
+                                  key: ValueKey('dial-connecting-placeholder'),
+                                  height: 8,
+                                )
+                              : const SizedBox.shrink()),
+                  ),
                   const SizedBox(height: 14),
                   if (bottomSectionReplacement != null)
                     bottomSectionReplacement!

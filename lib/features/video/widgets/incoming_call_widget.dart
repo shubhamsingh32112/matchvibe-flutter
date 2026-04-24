@@ -132,26 +132,37 @@ class _IncomingCallWidgetState extends ConsumerState<IncomingCallWidget>
     return Material(
       color: Colors.black54,
       child: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: ClipRRect(
-              borderRadius: const BorderRadius.vertical(
-                bottom: Radius.circular(28),
-              ),
-              child: CallDialCard(
-                nameLine: display.nameLine,
-                country: display.country,
-                imageUrl: photoUrl,
-                statusText: isProcessing ? 'Connecting…' : 'Incoming Call',
-                showConnectingBar: isProcessing,
-                connectingBarAnimation: _barController,
-                showHangUpButton: false,
-                bottomSectionReplacement: footer,
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+        child: Column(
+          children: [
+            Expanded(
+              flex: 11,
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(
+                  bottom: Radius.circular(28),
+                ),
+                child: CallDialCard(
+                  nameLine: display.nameLine,
+                  country: display.country,
+                  imageUrl: photoUrl,
+                  statusText:
+                      isProcessing ? 'Connecting...' : 'Awaiting response...',
+                  showConnectingBar: isProcessing,
+                  connectingBarAnimation: _barController,
+                  showHangUpButton: isProcessing,
+                  onHangUp: isProcessing
+                      ? () {
+                          ref
+                              .read(callConnectionControllerProvider.notifier)
+                              .endCall();
+                        }
+                      : null,
+                  bottomSectionReplacement: footer,
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                ),
               ),
             ),
-          ),
+            const Expanded(flex: 9, child: SizedBox.shrink()),
+          ],
         ),
       ),
     );

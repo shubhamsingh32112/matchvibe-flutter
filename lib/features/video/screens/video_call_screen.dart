@@ -63,11 +63,6 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
       switch (callState.phase) {
         case CallConnectionPhase.preparing:
         case CallConnectionPhase.joining:
-          if (callState.isOutgoing) {
-            // Outgoing dial UI is the root [OutgoingCallOverlay]; this route is
-            // only used before first frame or in edge cases.
-            return const Scaffold(body: SizedBox.shrink());
-          }
           return _OutgoingCallView(
             isOutgoing: callState.isOutgoing,
             call: callState.call,
@@ -153,9 +148,11 @@ class _OutgoingCallViewState extends ConsumerState<_OutgoingCallView>
 
   @override
   Widget build(BuildContext context) {
-    final statusText = widget.isOutgoing ? 'Calling…' : 'Connecting…';
     final currentUserId = ref.watch(authProvider).firebaseUser?.uid;
     final callConnectionState = ref.watch(callConnectionControllerProvider);
+    final isConnecting =
+        !widget.isOutgoing || callConnectionState.creatorAcceptedForOutgoing;
+    final statusText = isConnecting ? 'Connecting...' : 'Awaiting response...';
     final remoteUrl = resolveRemoteImageUrl(
       call: widget.call,
       currentUserId: currentUserId,
@@ -192,36 +189,27 @@ class _OutgoingCallViewState extends ConsumerState<_OutgoingCallView>
         body: SafeArea(
           child: Column(
             children: [
-              const _CallOverlayHeader(title: 'Video Call'),
               Expanded(
-                child: Center(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                    child: ClipRRect(
-                      borderRadius: const BorderRadius.vertical(
-                        bottom: Radius.circular(28),
-                      ),
-                      child: CallDialCard(
-                        nameLine: display.nameLine,
-                        country: display.country,
-                        imageUrl: photoUrl,
-                        statusText: statusText,
-                        showConnectingBar: true,
-                        connectingBarAnimation: _barController,
-                        onHangUp: () {
-                          ref
-                              .read(callConnectionControllerProvider.notifier)
-                              .endCall();
-                        },
-                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-                      ),
-                    ),
+                flex: 11,
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.vertical(
+                    bottom: Radius.circular(28),
+                  ),
+                  child: CallDialCard(
+                    nameLine: display.nameLine,
+                    country: display.country,
+                    imageUrl: photoUrl,
+                    statusText: statusText,
+                    showConnectingBar: isConnecting,
+                    connectingBarAnimation: _barController,
+                    onHangUp: () {
+                      ref.read(callConnectionControllerProvider.notifier).endCall();
+                    },
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
                   ),
                 ),
               ),
+              const Expanded(flex: 9, child: SizedBox.shrink()),
             ],
           ),
         ),
@@ -332,38 +320,6 @@ class _CallFailedView extends ConsumerWidget {
       case null:
         return 'Call Failed';
     }
-  }
-}
-
-class _CallOverlayHeader extends StatelessWidget {
-  final String title;
-
-  const _CallOverlayHeader({required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.28),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-        ),
-        child: SizedBox(
-          height: 46,
-          child: Center(
-            child: Text(
-              title,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
   }
 }
 

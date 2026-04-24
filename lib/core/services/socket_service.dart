@@ -68,6 +68,8 @@ class SocketService {
   // ── Wallet pricing callback ────────────────────────────────────────────
   /// Fired when admin updates wallet package pricing.
   void Function(Map<String, dynamic>)? onWalletPricingUpdated;
+  /// Fired when admin publishes a global app update popup payload.
+  void Function(Map<String, dynamic>)? onAppUpdatePublished;
 
   bool get isConnected => _isConnected;
 
@@ -252,6 +254,13 @@ class SocketService {
       debugPrint('💳 [SOCKET] wallet_pricing_updated: $data');
       if (data is Map) {
         onWalletPricingUpdated?.call(Map<String, dynamic>.from(data));
+      }
+    });
+
+    _socket!.on('app_update:published', (data) {
+      debugPrint('🆕 [SOCKET] app_update:published: $data');
+      if (data is Map) {
+        onAppUpdatePublished?.call(Map<String, dynamic>.from(data));
       }
     });
 

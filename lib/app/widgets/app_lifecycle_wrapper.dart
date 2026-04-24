@@ -3,17 +3,23 @@ import 'dart:async' show StreamSubscription, unawaited;
 import 'package:app_links/app_links.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../router/app_router.dart';
 import '../../features/auth/providers/auth_provider.dart';
+import '../../features/home/providers/availability_provider.dart';
 import '../../features/creator/providers/creator_dashboard_provider.dart';
 import '../../features/video/controllers/call_connection_controller.dart';
 import '../../features/home/providers/home_provider.dart';
 import '../../shared/widgets/coin_purchase_popup.dart';
 import '../../shared/widgets/app_modal_bottom_sheet.dart';
+import '../../shared/widgets/app_update_popup.dart';
 import '../../shared/widgets/app_toast.dart';
+import '../../shared/models/app_update_model.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/services/modal_coordinator_service.dart';
+import '../../shared/services/app_update_service.dart';
 import '../../shared/providers/coin_purchase_popup_provider.dart';
+import '../../shared/providers/app_update_popup_provider.dart';
 
 /// Widget that wraps the app and handles lifecycle events.
 ///
@@ -36,12 +42,17 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     with WidgetsBindingObserver {
   static const String _lastHandledPaymentDeepLinkKey =
       'last_handled_payment_deep_link';
+  static const String _deferredUpdateAcksKey = 'deferred_update_acks_v1';
   AppLinks? _appLinks;
   StreamSubscription<Uri>? _deepLinkSub;
   bool _coinPopupShownThisSession = false;
+  final AppUpdateService _appUpdateService = AppUpdateService();
+  String? _lastDeferredAppUpdateId;
+  bool _isCheckingPendingAppUpdate = false;
   bool _isDrainingModalQueue = false;
   ProviderSubscription<ModalCoordinatorState>? _modalQueueSub;
   ProviderSubscription<CoinPopupIntent?>? _coinPopupSub;
+  ProviderSubscription<AppUpdatePopupState>? _appUpdatePopupSub;
   ProviderSubscription<AuthState>? _authSub;
 
   @override
@@ -51,8 +62,11 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     _initDeepLinks();
     _setupProviderListeners();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(socketServiceProvider);
       _ensureCreatorOnline();
       _maybeShowCoinPopupForCurrentState();
+      unawaited(_retryDeferredUpdateAcks());
+      unawaited(_refreshPendingAppUpdate());
     });
   }
 
@@ -60,6 +74,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
   void dispose() {
     _modalQueueSub?.close();
     _coinPopupSub?.close();
+    _appUpdatePopupSub?.close();
     _authSub?.close();
     _deepLinkSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
@@ -108,6 +123,16 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       },
     );
 
+    _appUpdatePopupSub = ref.listenManual<AppUpdatePopupState>(
+      appUpdatePopupProvider,
+      (prev, next) {
+        final pending = next.pendingUpdate;
+        if (pending == null) return;
+        if (_lastDeferredAppUpdateId == pending.id) return;
+        _enqueueAppUpdatePopup(pending);
+      },
+    );
+
     _authSub = ref.listenManual<AuthState>(authProvider, (prev, next) {
       final user = next.user;
       final isCreator =
@@ -122,6 +147,10 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
           user != null &&
           user.role == 'user') {
         _showCoinPurchasePopupOnAppOpen();
+      }
+      if (next.isAuthenticated && user != null) {
+        unawaited(_retryDeferredUpdateAcks());
+        unawaited(_refreshPendingAppUpdate());
       }
     });
   }
@@ -228,8 +257,168 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
 
   Future<void> _onCreatorOrAdminResumed() async {
     await ref.read(authProvider.notifier).refreshUser();
+    await _refreshPendingAppUpdate();
     await _maybeToastProfileUpdatedByAdmin();
     ref.invalidate(creatorDashboardProvider);
+  }
+
+  Future<void> _refreshPendingAppUpdate() async {
+    if (_isCheckingPendingAppUpdate) return;
+    final auth = ref.read(authProvider);
+    final user = auth.user;
+    if (!auth.isAuthenticated || user == null) return;
+    if (user.role != 'user' && user.role != 'creator' && user.role != 'admin') {
+      return;
+    }
+    _isCheckingPendingAppUpdate = true;
+    try {
+      final pending = await _appUpdateService.getPendingUpdate();
+      if (pending != null && pending.id != _lastDeferredAppUpdateId) {
+        ref.read(appUpdatePopupProvider.notifier).setPendingUpdate(pending);
+      }
+    } catch (e) {
+      debugPrint('⚠️ [APP UPDATE] Failed to fetch pending update: $e');
+    } finally {
+      _isCheckingPendingAppUpdate = false;
+    }
+  }
+
+  Future<List<Map<String, String>>> _loadDeferredUpdateAcks() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getStringList(_deferredUpdateAcksKey) ?? <String>[];
+    final items = <Map<String, String>>[];
+    for (final row in raw) {
+      final parts = row.split('|');
+      if (parts.length != 2) continue;
+      final updateId = parts[0].trim();
+      final updateUrl = parts[1].trim();
+      if (updateId.isEmpty || updateUrl.isEmpty) continue;
+      items.add({'id': updateId, 'url': updateUrl});
+    }
+    return items;
+  }
+
+  Future<void> _saveDeferredUpdateAcks(List<Map<String, String>> items) async {
+    final prefs = await SharedPreferences.getInstance();
+    final rows = items
+        .map((e) => '${e['id'] ?? ''}|${e['url'] ?? ''}')
+        .where((e) => e != '|')
+        .toList();
+    await prefs.setStringList(_deferredUpdateAcksKey, rows);
+  }
+
+  Future<void> _addDeferredUpdateAck(String updateId, String updateUrl) async {
+    final items = await _loadDeferredUpdateAcks();
+    final exists = items.any((i) => i['id'] == updateId);
+    if (!exists) {
+      items.add({'id': updateId, 'url': updateUrl});
+      await _saveDeferredUpdateAcks(items);
+    }
+  }
+
+  Future<void> _removeDeferredUpdateAck(String updateId) async {
+    final items = await _loadDeferredUpdateAcks();
+    items.removeWhere((i) => i['id'] == updateId);
+    await _saveDeferredUpdateAcks(items);
+  }
+
+  Future<void> _retryDeferredUpdateAcks() async {
+    final auth = ref.read(authProvider);
+    if (!auth.isAuthenticated || auth.user == null) return;
+    final items = await _loadDeferredUpdateAcks();
+    if (items.isEmpty) return;
+    final remaining = <Map<String, String>>[];
+    for (final item in items) {
+      final id = item['id'];
+      if (id == null || id.isEmpty) continue;
+      try {
+        await _appUpdateService.ackUpdateNow(id);
+      } catch (_) {
+        remaining.add(item);
+      }
+    }
+    await _saveDeferredUpdateAcks(remaining);
+  }
+
+  void _enqueueAppUpdatePopup(AppUpdateModel pending) {
+    final requestId = ref
+        .read(modalCoordinatorProvider.notifier)
+        .nextRequestId('app-update');
+    ref.read(modalCoordinatorProvider.notifier).enqueue<AppUpdatePopupAction>(
+          AppModalRequest<AppUpdatePopupAction>(
+            id: requestId,
+            priority: AppModalPriority.high,
+            dedupeKey: 'app-update-${pending.id}',
+            present: (ctx, _) async {
+              var submitting = false;
+              return showAppModalBottomSheet<AppUpdatePopupAction>(
+                context: ctx,
+                isDismissible: false,
+                enableDrag: false,
+                builder: (sheetContext) {
+                  return StatefulBuilder(
+                    builder: (context, setState) {
+                      return AppUpdatePopup(
+                        title: pending.title,
+                        points: pending.points,
+                        isSubmitting: submitting,
+                        onLater: () {
+                          Navigator.of(context).pop(AppUpdatePopupAction.later);
+                        },
+                        onUpdateNow: () async {
+                          if (submitting) return;
+                          setState(() => submitting = true);
+                          try {
+                            final uri = Uri.tryParse(pending.updateUrl);
+                            if (uri == null) {
+                              throw Exception('Invalid update URL');
+                            }
+                            final launched = await launchUrl(
+                              uri,
+                              mode: LaunchMode.externalApplication,
+                            );
+                            if (!launched) {
+                              throw Exception('Could not launch update URL');
+                            }
+                            try {
+                              await _appUpdateService.ackUpdateNow(pending.id);
+                            } catch (_) {
+                              // Launch succeeded but ack failed (likely network). Retry later.
+                              await _addDeferredUpdateAck(
+                                pending.id,
+                                pending.updateUrl,
+                              );
+                            }
+                            if (context.mounted) {
+                              Navigator.of(context).pop(AppUpdatePopupAction.updateNow);
+                            }
+                          } catch (e) {
+                            if (context.mounted) {
+                              AppToast.showError(
+                                context,
+                                'Unable to open update right now. Please try again.',
+                              );
+                            }
+                            setState(() => submitting = false);
+                          }
+                        },
+                      );
+                    },
+                  );
+                },
+              );
+            },
+            onCompleted: (result) {
+              if (result == AppUpdatePopupAction.updateNow) {
+                unawaited(_removeDeferredUpdateAck(pending.id));
+                ref.read(appUpdatePopupProvider.notifier).clearPendingUpdate();
+                _lastDeferredAppUpdateId = null;
+              } else {
+                _lastDeferredAppUpdateId = pending.id;
+              }
+            },
+          ),
+        );
   }
 
   /// When [UserModel.profileRevision] increases (admin edited profile), show a one-time toast.
@@ -319,6 +508,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
         );
         ref.invalidate(homeFeedProvider);
         unawaited(ref.read(authProvider.notifier).refreshUser());
+        unawaited(_refreshPendingAppUpdate());
       }
 
       // Creators / admins: refresh profile (profileRevision toast) + dashboard
