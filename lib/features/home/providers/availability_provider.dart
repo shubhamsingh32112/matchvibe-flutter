@@ -262,6 +262,7 @@ final socketServiceProvider = Provider<SocketService>((ref) {
     debugPrint('🆕 [SOCKET→PROVIDER] app_update:published received');
     ref.read(appUpdatePopupProvider.notifier).setPendingUpdate(
           AppUpdateModel.fromJson(data),
+          source: 'socket',
         );
   };
 

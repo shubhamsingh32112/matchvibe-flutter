@@ -43,6 +43,7 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
   Call? _incomingCall;
   StreamSubscription? _ringingSubscription;
   StreamSubscription? _incomingCallSubscription;
+  ProviderSubscription<CallConnectionState>? _callStateSub;
 
   /// Ring timeout: if creator doesn't accept/reject within 15s, auto-dismiss.
   /// Matches user-side ring timeout — call ends for both parties.
@@ -57,6 +58,23 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
   @override
   void initState() {
     super.initState();
+    _callStateSub = ref.listenManual<CallConnectionState>(
+      callConnectionControllerProvider,
+      (prev, next) {
+        if (next.phase != CallConnectionPhase.idle &&
+            next.phase != CallConnectionPhase.failed &&
+            _incomingCall != null) {
+          _cancelRingTimeout();
+          _handledCallIds.add(_incomingCall!.id);
+          CallRingtoneService.stop();
+          if (mounted) {
+            setState(() {
+              _incomingCall = null;
+            });
+          }
+        }
+      },
+    );
     // Set up listener after first frame (when providers are ready)
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _setupIncomingCallListener();
@@ -203,6 +221,7 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
     _cancelRingTimeout();
     CallRingtoneService.stop();
     _incomingFallbackImageByCallId.clear();
+    _callStateSub?.close();
     _ringingSubscription?.cancel();
     _incomingCallSubscription?.cancel();
     super.dispose();
@@ -326,21 +345,6 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
     final controllerActive =
         controllerPhase != CallConnectionPhase.idle &&
             controllerPhase != CallConnectionPhase.failed;
-
-    // When the controller starts working on a call, mark it as handled
-    ref.listen<CallConnectionState>(callConnectionControllerProvider,
-        (prev, next) {
-      if (next.phase != CallConnectionPhase.idle &&
-          next.phase != CallConnectionPhase.failed &&
-          _incomingCall != null) {
-        _cancelRingTimeout();
-        _handledCallIds.add(_incomingCall!.id);
-        CallRingtoneService.stop();
-        setState(() {
-          _incomingCall = null;
-        });
-      }
-    });
 
     // If controller is active, hide overlay immediately.
     if (controllerActive) {

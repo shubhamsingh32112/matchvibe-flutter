@@ -92,6 +92,9 @@ class ModalCoordinatorNotifier extends StateNotifier<ModalCoordinatorState> {
       final existsInQueue = state.queue.any((r) => r.dedupeKey == key);
       final isActive = state.activeDedupeKeys.contains(key);
       if (existsInQueue || isActive) {
+        debugPrint(
+          '[MODAL_QUEUE] dedupe-skip id=${request.id} key=$key inQueue=$existsInQueue active=$isActive',
+        );
         return;
       }
     }
@@ -101,6 +104,20 @@ class ModalCoordinatorNotifier extends StateNotifier<ModalCoordinatorState> {
       (a, b) => _priorityRank(a.priority).compareTo(_priorityRank(b.priority)),
     );
     state = state.copyWith(queue: nextQueue);
+    debugPrint(
+      '[MODAL_QUEUE] enqueue id=${request.id} priority=${request.priority.name} key=${request.dedupeKey ?? "none"} queueSize=${nextQueue.length}',
+    );
+  }
+
+  void clearQueue() {
+    state = state.copyWith(
+      queue: const [],
+      isPresenting: false,
+      activeDedupeKeys: const {},
+      onboardingInProgress: false,
+      queueTransitions: state.queueTransitions + 1,
+    );
+    debugPrint('[MODAL_QUEUE] clearQueue');
   }
 
   AppModalRequest<dynamic>? takeNext() {
@@ -121,6 +138,9 @@ class ModalCoordinatorNotifier extends StateNotifier<ModalCoordinatorState> {
       activeDedupeKeys: nextKeys,
       queueTransitions: state.queueTransitions + 1,
     );
+    debugPrint(
+      '[MODAL_QUEUE] dequeue id=${request.id} key=${request.dedupeKey ?? "none"} queueSize=${remaining.length}',
+    );
     return request;
   }
 
@@ -134,6 +154,9 @@ class ModalCoordinatorNotifier extends StateNotifier<ModalCoordinatorState> {
       activeDedupeKeys: nextKeys,
       queueTransitions: state.queueTransitions + 1,
       presentedCount: state.presentedCount + 1,
+    );
+    debugPrint(
+      '[MODAL_QUEUE] complete id=$requestId key=${dedupeKey ?? "none"} queueSize=${state.queue.length}',
     );
   }
 }

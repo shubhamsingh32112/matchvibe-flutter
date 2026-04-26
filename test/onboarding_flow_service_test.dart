@@ -12,41 +12,61 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  test(
-    'onboarding progresses through welcome -> bonus -> permissions',
-    () async {
-      final first = await OnboardingFlowService.nextStep(
-        firebaseUid: uid,
-        bonusAlreadyClaimed: false,
-      );
-      expect(first, OnboardingStep.welcome);
+  test('onboarding follows local fallback order when no server stage', () async {
+    final first = await OnboardingFlowService.nextStep(
+      firebaseUid: uid,
+      bonusAlreadyClaimed: false,
+      serverStage: null,
+    );
+    expect(first, OnboardingStep.welcome);
+  });
 
-      await OnboardingFlowService.markWelcomeSeen(uid);
-      final second = await OnboardingFlowService.nextStep(
-        firebaseUid: uid,
-        bonusAlreadyClaimed: false,
-      );
-      expect(second, OnboardingStep.bonus);
-
-      await OnboardingFlowService.markBonusSeen(uid);
-      final third = await OnboardingFlowService.nextStep(
-        firebaseUid: uid,
-        bonusAlreadyClaimed: false,
-      );
-      expect(third, OnboardingStep.permission);
-    },
-  );
-
-  test('onboarding completes when all steps are marked done', () async {
-    await OnboardingFlowService.markWelcomeSeen(uid);
-    await OnboardingFlowService.markBonusSeen(uid);
-    await OnboardingFlowService.markPermissionsSeen(uid);
-    await OnboardingFlowService.markCompleted(uid);
-
+  test('server stage maps to permission step', () async {
     final step = await OnboardingFlowService.nextStep(
       firebaseUid: uid,
       bonusAlreadyClaimed: true,
+      serverStage: 'permission',
+    );
+    expect(step, OnboardingStep.permission);
+  });
+
+  test('server completed stage wins over local flags', () async {
+    final step = await OnboardingFlowService.nextStep(
+      firebaseUid: uid,
+      bonusAlreadyClaimed: false,
+      serverStage: 'completed',
     );
     expect(step, OnboardingStep.completed);
+  });
+
+  test('local override wins over stale server stage', () async {
+    OnboardingFlowService.setLocalStageOverride(
+      firebaseUid: uid,
+      step: OnboardingStep.bonus,
+    );
+    final step = await OnboardingFlowService.nextStep(
+      firebaseUid: uid,
+      bonusAlreadyClaimed: false,
+      serverStage: 'welcome',
+    );
+    expect(step, OnboardingStep.bonus);
+  });
+
+  test('local override clears when server catches up', () async {
+    OnboardingFlowService.setLocalStageOverride(
+      firebaseUid: uid,
+      step: OnboardingStep.bonus,
+    );
+    await OnboardingFlowService.nextStep(
+      firebaseUid: uid,
+      bonusAlreadyClaimed: false,
+      serverStage: 'bonus',
+    );
+    final next = await OnboardingFlowService.nextStep(
+      firebaseUid: uid,
+      bonusAlreadyClaimed: false,
+      serverStage: 'welcome',
+    );
+    expect(next, OnboardingStep.welcome);
   });
 }

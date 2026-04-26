@@ -129,6 +129,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
   String?
   _activeUserFirebaseUid; // For creator-initiated calls: the user who pays
   bool _wasConnected = false;
+  bool _isReconnecting = false;
 
   CallConnectionController(this._ref) : super(const CallConnectionState.idle());
 
@@ -192,6 +193,21 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     );
 
     try {
+      final authBeforePermCheck = _ref.read(authProvider);
+      final stage = authBeforePermCheck.user?.onboardingStage;
+      final introPending = stage == 'permission' || stage == 'permissions';
+      if (introPending) {
+        state = const CallConnectionState(
+          phase: CallConnectionPhase.failed,
+          error:
+              'Please complete the permissions onboarding step before starting a call.',
+          failureReason: CallFailureReason.permissionDenied,
+          isOutgoing: true,
+        );
+        CallNavigationService.navigateToHome();
+        return;
+      }
+
       // 1. Permissions
       final hasPerms = await PermissionService.ensurePermissions(video: true);
       if (!hasPerms) {
@@ -534,6 +550,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     _activeCreatorMongoId = null;
     _activeUserFirebaseUid = null;
     _wasConnected = false;
+    _isReconnecting = false;
 
     if (call != null) {
       try {
@@ -573,12 +590,32 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
         (status is CallStatusOutgoing && status.acceptedByCallee);
   }
 
+  bool _isReconnectLikeStatus(CallStatus status) {
+    final label = status.toString().toLowerCase();
+    return label.contains('reconnect') ||
+        label.contains('migrat') ||
+        label.contains('recover');
+  }
+
   /// Listens for [CallStatusConnected] / [CallStatusDisconnected] via
   /// `call.partialState` — ignores participant/audio churn.
   void _listenForConnected(Call call) {
     _statusSubscription?.cancel();
     _statusSubscription = call.partialState((s) => s.status).listen((status) {
       debugPrint('📞 [CALL CTRL] status → $status');
+
+      final reconnectLike = _isReconnectLikeStatus(status);
+      if (reconnectLike && !_isReconnecting) {
+        _isReconnecting = true;
+        debugPrint(
+          '📶 [CALL_CTRL] call_reconnect_started callId=${call.id} phase=${state.phase}',
+        );
+      } else if (!reconnectLike && _isReconnecting) {
+        _isReconnecting = false;
+        debugPrint(
+          '✅ [CALL_CTRL] call_reconnect_resolved callId=${call.id} phase=${state.phase}',
+        );
+      }
 
       // Creator accepted — transition from ring phase to join phase.
       // Restart watchdog with longer timeout (30s) for WebRTC connection.
@@ -656,6 +693,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
           _activeCreatorMongoId = null;
           _activeUserFirebaseUid = null;
           _wasConnected = false;
+          _isReconnecting = false;
 
           // Map disconnect reason → failure or clean exit
           final isRejected = reason.toString().toLowerCase().contains(
@@ -828,6 +866,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     CallRingtoneService.stop();
     _cancelSubscriptions();
     try {
+      _isReconnecting = false;
       await state.call?.leave();
     } catch (_) {}
   }
@@ -920,6 +959,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
   @override
   void dispose() {
     CallRingtoneService.stop();
+    _isReconnecting = false;
     _cancelSubscriptions();
     super.dispose();
   }

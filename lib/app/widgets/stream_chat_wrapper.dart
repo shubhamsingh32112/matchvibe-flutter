@@ -10,7 +10,6 @@ import '../../features/home/providers/availability_provider.dart';
 import '../../features/home/providers/home_provider.dart';
 import '../../features/home/services/presence_hydration_service.dart';
 import '../../features/video/providers/stream_video_provider.dart';
-import '../../core/services/availability_socket_service.dart';
 import '../../core/utils/user_message_mapper.dart';
 
 /// Wraps app with StreamChat widget and handles user connection
@@ -219,21 +218,12 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
         authState.firebaseUser != null &&
         authState.user != null) {
       _socketInitialized = true;
-      final isCreator =
-          authState.user!.role == 'creator' || authState.user!.role == 'admin';
-
       // Get Firebase ID token for socket authentication
       // This runs asynchronously but socket service handles pending auth gracefully
       authState.firebaseUser!
           .getIdToken()
           .then((token) {
             if (!context.mounted) return;
-            AvailabilitySocketService.instance.init(
-              context,
-              authToken: token,
-              creatorId: isCreator ? authState.firebaseUser!.uid : null,
-              isCreator: isCreator,
-            );
             _bootstrapPresenceSockets(token);
           })
           .catchError((e) async {
@@ -245,12 +235,6 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
             if (!context.mounted) return;
             final cached = prefs.getString(AppConstants.keyAuthToken);
             if (cached != null && cached.isNotEmpty) {
-              AvailabilitySocketService.instance.init(
-                context,
-                authToken: cached,
-                creatorId: isCreator ? authState.firebaseUser!.uid : null,
-                isCreator: isCreator,
-              );
               _bootstrapPresenceSockets(cached);
             } else {
               debugPrint(
@@ -292,8 +276,7 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
           ref.read(streamVideoProvider.notifier).disconnect();
         }
 
-        // 🔥 Disconnect Availability Socket + billing/presence SocketService
-        AvailabilitySocketService.instance.dispose();
+        // Disconnect billing/presence SocketService
         ref.read(socketServiceProvider).disconnect();
         _socketInitialized = false; // ⚠️ Reset so next login can re-init
       }

@@ -304,7 +304,11 @@ class ApiClient {
     }
   }
 
-  Future<Response> post(String path, {dynamic data}) async {
+  Future<Response> post(
+    String path, {
+    dynamic data,
+    Map<String, String>? headers,
+  }) async {
     try {
       if (kDebugMode) {
         debugPrint('🟢 [API] POST request to: $path');
@@ -312,7 +316,11 @@ class ApiClient {
           debugPrint('   📦 POST data: $data');
         }
       }
-      return await _dio.post(path, data: data);
+      return await _dio.post(
+        path,
+        data: data,
+        options: headers == null ? null : Options(headers: headers),
+      );
     } catch (e) {
       if (kDebugMode) {
         debugPrint('❌ [API] POST request failed: $e');

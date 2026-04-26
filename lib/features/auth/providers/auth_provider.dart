@@ -438,6 +438,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
           // Creator login - flat structure with creator details
           // Map creator fields to UserModel
           final creatorData = responseData;
+          final onboardingData =
+              creatorData['onboarding'] as Map<String, dynamic>?;
           user = UserModel(
             id: creatorData['id'] as String,
             email: creatorData['email'] as String?,
@@ -476,8 +478,36 @@ class AuthNotifier extends StateNotifier<AuthState> {
             profileRevision:
                 (creatorData['profileRevision'] as num?)?.toInt() ?? 0,
             onboardingStage:
-                (creatorData['onboarding'] as Map<String, dynamic>?)?['stage']
-                    as String?,
+                onboardingData?['stage'] as String?,
+            onboardingWelcomeSeenAt: onboardingData?['welcomeSeenAt'] != null
+                ? DateTime.tryParse(onboardingData!['welcomeSeenAt'] as String)
+                : null,
+            onboardingBonusSeenAt: onboardingData?['bonusSeenAt'] != null
+                ? DateTime.tryParse(onboardingData!['bonusSeenAt'] as String)
+                : null,
+            onboardingPermissionSeenAt:
+                onboardingData?['permissionSeenAt'] != null
+                ? DateTime.tryParse(onboardingData!['permissionSeenAt'] as String)
+                : null,
+            onboardingCompletedAt: onboardingData?['completedAt'] != null
+                ? DateTime.tryParse(onboardingData!['completedAt'] as String)
+                : null,
+            onboardingPermissionsIntroAcceptedAt:
+                onboardingData?['permissionsIntroAcceptedAt'] != null
+                ? DateTime.tryParse(
+                    onboardingData!['permissionsIntroAcceptedAt'] as String,
+                  )
+                : null,
+            onboardingPermissionsLastCheckedAt:
+                onboardingData?['permissionsLastCheckedAt'] != null
+                ? DateTime.tryParse(
+                    onboardingData!['permissionsLastCheckedAt'] as String,
+                  )
+                : null,
+            onboardingCameraMicStatus:
+                onboardingData?['cameraMicStatus'] as String? ?? 'unknown',
+            onboardingNotificationStatus:
+                onboardingData?['notificationStatus'] as String? ?? 'unknown',
           );
           debugPrint('🎭 [AUTH] Creator login detected');
           debugPrint('   👤 Creator Name: ${creatorData['name']}');
@@ -1399,6 +1429,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
           debugPrint('✅ [AUTH] User data refreshed (regular user)');
         } else {
           // Creator - flat structure
+          final onboardingData =
+              responseData['onboarding'] as Map<String, dynamic>?;
           user = UserModel(
             id: responseData['id'] as String,
             email: responseData['email'] as String?,
@@ -1437,8 +1469,36 @@ class AuthNotifier extends StateNotifier<AuthState> {
             profileRevision:
                 (responseData['profileRevision'] as num?)?.toInt() ?? 0,
             onboardingStage:
-                (responseData['onboarding'] as Map<String, dynamic>?)?['stage']
-                    as String?,
+                onboardingData?['stage'] as String?,
+            onboardingWelcomeSeenAt: onboardingData?['welcomeSeenAt'] != null
+                ? DateTime.tryParse(onboardingData!['welcomeSeenAt'] as String)
+                : null,
+            onboardingBonusSeenAt: onboardingData?['bonusSeenAt'] != null
+                ? DateTime.tryParse(onboardingData!['bonusSeenAt'] as String)
+                : null,
+            onboardingPermissionSeenAt:
+                onboardingData?['permissionSeenAt'] != null
+                ? DateTime.tryParse(onboardingData!['permissionSeenAt'] as String)
+                : null,
+            onboardingCompletedAt: onboardingData?['completedAt'] != null
+                ? DateTime.tryParse(onboardingData!['completedAt'] as String)
+                : null,
+            onboardingPermissionsIntroAcceptedAt:
+                onboardingData?['permissionsIntroAcceptedAt'] != null
+                ? DateTime.tryParse(
+                    onboardingData!['permissionsIntroAcceptedAt'] as String,
+                  )
+                : null,
+            onboardingPermissionsLastCheckedAt:
+                onboardingData?['permissionsLastCheckedAt'] != null
+                ? DateTime.tryParse(
+                    onboardingData!['permissionsLastCheckedAt'] as String,
+                  )
+                : null,
+            onboardingCameraMicStatus:
+                onboardingData?['cameraMicStatus'] as String? ?? 'unknown',
+            onboardingNotificationStatus:
+                onboardingData?['notificationStatus'] as String? ?? 'unknown',
           );
           debugPrint('✅ [AUTH] User data refreshed (creator)');
         }

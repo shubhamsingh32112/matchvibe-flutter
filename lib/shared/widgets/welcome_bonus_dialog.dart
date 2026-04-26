@@ -7,12 +7,38 @@ class WelcomeBonusBottomSheet extends StatelessWidget {
   final VoidCallback onAccept;
   final VoidCallback? onSkip;
   final bool isLoading;
+  final VoidCallback? onPresented;
 
   const WelcomeBonusBottomSheet({
     super.key,
     required this.onAccept,
     this.onSkip,
     this.isLoading = false,
+    this.onPresented,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _OnPresentedOnce(
+      onPresented: onPresented,
+      child: _WelcomeBonusBottomSheetBody(
+        onAccept: onAccept,
+        onSkip: onSkip,
+        isLoading: isLoading,
+      ),
+    );
+  }
+}
+
+class _WelcomeBonusBottomSheetBody extends StatelessWidget {
+  final VoidCallback onAccept;
+  final VoidCallback? onSkip;
+  final bool isLoading;
+
+  const _WelcomeBonusBottomSheetBody({
+    required this.onAccept,
+    required this.onSkip,
+    required this.isLoading,
   });
 
   @override
@@ -180,6 +206,34 @@ class WelcomeBonusBottomSheet extends StatelessWidget {
       ),
     );
   }
+}
+
+class _OnPresentedOnce extends StatefulWidget {
+  final VoidCallback? onPresented;
+  final Widget child;
+
+  const _OnPresentedOnce({required this.onPresented, required this.child});
+
+  @override
+  State<_OnPresentedOnce> createState() => _OnPresentedOnceState();
+}
+
+class _OnPresentedOnceState extends State<_OnPresentedOnce> {
+  bool _fired = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.onPresented == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _fired) return;
+      _fired = true;
+      widget.onPresented?.call();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// Legacy class name for backward compatibility

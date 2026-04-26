@@ -11,6 +11,38 @@ import 'package:flutter/foundation.dart';
 /// - call.accept()
 /// - call.join()
 class PermissionService {
+  static String mapStatusForApi(permission_handler.PermissionStatus status) {
+    if (status.isGranted) return 'granted';
+    if (status.isPermanentlyDenied || status.isRestricted) {
+      return 'permanentlyDenied';
+    }
+    if (status.isDenied || status.isLimited || status.isProvisional) {
+      return 'denied';
+    }
+    return 'unknown';
+  }
+
+  static Future<String> cameraMicStatusForApi() async {
+    final cameraStatus = await permission_handler.Permission.camera.status;
+    final micStatus = await permission_handler.Permission.microphone.status;
+    if (cameraStatus.isGranted && micStatus.isGranted) return 'granted';
+    if (cameraStatus.isPermanentlyDenied ||
+        micStatus.isPermanentlyDenied ||
+        cameraStatus.isRestricted ||
+        micStatus.isRestricted) {
+      return 'permanentlyDenied';
+    }
+    if (cameraStatus.isDenied ||
+        micStatus.isDenied ||
+        cameraStatus.isLimited ||
+        micStatus.isLimited ||
+        cameraStatus.isProvisional ||
+        micStatus.isProvisional) {
+      return 'denied';
+    }
+    return 'unknown';
+  }
+
   /// Request permissions for video calls
   /// 
   /// [video] - If true, requests camera + microphone. If false, only microphone (for audio-only calls)

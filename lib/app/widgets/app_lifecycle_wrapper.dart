@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:async' show StreamSubscription, unawaited;
 import 'package:app_links/app_links.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../router/app_router.dart';
@@ -17,9 +18,12 @@ import '../../shared/widgets/app_toast.dart';
 import '../../shared/models/app_update_model.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/services/modal_coordinator_service.dart';
+import '../../features/onboarding/services/onboarding_runner_lock_service.dart';
+import '../../features/onboarding/services/onboarding_popup_state_service.dart';
 import '../../shared/services/app_update_service.dart';
 import '../../shared/providers/coin_purchase_popup_provider.dart';
 import '../../shared/providers/app_update_popup_provider.dart';
+import '../../core/services/permission_reconciliation_service.dart';
 
 /// Widget that wraps the app and handles lifecycle events.
 ///
@@ -43,17 +47,31 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
   static const String _lastHandledPaymentDeepLinkKey =
       'last_handled_payment_deep_link';
   static const String _deferredUpdateAcksKey = 'deferred_update_acks_v1';
+  static const String _seenAppUpdatesKey = 'seen_app_updates_v1';
+  static const String _deferredAppUpdateKey = 'deferred_app_update_v1';
+  static const int _seenAppUpdatesTtlMs = 48 * 60 * 60 * 1000; // 48h
   AppLinks? _appLinks;
   StreamSubscription<Uri>? _deepLinkSub;
   bool _coinPopupShownThisSession = false;
   final AppUpdateService _appUpdateService = AppUpdateService();
   String? _lastDeferredAppUpdateId;
+  bool _isAppUpdatePopupPresenting = false;
+  AppUpdateModel? _deferredAppUpdate;
   bool _isCheckingPendingAppUpdate = false;
   bool _isDrainingModalQueue = false;
   ProviderSubscription<ModalCoordinatorState>? _modalQueueSub;
   ProviderSubscription<CoinPopupIntent?>? _coinPopupSub;
   ProviderSubscription<AppUpdatePopupState>? _appUpdatePopupSub;
   ProviderSubscription<AuthState>? _authSub;
+  ProviderSubscription<CallConnectionState>? _callStateSub;
+  bool _isForcingOverlayDismiss = false;
+
+  bool _isInActiveCallPhase() {
+    final phase = ref.read(callConnectionControllerProvider).phase;
+    return phase == CallConnectionPhase.preparing ||
+        phase == CallConnectionPhase.joining ||
+        phase == CallConnectionPhase.connected;
+  }
 
   @override
   void initState() {
@@ -76,6 +94,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     _coinPopupSub?.close();
     _appUpdatePopupSub?.close();
     _authSub?.close();
+    _callStateSub?.close();
     _deepLinkSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -97,6 +116,12 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       coinPurchasePopupProvider,
       (prev, next) {
         if (next == null) return;
+        if (_isInActiveCallPhase()) {
+          debugPrint(
+            '🛑 [CALL_OVERLAY] modal_blocked_during_call type=coin_popup phase=${ref.read(callConnectionControllerProvider).phase}',
+          );
+          return;
+        }
         final shouldSuppress = ref
             .read(modalCoordinatorProvider)
             .onboardingInProgress;
@@ -128,12 +153,41 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       (prev, next) {
         final pending = next.pendingUpdate;
         if (pending == null) return;
-        if (_lastDeferredAppUpdateId == pending.id) return;
-        _enqueueAppUpdatePopup(pending);
+        final source = next.source ?? 'unknown';
+        unawaited(_handleIncomingAppUpdate(pending, source: source));
       },
     );
 
     _authSub = ref.listenManual<AuthState>(authProvider, (prev, next) {
+      final prevUid = prev?.firebaseUser?.uid;
+      final nextUid = next.firebaseUser?.uid;
+      if (prevUid != nextUid) {
+        // Best-effort: dismiss any active modal bottom sheet before clearing queue
+        // to avoid leaving an overlay alive with inconsistent dedupe/flags.
+        final modalState = ref.read(modalCoordinatorProvider);
+        if (!_isForcingOverlayDismiss &&
+            modalState.isPresenting &&
+            modalState.onboardingInProgress) {
+          _isForcingOverlayDismiss = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            try {
+              if (!mounted) return;
+              await Navigator.of(context, rootNavigator: true).maybePop();
+            } finally {
+              _isForcingOverlayDismiss = false;
+            }
+          });
+        }
+        // Shared-device safety: clear any leftover modal state and onboarding locks.
+        ref.read(modalCoordinatorProvider.notifier).clearQueue();
+        if (prevUid != null) {
+          unawaited(OnboardingRunnerLockService.clear(prevUid));
+          unawaited(OnboardingPopupStateService.clearAllForUser(prevUid));
+        }
+        if (nextUid != null) {
+          unawaited(OnboardingRunnerLockService.clear(nextUid));
+        }
+      }
       final user = next.user;
       final isCreator =
           user != null && (user.role == 'creator' || user.role == 'admin');
@@ -153,6 +207,145 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
         unawaited(_refreshPendingAppUpdate());
       }
     });
+
+    _callStateSub = ref.listenManual<CallConnectionState>(
+      callConnectionControllerProvider,
+      (prev, next) {
+        final wasInCall = prev != null &&
+            (prev.phase == CallConnectionPhase.preparing ||
+                prev.phase == CallConnectionPhase.joining ||
+                prev.phase == CallConnectionPhase.connected);
+        final isInCall = next.phase == CallConnectionPhase.preparing ||
+            next.phase == CallConnectionPhase.joining ||
+            next.phase == CallConnectionPhase.connected;
+        if (wasInCall && !isInCall) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _drainModalQueue();
+          });
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            unawaited(_flushDeferredAppUpdateIfAny());
+          });
+        }
+      },
+    );
+  }
+
+  Future<SharedPreferences> _prefs() => SharedPreferences.getInstance();
+
+  int? _updateVersionMs(AppUpdateModel update) {
+    final raw = update.version.trim();
+    return int.tryParse(raw);
+  }
+
+  String? _currentFirebaseUid() {
+    return ref.read(authProvider).firebaseUser?.uid;
+  }
+
+  Future<Set<String>> _loadSeenUpdateIds() async {
+    final prefs = await _prefs();
+    final raw = prefs.getStringList(_seenAppUpdatesKey) ?? <String>[];
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final kept = <String>[];
+    final seen = <String>{};
+    for (final row in raw) {
+      final parts = row.split('|');
+      if (parts.length != 2) continue;
+      final id = parts[0].trim();
+      final ts = int.tryParse(parts[1].trim());
+      if (id.isEmpty || ts == null) continue;
+      if (now - ts > _seenAppUpdatesTtlMs) continue;
+      if (seen.add(id)) {
+        kept.add('$id|$ts');
+      }
+    }
+    if (kept.length != raw.length) {
+      await prefs.setStringList(_seenAppUpdatesKey, kept);
+    }
+    return seen;
+  }
+
+  Future<void> _markUpdateSeen(String updateId) async {
+    final id = updateId.trim();
+    if (id.isEmpty) return;
+    final prefs = await _prefs();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final raw = prefs.getStringList(_seenAppUpdatesKey) ?? <String>[];
+    await prefs.setStringList(_seenAppUpdatesKey, [...raw, '$id|$now']);
+  }
+
+  Future<bool> _shouldShowAndMarkSeen(AppUpdateModel update) async {
+    final seen = await _loadSeenUpdateIds();
+    if (seen.contains(update.id)) return false;
+    await _markUpdateSeen(update.id);
+    return true;
+  }
+
+  Future<void> _persistDeferredAppUpdate(AppUpdateModel update) async {
+    final prefs = await _prefs();
+    final safeTitle = update.title.replaceAll('|', ' ');
+    final safeUrl = update.updateUrl.replaceAll('|', '%7C');
+    await prefs.setString(
+      _deferredAppUpdateKey,
+      '${update.id}|${update.version}|$safeTitle|$safeUrl',
+    );
+  }
+
+  Future<void> _clearDeferredAppUpdatePersisted() async {
+    final prefs = await _prefs();
+    await prefs.remove(_deferredAppUpdateKey);
+  }
+
+  Future<void> _flushDeferredAppUpdateIfAny() async {
+    if (_deferredAppUpdate == null) return;
+    if (_isInActiveCallPhase()) return;
+    if (_isAppUpdatePopupPresenting) return;
+    final pending = _deferredAppUpdate!;
+    _deferredAppUpdate = null;
+    await _clearDeferredAppUpdatePersisted();
+    _enqueueAppUpdatePopup(pending, source: 'deferred');
+  }
+
+  Future<void> _handleIncomingAppUpdate(
+    AppUpdateModel pending, {
+    required String source,
+  }) async {
+    // Prefer newest only (when comparable).
+    final incomingVersion = _updateVersionMs(pending);
+    final deferredVersion =
+        _deferredAppUpdate == null ? null : _updateVersionMs(_deferredAppUpdate!);
+    if (incomingVersion != null && deferredVersion != null) {
+      if (incomingVersion < deferredVersion) {
+        debugPrint(
+          '[AppUpdate] received_ignored source=$source updateId=${pending.id} reason=older_than_deferred',
+        );
+        return;
+      }
+    }
+
+    final shouldShow = await _shouldShowAndMarkSeen(pending);
+    debugPrint(
+      '[AppUpdate] received source=$source updateId=${pending.id} deduped=${!shouldShow}',
+    );
+    if (!shouldShow) return;
+
+    if (_isInActiveCallPhase()) {
+      _deferredAppUpdate = pending;
+      await _persistDeferredAppUpdate(pending);
+      debugPrint(
+        '[AppUpdate] deferred_during_call source=$source updateId=${pending.id} phase=${ref.read(callConnectionControllerProvider).phase}',
+      );
+      return;
+    }
+
+    if (_isAppUpdatePopupPresenting) {
+      debugPrint(
+        '[AppUpdate] dropped_already_presenting source=$source updateId=${pending.id}',
+      );
+      return;
+    }
+
+    ref.read(appUpdatePopupProvider.notifier).clearPendingUpdate();
+    _enqueueAppUpdatePopup(pending, source: source);
   }
 
   void _maybeShowCoinPopupForCurrentState() {
@@ -274,10 +467,26 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     try {
       final pending = await _appUpdateService.getPendingUpdate();
       if (pending != null && pending.id != _lastDeferredAppUpdateId) {
-        ref.read(appUpdatePopupProvider.notifier).setPendingUpdate(pending);
+        ref.read(appUpdatePopupProvider.notifier).setPendingUpdate(
+              pending,
+              source: 'rest',
+            );
       }
     } catch (e) {
-      debugPrint('⚠️ [APP UPDATE] Failed to fetch pending update: $e');
+      int? status;
+      dynamic body;
+      if (e is DioException) {
+        status = e.response?.statusCode;
+        body = e.response?.data;
+      }
+      final uid = _currentFirebaseUid();
+      final bodyStr = body == null ? null : body.toString();
+      final truncated = bodyStr == null
+          ? null
+          : (bodyStr.length > 800 ? bodyStr.substring(0, 800) : bodyStr);
+      debugPrint(
+        '[AppUpdate] pending_failed status=$status uid=$uid body=$truncated error=$e',
+      );
     } finally {
       _isCheckingPendingAppUpdate = false;
     }
@@ -340,7 +549,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     await _saveDeferredUpdateAcks(remaining);
   }
 
-  void _enqueueAppUpdatePopup(AppUpdateModel pending) {
+  void _enqueueAppUpdatePopup(AppUpdateModel pending, {required String source}) {
     final requestId = ref
         .read(modalCoordinatorProvider.notifier)
         .nextRequestId('app-update');
@@ -350,6 +559,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
             priority: AppModalPriority.high,
             dedupeKey: 'app-update-${pending.id}',
             present: (ctx, _) async {
+              _isAppUpdatePopupPresenting = true;
               var submitting = false;
               return showAppModalBottomSheet<AppUpdatePopupAction>(
                 context: ctx,
@@ -409,6 +619,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
               );
             },
             onCompleted: (result) {
+              _isAppUpdatePopupPresenting = false;
               if (result == AppUpdatePopupAction.updateNow) {
                 unawaited(_removeDeferredUpdateAck(pending.id));
                 ref.read(appUpdatePopupProvider.notifier).clearPendingUpdate();
@@ -416,6 +627,9 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
               } else {
                 _lastDeferredAppUpdateId = pending.id;
               }
+              debugPrint(
+                '[AppUpdate] completed source=$source updateId=${pending.id} action=$result',
+              );
             },
           ),
         );
@@ -509,6 +723,27 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
         ref.invalidate(homeFeedProvider);
         unawaited(ref.read(authProvider.notifier).refreshUser());
         unawaited(_refreshPendingAppUpdate());
+        // Permissions reconciliation: if permissions changed post-onboarding, report once.
+        if (user.onboardingStage == 'completed') {
+          unawaited(() async {
+            final uid = ref.read(authProvider).firebaseUser?.uid;
+            if (uid == null) return;
+            final ok = await PermissionReconciliationService.shouldAttemptNow(uid);
+            if (!ok) return;
+            final changed =
+                await PermissionReconciliationService.hasMeaningfulChange(uid);
+            if (!changed) return;
+            final requestId =
+                'perm_reconcile_${DateTime.now().microsecondsSinceEpoch}';
+            await PermissionReconciliationService.sendReconcile(
+              uid: uid,
+              requestId: requestId,
+            );
+            debugPrint(
+              '[ONBOARDING_PERMISSION_RECONCILE] sent uid=$uid requestId=$requestId',
+            );
+          }());
+        }
       }
 
       // Creators / admins: refresh profile (profileRevision toast) + dashboard
@@ -584,6 +819,12 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
 
   Future<void> _drainModalQueue() async {
     if (_isDrainingModalQueue || !mounted) return;
+    if (_isInActiveCallPhase()) {
+      debugPrint(
+        '🛑 [CALL_OVERLAY] modal_queue_deferred_while_in_call phase=${ref.read(callConnectionControllerProvider).phase}',
+      );
+      return;
+    }
     _isDrainingModalQueue = true;
     try {
       while (mounted) {

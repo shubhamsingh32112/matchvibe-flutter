@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:stream_chat_flutter/stream_chat_flutter.dart';
 import '../../app/router/app_router.dart';
+import '../constants/app_constants.dart';
 
 /// Top-level notification tap handler.
 /// Used by main.dart when initializing the plugin globally.
@@ -63,6 +64,7 @@ class PushNotificationService {
   Future<void> initialize(
     StreamChatClient client, {
     bool enableOutsideAppNotifications = false,
+    bool requestSystemPermission = false,
   }) async {
     debugPrint('🔔 [PUSH] initialize() called, _initialized=$_initialized');
 
@@ -94,8 +96,15 @@ class PushNotificationService {
     }
 
     try {
-      // 1. Request permission (iOS will prompt; Android 13+ will prompt)
-      await _requestPermission();
+      // 1. Request permission only when explicitly allowed by onboarding flow.
+      if (requestSystemPermission ||
+          AppConstants.allowPushPermissionPromptOutsideOnboarding) {
+        await _requestPermission();
+      } else {
+        debugPrint(
+          '🔕 [PUSH] Skipping system permission prompt outside onboarding',
+        );
+      }
 
       // 2. (Local notifications plugin is already initialized in main.dart)
 

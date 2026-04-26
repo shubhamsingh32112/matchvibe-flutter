@@ -17,12 +17,14 @@ class LiveBillingOverlay extends StatefulWidget {
   final CallBillingState billing;
   final bool isCreator;
   final bool showSyncingHint;
+  final bool showBillingConnectionIssue;
 
   const LiveBillingOverlay({
     super.key,
     required this.billing,
     required this.isCreator,
     this.showSyncingHint = false,
+    this.showBillingConnectionIssue = false,
   });
 
   @override
@@ -129,6 +131,16 @@ class _LiveBillingOverlayState extends State<LiveBillingOverlay> {
                   Icons.cloud_off_outlined,
                   size: 16,
                   color: scheme.error.withValues(alpha: 0.95),
+                ),
+              ] else if (widget.showBillingConnectionIssue) ...[
+                const SizedBox(width: 8),
+                Text(
+                  'Billing connection issue',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: scheme.error,
+                  ),
                 ),
               ] else if (widget.showSyncingHint) ...[
                 const SizedBox(width: 8),

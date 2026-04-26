@@ -82,4 +82,32 @@ void main() {
     final second = notifier.takeNext();
     expect(second?.id, 'next');
   });
+
+  test('modal coordinator blocks second take while presenting', () {
+    final notifier = ModalCoordinatorNotifier();
+    notifier.enqueue<void>(
+      AppModalRequest<void>(
+        id: 'first',
+        priority: AppModalPriority.high,
+        dedupeKey: 'first',
+        present: (_, __) async {},
+      ),
+    );
+    notifier.enqueue<void>(
+      AppModalRequest<void>(
+        id: 'second',
+        priority: AppModalPriority.normal,
+        dedupeKey: 'second',
+        present: (_, __) async {},
+      ),
+    );
+
+    final first = notifier.takeNext();
+    expect(first?.id, 'first');
+    final blocked = notifier.takeNext();
+    expect(blocked, isNull);
+    notifier.complete(first!.id, null, dedupeKey: first.dedupeKey);
+    final next = notifier.takeNext();
+    expect(next?.id, 'second');
+  });
 }

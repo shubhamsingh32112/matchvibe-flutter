@@ -30,6 +30,14 @@ class AppConstants {
   static bool get enableServerOnboardingFlow =>
       (dotenv.env['ENABLE_SERVER_ONBOARDING_FLOW'] ?? 'true').toLowerCase() ==
       'true';
+  static bool get enableDeterministicOnboardingRunner =>
+      (dotenv.env['ENABLE_DETERMINISTIC_ONBOARDING_RUNNER'] ?? 'true')
+          .toLowerCase() ==
+      'true';
+  static bool get allowPushPermissionPromptOutsideOnboarding =>
+      (dotenv.env['ALLOW_PUSH_PROMPT_OUTSIDE_ONBOARDING'] ?? 'false')
+          .toLowerCase() ==
+      'true';
   
   // Health check URL (derived from socket URL)
   static String get healthCheckUrl => '$socketUrl/health';

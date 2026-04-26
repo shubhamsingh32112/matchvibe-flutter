@@ -12,11 +12,9 @@ class PermissionPromptService {
   /// Check if permission prompt has been shown
   static Future<bool> hasShownPermissionPrompt([String? firebaseUid]) async {
     try {
+      if (firebaseUid == null || firebaseUid.isEmpty) return false;
       final prefs = await SharedPreferences.getInstance();
-      if (firebaseUid != null && firebaseUid.isNotEmpty) {
-        return prefs.getBool(_scopedKey(firebaseUid)) ?? false;
-      }
-      return prefs.getBool(_keyHasShownPermissionPrompt) ?? false;
+      return prefs.getBool(_scopedKey(firebaseUid)) ?? false;
     } catch (e) {
       // If there's an error, assume it hasn't been shown
       return false;
@@ -26,11 +24,9 @@ class PermissionPromptService {
   /// Mark that permission prompt has been shown
   static Future<void> markPermissionPromptAsShown([String? firebaseUid]) async {
     try {
+      if (firebaseUid == null || firebaseUid.isEmpty) return;
       final prefs = await SharedPreferences.getInstance();
-      if (firebaseUid != null && firebaseUid.isNotEmpty) {
-        await prefs.setBool(_scopedKey(firebaseUid), true);
-      }
-      await prefs.setBool(_keyHasShownPermissionPrompt, true);
+      await prefs.setBool(_scopedKey(firebaseUid), true);
     } catch (e) {
       // Ignore errors
     }

@@ -360,12 +360,17 @@ class _VideoCallScreenContentState
   String? _lastHandledForceEndCallId;
   bool _loggedHeartbeatLast10 = false;
   bool _loggedSecurityOverlay = false;
+  bool _loggedBillingSyncHint = false;
+  bool _loggedBillingConnectionIssue = false;
+  DateTime _connectedMountedAt = DateTime.now();
+  DateTime? _lastScreenCaptureSignalAt;
   StreamSubscription<int>? _participantsSubscription;
   Timer? _durationLimitTimer;
 
   @override
   void initState() {
     super.initState();
+    _connectedMountedAt = DateTime.now();
     _setupSecurity();
     _listenForParticipants();
     _startDurationLimitWatchdog();
@@ -455,17 +460,25 @@ class _VideoCallScreenContentState
   /// Register call-level reaction to app-wide screen capture detection.
   void _setupSecurity() {
     SecurityService.setOnScreenCaptureChanged((isCaptured) {
-      if (mounted) {
-        setState(() {
-          _isScreenCaptured = isCaptured;
-        });
+      if (!mounted) return;
+      if (_isScreenCaptured == isCaptured) return;
+      final now = DateTime.now();
+      final lastSignal = _lastScreenCaptureSignalAt;
+      if (lastSignal != null &&
+          now.difference(lastSignal) < const Duration(milliseconds: 300)) {
+        return;
+      }
+      _lastScreenCaptureSignalAt = now;
 
-        if (isCaptured) {
-          debugPrint(
-            '🚫 [SECURITY] Screen recording detected — disconnecting call',
-          );
-          _handleScreenCaptureDetected();
-        }
+      setState(() {
+        _isScreenCaptured = isCaptured;
+      });
+
+      if (isCaptured) {
+        debugPrint(
+          '🚫 [SECURITY] Screen recording detected — disconnecting call',
+        );
+        _handleScreenCaptureDetected();
       }
     });
   }
@@ -512,10 +525,20 @@ class _VideoCallScreenContentState
         authState.user?.role == 'creator' || authState.user?.role == 'admin';
     final showBillingOverlay =
         callConnectionState.phase == CallConnectionPhase.connected;
-    final showBillingSyncing =
-        callConnectionState.phase == CallConnectionPhase.connected &&
-        !billingState.isActive &&
-        billingState.callStartTimeMs == null;
+    final connectedFor =
+        DateTime.now().difference(_connectedMountedAt);
+    final showBillingConnectionIssue =
+        CallOverlayPolicy.shouldShowBillingConnectionIssue(
+      isConnected: callConnectionState.phase == CallConnectionPhase.connected,
+      billing: billingState,
+      connectedFor: connectedFor,
+    );
+    final showBillingSyncing = !showBillingConnectionIssue &&
+        CallOverlayPolicy.shouldShowBillingSyncHint(
+      isConnected: callConnectionState.phase == CallConnectionPhase.connected,
+      billing: billingState,
+      connectedFor: connectedFor,
+    );
     final showHeartbeatBorder = shouldShowLastTenSecondsHeartbeat(
       isCreator: isCreator,
       billing: billingState,
@@ -528,7 +551,11 @@ class _VideoCallScreenContentState
         '📉 [CALL_OVERLAY] heartbeat_last_10s_shown callId=${billingState.callId} remainingSeconds=${billingState.remainingSeconds}',
       );
     }
-    if (!_isScreenCaptured) {
+    final showSecurityBlock = CallOverlayPolicy.shouldShowSecurityBlock(
+      isScreenCaptured: _isScreenCaptured,
+    );
+
+    if (!showSecurityBlock) {
       _loggedSecurityOverlay = false;
     } else if (!_loggedSecurityOverlay) {
       _loggedSecurityOverlay = true;
@@ -536,9 +563,32 @@ class _VideoCallScreenContentState
         '🔒 [CALL_OVERLAY] security_overlay_shown callId=${billingState.callId}',
       );
     }
+    if (!showBillingSyncing) {
+      _loggedBillingSyncHint = false;
+    } else if (!_loggedBillingSyncHint) {
+      _loggedBillingSyncHint = true;
+      debugPrint(
+        '🧾 [CALL_OVERLAY] overlay_shown type=billing_sync_hint callId=${billingState.callId} phase=${callConnectionState.phase}',
+      );
+    }
+    if (showBillingConnectionIssue && !_loggedBillingConnectionIssue) {
+      _loggedBillingConnectionIssue = true;
+      debugPrint(
+        '🧾 [CALL_OVERLAY] overlay_shown type=billing_connection_issue callId=${billingState.callId} connectedFor=${connectedFor.inMilliseconds}ms',
+      );
+    } else if (!showBillingConnectionIssue) {
+      _loggedBillingConnectionIssue = false;
+    }
 
     // ── Force-end handling (billing is server-driven; UI only reacts) ──
     ref.listen<CallBillingState>(callBillingProvider, (prev, next) {
+      if ((prev?.isActive != true && next.isActive) ||
+          (prev?.callStartTimeMs == null && next.callStartTimeMs != null)) {
+        final ms = DateTime.now().difference(_connectedMountedAt).inMilliseconds;
+        debugPrint(
+          '🧾 [CALL_OVERLAY] billing_sync_hint_resolved_after_ms=$ms callId=${next.callId}',
+        );
+      }
       final prevStart = prev?.callStartTimeMs;
       final prevLimit = prev?.durationLimit;
       if (next.callStartTimeMs != prevStart ||
@@ -656,6 +706,7 @@ class _VideoCallScreenContentState
                       billing: billingState,
                       isCreator: isCreator,
                       showSyncingHint: showBillingSyncing,
+                      showBillingConnectionIssue: showBillingConnectionIssue,
                     ),
                   ),
                 ),
@@ -665,12 +716,10 @@ class _VideoCallScreenContentState
             if (showHeartbeatBorder)
               const RepaintBoundary(child: _LowBalanceHeartbeatBorder()),
 
-            // Show overlay if screen capture detected (iOS)
-            if (_isScreenCaptured)
+            // Policy-managed security overlay.
+            if (showSecurityBlock)
               ColoredBox(
-                color: materialTheme.colorScheme.surface.withValues(
-                  alpha: 0.97,
-                ),
+                color: Colors.black,
                 child: Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,

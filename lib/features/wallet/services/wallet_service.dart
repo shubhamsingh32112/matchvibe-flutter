@@ -24,15 +24,16 @@ class WalletService {
   }
 
   /// Claim the 30-coin welcome bonus (new users only, one-time)
-  Future<int> claimWelcomeBonus() async {
+  Future<Map<String, dynamic>> claimWelcomeBonus() async {
     try {
       debugPrint('🎁 [WALLET] Claiming welcome bonus...');
       final response = await _apiClient.post('/user/welcome-bonus');
 
       if (response.statusCode == 200 && response.data['success'] == true) {
-        final newCoins = response.data['data']['coins'] as int;
+        final data = response.data['data'] as Map<String, dynamic>;
+        final newCoins = data['coins'] as int;
         debugPrint('✅ [WALLET] Welcome bonus claimed! New balance: $newCoins');
-        return newCoins;
+        return data;
       } else {
         throw Exception(
             'Failed to claim welcome bonus: ${response.data['error']}');

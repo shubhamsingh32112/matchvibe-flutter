@@ -9,11 +9,9 @@ class WelcomeService {
   /// Check if user has seen the welcome dialog
   static Future<bool> hasSeenWelcome([String? firebaseUid]) async {
     try {
+      if (firebaseUid == null || firebaseUid.isEmpty) return false;
       final prefs = await SharedPreferences.getInstance();
-      if (firebaseUid != null && firebaseUid.isNotEmpty) {
-        return prefs.getBool(_welcomeKey(firebaseUid)) ?? false;
-      }
-      return prefs.getBool(_keyHasSeenWelcome) ?? false;
+      return prefs.getBool(_welcomeKey(firebaseUid)) ?? false;
     } catch (e) {
       // If there's an error, assume they haven't seen it
       return false;
@@ -23,11 +21,9 @@ class WelcomeService {
   /// Mark that user has seen the welcome dialog
   static Future<void> markWelcomeAsSeen([String? firebaseUid]) async {
     try {
+      if (firebaseUid == null || firebaseUid.isEmpty) return;
       final prefs = await SharedPreferences.getInstance();
-      if (firebaseUid != null && firebaseUid.isNotEmpty) {
-        await prefs.setBool(_welcomeKey(firebaseUid), true);
-      }
-      await prefs.setBool(_keyHasSeenWelcome, true);
+      await prefs.setBool(_welcomeKey(firebaseUid), true);
     } catch (e) {
       // Ignore errors
     }

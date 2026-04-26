@@ -8,10 +8,11 @@ Future<T?> showAppModalBottomSheet<T>({
   bool isScrollControlled = true,
   bool useSafeArea = false,
   double? barrierOpacity,
+  bool suppressBarrier = false,
   bool isDismissible = true,
   bool enableDrag = true,
 }) {
-  final opacity = barrierOpacity ?? 0.35;
+  final opacity = suppressBarrier ? 0.0 : (barrierOpacity ?? 0.35);
   return showModalBottomSheet<T>(
     context: context,
     isScrollControlled: isScrollControlled,

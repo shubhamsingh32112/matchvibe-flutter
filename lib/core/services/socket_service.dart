@@ -393,7 +393,9 @@ class SocketService {
       'callId': callId,
       'creatorFirebaseUid': creatorFirebaseUid,
       'creatorMongoId': creatorMongoId,
-      'userFirebaseUid': ?userFirebaseUid,
+      ...?userFirebaseUid == null
+          ? null
+          : <String, dynamic>{'userFirebaseUid': userFirebaseUid},
     };
 
     if (_socket != null && _isConnected) {

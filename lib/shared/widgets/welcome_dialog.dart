@@ -6,8 +6,14 @@ import 'app_toast.dart';
 class WelcomeBottomSheet extends StatelessWidget {
   final Future<void> Function() onAgree;
   final VoidCallback? onNotNow;
+  final VoidCallback? onPresented;
 
-  const WelcomeBottomSheet({super.key, required this.onAgree, this.onNotNow});
+  const WelcomeBottomSheet({
+    super.key,
+    required this.onAgree,
+    this.onNotNow,
+    this.onPresented,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -19,6 +25,7 @@ class WelcomeBottomSheet extends StatelessWidget {
         scrollController: scrollController,
         onAgree: onAgree,
         onNotNow: onNotNow,
+        onPresented: onPresented,
       ),
     );
   }
@@ -28,11 +35,13 @@ class _WelcomeBottomSheetContent extends StatefulWidget {
   final ScrollController scrollController;
   final Future<void> Function() onAgree;
   final VoidCallback? onNotNow;
+  final VoidCallback? onPresented;
 
   const _WelcomeBottomSheetContent({
     required this.scrollController,
     required this.onAgree,
     this.onNotNow,
+    this.onPresented,
   });
 
   @override
@@ -43,6 +52,19 @@ class _WelcomeBottomSheetContent extends StatefulWidget {
 class _WelcomeBottomSheetContentState
     extends State<_WelcomeBottomSheetContent> {
   bool _isProcessing = false;
+  bool _presentedFired = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.onPresented != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _presentedFired) return;
+        _presentedFired = true;
+        widget.onPresented?.call();
+      });
+    }
+  }
 
   Future<void> _handleAgree() async {
     // ✅ TASK 2: Prevent double-clicks and ensure button always works

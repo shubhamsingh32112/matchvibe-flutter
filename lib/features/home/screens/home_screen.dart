@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:ui' show TimingsCallback;
+import 'dart:math';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -35,8 +36,11 @@ import '../../withdrawal/screens/withdrawal_screen.dart';
 import '../../../shared/widgets/app_modal_bottom_sheet.dart';
 import '../../../shared/widgets/permissions_intro_bottom_sheet.dart';
 import '../../../core/services/modal_coordinator_service.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../onboarding/models/onboarding_step.dart';
 import '../../onboarding/services/onboarding_flow_service.dart';
+import '../../onboarding/services/onboarding_popup_state_service.dart';
+import '../../onboarding/services/onboarding_runner_lock_service.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -48,6 +52,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen>
     with WidgetsBindingObserver {
   bool _welcomeDialogShown = false;
+  bool _welcomeDialogActive = false;
   final SupportService _supportService = SupportService();
   String? _lastHandledFeedbackCallId;
   final ScrollController _homeScrollController = ScrollController();
@@ -56,6 +61,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   ProviderSubscription<CallFeedbackPrompt?>? _feedbackPromptSub;
   ProviderSubscription<AuthState>? _authSub;
   TimingsCallback? _homeTimingsCallback;
+  bool _isOnboardingRunnerActive = false;
+  // Watchdog to prevent onboarding deadlocks if user never interacts.
+  Timer? _onboardingPopupWatchdog;
+  String? _onboardingSessionId;
+  final Map<String, int> _sequenceBlockCounts = <String, int>{};
+
+  String _newOnboardingSessionId(String uid) {
+    final now = DateTime.now().microsecondsSinceEpoch;
+    final r = Random.secure().nextInt(1 << 32).toRadixString(16);
+    return 'ob_$uid\_$now\_$r';
+  }
   @override
   void initState() {
     super.initState();
@@ -77,6 +93,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _creatorBusyToastSub?.close();
     _feedbackPromptSub?.close();
     _authSub?.close();
+    _onboardingPopupWatchdog?.cancel();
     if (_homeTimingsCallback != null) {
       WidgetsBinding.instance.removeTimingsCallback(_homeTimingsCallback!);
     }
@@ -223,6 +240,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   Future<void> _checkAndShowWelcomeDialog() async {
+    final uid = ref.read(authProvider).firebaseUser?.uid;
+    if (uid == null) return;
+    final acquired = await OnboardingRunnerLockService.tryAcquire(
+      uid: uid,
+      ttlMs: 15000,
+    );
+    if (!acquired) {
+      debugPrint('[ONBOARDING] runner_lock_skip uid=$uid');
+      return;
+    }
+    _onboardingSessionId = _newOnboardingSessionId(uid);
+    try {
+      if (_isOnboardingRunnerActive) return;
+      _isOnboardingRunnerActive = true;
+      await _runOnboardingFlow(sessionId: _onboardingSessionId);
+    } finally {
+      _isOnboardingRunnerActive = false;
+      await OnboardingRunnerLockService.release(uid);
+    }
+  }
+
+  Future<void> _runOnboardingFlow({String? sessionId}) async {
     // Wait for the first frame to ensure context is available
     await Future.delayed(const Duration(milliseconds: 500));
 
@@ -240,6 +279,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final firebaseUid = authState.firebaseUser?.uid;
     if (firebaseUid == null) return;
     if (user == null) return;
+    if (user.role != 'user') {
+      // Creators/admins should not run user onboarding runner.
+      await OnboardingFlowService.markCompleted(firebaseUid, sessionId: sessionId);
+      await OnboardingPopupStateService.clearAllForUser(firebaseUid);
+      await OnboardingRunnerLockService.clear(firebaseUid);
+      ref.read(modalCoordinatorProvider.notifier).setOnboardingInProgress(false);
+      return;
+    }
     if (authState.createdNow) {
       await OnboardingFlowService.clearLocalFlags(firebaseUid);
       await WelcomeService.clearWelcomeStatusForUser(firebaseUid);
@@ -247,27 +294,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       ref.read(authProvider.notifier).clearCreatedNowFlag();
       debugPrint('🧹 [ONBOARDING] createdNow=true, local flags cleared');
     }
-    if (user.role == 'user' ||
-        (user.role == 'admin' &&
-            ref.read(adminViewModeProvider) != AdminViewMode.creator)) {
-      // For regular users (or admin viewing as user), wait for creators to load
-      final creatorsLoaded = await _waitForCreatorsToLoad();
-      if (!mounted) return;
+    // Do not gate onboarding dialogs on creator-feed loading; this caused misses.
 
-      if (!creatorsLoaded) {
-        debugPrint(
-          '⏭️  [HOME] Creators not loaded yet, skipping welcome dialog',
-        );
-        // If creators don't load, still check for bonus (user might have seen welcome before)
-        _checkAndShowBonusDialog();
-        return;
-      }
+    // Crash recovery: if a step was seen but never rendered, re-enqueue with budget.
+    if (await _maybeRecoverPendingPopup(firebaseUid, sessionId: sessionId)) {
+      return;
     }
 
     final nextStep = await OnboardingFlowService.nextStep(
       firebaseUid: firebaseUid,
       bonusAlreadyClaimed: user.welcomeBonusClaimed,
       serverStage: user.onboardingStage,
+    );
+    debugPrint(
+      '[ONBOARDING_STATE] uid=$firebaseUid serverStage=${user.onboardingStage} '
+      'nextStep=$nextStep claimed=${user.welcomeBonusClaimed} '
+      'modalOpen=$_welcomeDialogActive',
     );
     if (!mounted) return;
     if (nextStep == OnboardingStep.completed) {
@@ -278,9 +320,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       return;
     }
     ref.read(modalCoordinatorProvider.notifier).setOnboardingInProgress(true);
-    if (nextStep == OnboardingStep.welcome && !_welcomeDialogShown) {
+    if (nextStep == OnboardingStep.welcome &&
+        !_welcomeDialogShown &&
+        !_welcomeDialogActive) {
       debugPrint('✅ [ONBOARDING] showing welcome popup');
       _welcomeDialogShown = true;
+      _welcomeDialogActive = true;
       _showWelcomeDialog();
       return;
     }
@@ -293,6 +338,197 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       debugPrint('✅ [ONBOARDING] showing permissions popup');
       _checkAndRequestOnboardingPermissions();
     }
+  }
+
+  Future<void> _terminallyCompletePopupStep(
+    String firebaseUid,
+    OnboardingStep step, {
+    required String reason,
+    String? sessionId,
+  }) async {
+    debugPrint(
+      '[ONBOARDING_POPUP] terminal_complete uid=$firebaseUid step=${step.name} reason=$reason',
+    );
+    await OnboardingPopupStateService.markCompleted(uid: firebaseUid, step: step);
+    try {
+      switch (step) {
+        case OnboardingStep.welcome:
+          await OnboardingFlowService.markWelcomeSeen(
+            firebaseUid,
+            sessionId: sessionId,
+          );
+          break;
+        case OnboardingStep.bonus:
+          await OnboardingFlowService.markBonusSeen(
+            firebaseUid,
+            sessionId: sessionId,
+          );
+          break;
+        case OnboardingStep.permission:
+          await OnboardingFlowService.markPermissionsSeen(
+            firebaseUid,
+            sessionId: sessionId,
+          );
+          break;
+        case OnboardingStep.completed:
+          break;
+      }
+    } catch (e) {
+      debugPrint(
+        '[ONBOARDING_POPUP] terminal_backend_sync_failed uid=$firebaseUid step=${step.name} error=$e',
+      );
+    }
+  }
+
+  Future<bool> _maybeRecoverPendingPopup(
+    String firebaseUid, {
+    String? sessionId,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    // Read states in rank order and recover only the lowest-rank pending step.
+    final ordered = const <OnboardingStep>[
+      OnboardingStep.welcome,
+      OnboardingStep.bonus,
+      OnboardingStep.permission,
+    ];
+    final states = <OnboardingStep, OnboardingPopupState>{};
+    for (final step in ordered) {
+      states[step] =
+          await OnboardingPopupStateService.read(uid: firebaseUid, step: step);
+    }
+
+    for (final step in ordered) {
+      final state = states[step]!;
+      if (state.seen && !state.shown && !state.completed && state.retryCount >= 3) {
+        debugPrint(
+          '[ONBOARDING_POPUP] popup_failed_to_render uid=$firebaseUid step=${step.name} retryCount=${state.retryCount}',
+        );
+        await _terminallyCompletePopupStep(
+          firebaseUid,
+          step,
+          reason: 'retry_exhausted',
+          sessionId: sessionId,
+        );
+      }
+    }
+
+    for (final step in ordered) {
+      final state = states[step]!;
+      if (OnboardingPopupStateService.shouldRecoverNow(state, nowMs: now)) {
+        debugPrint(
+          '[ONBOARDING_POPUP] recover_enqueue uid=$firebaseUid step=${step.name} retryCount=${state.retryCount}',
+        );
+        await OnboardingPopupStateService.recordRecoveryAttempt(
+          uid: firebaseUid,
+          step: step,
+        );
+        await OnboardingPopupStateService.markEnqueued(uid: firebaseUid, step: step);
+        _enqueueOnboardingStep(step, firebaseUid, priority: AppModalPriority.critical);
+        return true;
+      }
+      // Only recover one step per run.
+      if (state.seen && !state.completed) break;
+    }
+    return false;
+  }
+
+  void _startOnboardingWatchdog({
+    required BuildContext sheetContext,
+    required String firebaseUid,
+    required OnboardingStep step,
+  }) {
+    // Permissions step can legitimately exceed 30s (OS dialog + user hesitation).
+    if (step == OnboardingStep.permission) return;
+    _onboardingPopupWatchdog?.cancel();
+    _onboardingPopupWatchdog = Timer(const Duration(seconds: 30), () async {
+      if (!mounted || !sheetContext.mounted) return;
+      debugPrint(
+        '[ONBOARDING_POPUP] popup_watchdog_timeout uid=$firebaseUid step=${step.name}',
+      );
+      await _terminallyCompletePopupStep(
+        firebaseUid,
+        step,
+        reason: 'watchdog_timeout',
+        sessionId: _onboardingSessionId,
+      );
+      if (Navigator.of(sheetContext).canPop()) {
+        Navigator.of(sheetContext).pop();
+      }
+    });
+  }
+
+  void _enqueueOnboardingStep(
+    OnboardingStep step,
+    String firebaseUid, {
+    required AppModalPriority priority,
+  }) {
+    if (!mounted) return;
+    // Enqueue-time sequencing guard (keeps nextStep pure).
+    unawaited(() async {
+      if (step == OnboardingStep.bonus) {
+        final welcome = await OnboardingPopupStateService.read(
+          uid: firebaseUid,
+          step: OnboardingStep.welcome,
+        );
+        if (!welcome.completed) {
+          final k = '$firebaseUid:bonus';
+          final n = (_sequenceBlockCounts[k] ?? 0) + 1;
+          _sequenceBlockCounts[k] = n;
+          debugPrint(
+            '[ONBOARDING_POPUP] sequence_block uid=$firebaseUid step=bonus missing=welcome.completed blockedCount=$n',
+          );
+          _showWelcomeDialog(priority: AppModalPriority.critical);
+          if (n > 3) {
+            debugPrint(
+              '[ONBOARDING_POPUP] sequence_starvation_force_prereq uid=$firebaseUid step=bonus prereq=welcome',
+            );
+            _enqueueOnboardingStep(
+              OnboardingStep.welcome,
+              firebaseUid,
+              priority: AppModalPriority.critical,
+            );
+          }
+          return;
+        }
+      }
+      if (step == OnboardingStep.permission) {
+        final bonus = await OnboardingPopupStateService.read(
+          uid: firebaseUid,
+          step: OnboardingStep.bonus,
+        );
+        if (!bonus.completed) {
+          final k = '$firebaseUid:permission';
+          final n = (_sequenceBlockCounts[k] ?? 0) + 1;
+          _sequenceBlockCounts[k] = n;
+          debugPrint(
+            '[ONBOARDING_POPUP] sequence_block uid=$firebaseUid step=permission missing=bonus.completed blockedCount=$n',
+          );
+          _showBonusDialog(priority: AppModalPriority.high);
+          if (n > 3) {
+            debugPrint(
+              '[ONBOARDING_POPUP] sequence_starvation_force_prereq uid=$firebaseUid step=permission prereq=bonus',
+            );
+            _enqueueOnboardingStep(
+              OnboardingStep.bonus,
+              firebaseUid,
+              priority: AppModalPriority.high,
+            );
+          }
+          return;
+        }
+      }
+      if (step == OnboardingStep.welcome) {
+        _showWelcomeDialog(priority: priority);
+        return;
+      }
+      if (step == OnboardingStep.bonus) {
+        _showBonusDialog(priority: priority);
+        return;
+      }
+      if (step == OnboardingStep.permission) {
+        unawaited(_showPermissionsIntroThenRequest(firebaseUid, priority: priority));
+      }
+    }());
   }
 
   /// ✅ TASK 2: Mark welcome as seen with retry mechanism for reliability
@@ -325,67 +561,72 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
-  /// Wait for creators to load and be visible on homepage
-  /// Returns true when creators are loaded, false if timeout or error
-  /// Scalable: Uses efficient provider watching with timeout
-  Future<bool> _waitForCreatorsToLoad({int maxAttempts = 10}) async {
-    for (int attempt = 0; attempt < maxAttempts; attempt++) {
-      if (!mounted) return false;
-
-      // Check if creators are loaded via homeFeedProvider
-      final homeFeedItems = ref.read(homeFeedProvider);
-
-      // If we have items (creators), they're loaded
-      if (homeFeedItems.isNotEmpty) {
-        debugPrint('✅ [HOME] Creators loaded: ${homeFeedItems.length} items');
-        return true;
-      }
-
-      // Also check creatorsProvider directly for more accurate state
-      final creatorsAsync = ref.read(creatorsProvider);
-      if (creatorsAsync.hasValue) {
-        final creators = creatorsAsync.value ?? [];
-        if (creators.isNotEmpty) {
-          debugPrint(
-            '✅ [HOME] Creators loaded via provider: ${creators.length} creators',
-          );
-          return true;
-        }
-      }
-
-      // Wait before next attempt (exponential backoff for scalability)
-      await Future.delayed(Duration(milliseconds: 200 * (attempt + 1)));
-    }
-
-    debugPrint('⏭️  [HOME] Creators not loaded after ${maxAttempts} attempts');
-    return false;
-  }
-
-  void _showWelcomeDialog() {
+  void _showWelcomeDialog({AppModalPriority priority = AppModalPriority.critical}) {
     if (!mounted) return;
     final id = ref
         .read(modalCoordinatorProvider.notifier)
         .nextRequestId('welcome');
     ref.read(modalCoordinatorProvider.notifier).setOnboardingInProgress(true);
+    final firebaseUid = ref.read(authProvider).firebaseUser?.uid;
+    if (firebaseUid != null) {
+      unawaited(
+        OnboardingPopupStateService.markSeen(
+          uid: firebaseUid,
+          step: OnboardingStep.welcome,
+        ),
+      );
+      unawaited(
+        OnboardingPopupStateService.markEnqueued(
+          uid: firebaseUid,
+          step: OnboardingStep.welcome,
+        ),
+      );
+      debugPrint('[ONBOARDING_POPUP] popup_enqueued uid=$firebaseUid step=welcome');
+    }
     ref
         .read(modalCoordinatorProvider.notifier)
         .enqueue<void>(
           AppModalRequest<void>(
             id: id,
-            priority: AppModalPriority.critical,
+            priority: priority,
             dedupeKey: 'onboarding-welcome',
-            present: (ctx, _) => showAppModalBottomSheet<void>(
-              context: ctx,
-              isDismissible: true,
-              enableDrag: true,
-              builder: (sheetContext) => WelcomeBottomSheet(
+            present: (ctx, _) {
+              Timer? watchdog;
+              return showAppModalBottomSheet<void>(
+                context: ctx,
+                isDismissible: true,
+                enableDrag: true,
+                builder: (sheetContext) => WelcomeBottomSheet(
+                  onPresented: () async {
+                    final uid = ref.read(authProvider).firebaseUser?.uid;
+                    if (uid == null) return;
+                    await OnboardingPopupStateService.markShown(
+                      uid: uid,
+                      step: OnboardingStep.welcome,
+                    );
+                    debugPrint('[ONBOARDING_POPUP] popup_rendered uid=$uid step=welcome');
+                    _startOnboardingWatchdog(
+                      sheetContext: sheetContext,
+                      firebaseUid: uid,
+                      step: OnboardingStep.welcome,
+                    );
+                    watchdog = _onboardingPopupWatchdog;
+                  },
                 onAgree: () async {
-                  await _markWelcomeAsSeenWithRetry();
                   final firebaseUid = ref.read(authProvider).firebaseUser?.uid;
                   if (firebaseUid != null) {
                     try {
-                      await OnboardingFlowService.markWelcomeSeen(firebaseUid);
+                      OnboardingFlowService.setLocalStageOverride(
+                        firebaseUid: firebaseUid,
+                        step: OnboardingStep.bonus,
+                      );
+                      await OnboardingFlowService.markWelcomeSeen(
+                        firebaseUid,
+                        sessionId: _onboardingSessionId,
+                      );
+                      await _markWelcomeAsSeenWithRetry();
                     } catch (_) {
+                      OnboardingFlowService.clearLocalStageOverride(firebaseUid);
                       if (sheetContext.mounted) {
                         AppToast.showError(
                           sheetContext,
@@ -401,11 +642,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 },
                 onNotNow: () async {
                   final firebaseUid = ref.read(authProvider).firebaseUser?.uid;
-                  await WelcomeService.markWelcomeAsSeen(firebaseUid);
                   if (firebaseUid != null) {
                     try {
-                      await OnboardingFlowService.markWelcomeSeen(firebaseUid);
+                      OnboardingFlowService.setLocalStageOverride(
+                        firebaseUid: firebaseUid,
+                        step: OnboardingStep.bonus,
+                      );
+                      await OnboardingFlowService.markWelcomeSeen(
+                        firebaseUid,
+                        sessionId: _onboardingSessionId,
+                      );
+                      await WelcomeService.markWelcomeAsSeen(firebaseUid);
                     } catch (_) {
+                      OnboardingFlowService.clearLocalStageOverride(firebaseUid);
                       if (sheetContext.mounted) {
                         AppToast.showError(
                           sheetContext,
@@ -420,9 +669,35 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   }
                 },
               ),
-            ),
-            onCompleted: (_) {
-              if (mounted) _checkAndShowBonusDialog();
+              ).whenComplete(() {
+                watchdog?.cancel();
+              });
+            },
+            onCompleted: (_) async {
+              _welcomeDialogActive = false;
+              final uid = ref.read(authProvider).firebaseUser?.uid;
+              if (uid != null) {
+                await OnboardingPopupStateService.markCompleted(
+                  uid: uid,
+                  step: OnboardingStep.welcome,
+                );
+                debugPrint('[ONBOARDING_POPUP] popup_dismissed uid=$uid step=welcome');
+              }
+              final firebaseUid = ref.read(authProvider).firebaseUser?.uid;
+              final user = ref.read(authProvider).user;
+              if (firebaseUid != null && user != null) {
+                final nextStep = await OnboardingFlowService.nextStep(
+                  firebaseUid: firebaseUid,
+                  bonusAlreadyClaimed: user.welcomeBonusClaimed,
+                  serverStage: user.onboardingStage,
+                );
+                _welcomeDialogShown = nextStep != OnboardingStep.welcome;
+              } else {
+                _welcomeDialogShown = false;
+              }
+              if (mounted) {
+                _checkAndShowWelcomeDialog();
+              }
             },
           ),
         );
@@ -445,13 +720,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       final firebaseUid = authState.firebaseUser?.uid;
       if (firebaseUid != null) {
         try {
-          await OnboardingFlowService.markBonusSeen(firebaseUid);
+          await OnboardingFlowService.markBonusSeen(
+            firebaseUid,
+            sessionId: _onboardingSessionId,
+          );
         } catch (_) {}
+      }
+      if (mounted) {
+        unawaited(_checkAndShowWelcomeDialog());
       }
       return;
     }
 
-    // Check local persistent flag — once shown, never show again
+    // Check local persistent flag — once shown, never show again (legacy UX gate).
     final firebaseUid = authState.firebaseUser?.uid;
     if (firebaseUid == null) return;
 
@@ -461,13 +742,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final serverWantsBonus = user.onboardingStage == 'bonus';
     if (alreadyShown && !serverWantsBonus) {
       debugPrint('⏭️  [ONBOARDING] bonus popup blocked localAlreadyShown=true');
-      await OnboardingFlowService.markBonusSeen(firebaseUid);
+      await OnboardingFlowService.markBonusSeen(
+        firebaseUid,
+        sessionId: _onboardingSessionId,
+      );
       _scheduleOnboardingPermissionRequest();
       return;
     }
-
-    // Mark as shown BEFORE displaying (prevents race conditions on fast rebuilds)
-    await WelcomeService.markBonusDialogShown(firebaseUid);
 
     // Show bonus dialog (delay already handled in welcome dialog callback)
     if (mounted) {
@@ -477,30 +758,58 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   bool _isBonusClaiming = false;
 
-  void _showBonusDialog() {
+  void _showBonusDialog({AppModalPriority priority = AppModalPriority.high}) {
     final id = ref
         .read(modalCoordinatorProvider.notifier)
         .nextRequestId('bonus');
+    final firebaseUid = ref.read(authProvider).firebaseUser?.uid;
+    if (firebaseUid != null) {
+      unawaited(
+        OnboardingPopupStateService.markSeen(uid: firebaseUid, step: OnboardingStep.bonus),
+      );
+      unawaited(
+        OnboardingPopupStateService.markEnqueued(uid: firebaseUid, step: OnboardingStep.bonus),
+      );
+      debugPrint('[ONBOARDING_POPUP] popup_enqueued uid=$firebaseUid step=bonus');
+    }
     ref
         .read(modalCoordinatorProvider.notifier)
         .enqueue<void>(
           AppModalRequest<void>(
             id: id,
-            priority: AppModalPriority.high,
+            priority: priority,
             dedupeKey: 'onboarding-bonus',
-            present: (ctx, _) => showAppModalBottomSheet<void>(
-              context: ctx,
-              isDismissible: true,
-              enableDrag: true,
-              builder: (ctx) => StatefulBuilder(
-                builder: (ctx, setBottomSheetState) => WelcomeBonusBottomSheet(
+            present: (ctx, _) {
+              Timer? watchdog;
+              return showAppModalBottomSheet<void>(
+                context: ctx,
+                isDismissible: true,
+                enableDrag: true,
+                builder: (sheetContext) => StatefulBuilder(
+                  builder: (ctx, setBottomSheetState) => WelcomeBonusBottomSheet(
+                    onPresented: () async {
+                      final uid = ref.read(authProvider).firebaseUser?.uid;
+                      if (uid == null) return;
+                      await OnboardingPopupStateService.markShown(
+                        uid: uid,
+                        step: OnboardingStep.bonus,
+                      );
+                      debugPrint('[ONBOARDING_POPUP] popup_rendered uid=$uid step=bonus');
+                      _startOnboardingWatchdog(
+                        sheetContext: sheetContext,
+                        firebaseUid: uid,
+                        step: OnboardingStep.bonus,
+                      );
+                      watchdog = _onboardingPopupWatchdog;
+                    },
                   isLoading: _isBonusClaiming,
                   onAccept: () async {
                     setBottomSheetState(() => _isBonusClaiming = true);
                     var claimSucceeded = false;
                     try {
                       final walletService = WalletService();
-                      final newCoins = await walletService.claimWelcomeBonus();
+                      final payload = await walletService.claimWelcomeBonus();
+                      final newCoins = payload['coins'] as int;
                       // Update auth state with new coins + claimed flag
                       if (mounted) {
                         ref.read(authProvider.notifier).refreshUser();
@@ -535,8 +844,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                           ?.uid;
                       if (firebaseUid != null) {
                         try {
-                          await OnboardingFlowService.markBonusSeen(firebaseUid);
+                          OnboardingFlowService.setLocalStageOverride(
+                            firebaseUid: firebaseUid,
+                            step: OnboardingStep.permission,
+                          );
+                          await OnboardingFlowService.markBonusSeen(
+                            firebaseUid,
+                            sessionId: _onboardingSessionId,
+                          );
                         } catch (_) {
+                          OnboardingFlowService.clearLocalStageOverride(firebaseUid);
                           if (ctx.mounted) {
                             AppToast.showError(
                               ctx,
@@ -556,8 +873,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         ?.uid;
                     if (firebaseUid != null) {
                       try {
-                        await OnboardingFlowService.markBonusSeen(firebaseUid);
+                        OnboardingFlowService.setLocalStageOverride(
+                          firebaseUid: firebaseUid,
+                          step: OnboardingStep.permission,
+                        );
+                        await OnboardingFlowService.markBonusSeen(
+                          firebaseUid,
+                          sessionId: _onboardingSessionId,
+                        );
                       } catch (_) {
+                        OnboardingFlowService.clearLocalStageOverride(firebaseUid);
                         if (ctx.mounted) {
                           AppToast.showError(
                             ctx,
@@ -574,7 +899,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   },
                 ),
               ),
-            ),
+              ).whenComplete(() {
+                watchdog?.cancel();
+              });
+            },
+            onCompleted: (_) async {
+              final uid = ref.read(authProvider).firebaseUser?.uid;
+              if (uid != null) {
+                await OnboardingPopupStateService.markCompleted(
+                  uid: uid,
+                  step: OnboardingStep.bonus,
+                );
+                debugPrint('[ONBOARDING_POPUP] popup_dismissed uid=$uid step=bonus');
+              }
+            },
           ),
         );
   }
@@ -582,7 +920,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// Schedule onboarding permission flow with a delay after welcome bonus dialog
   void _scheduleOnboardingPermissionRequest() {
     if (mounted) {
-      _checkAndRequestOnboardingPermissions();
+      unawaited(_checkAndShowWelcomeDialog());
     }
   }
 
@@ -600,7 +938,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
     final firebaseUid = authState.firebaseUser?.uid;
     if (firebaseUid == null) return;
-    final serverWantsPermissions = user.onboardingStage == 'permission';
+    final serverWantsPermissions =
+        (user.onboardingStage == 'permission' ||
+            user.onboardingStage == 'permissions') &&
+        user.onboardingPermissionSeenAt == null;
 
     // Check user-scoped persistent flag (prevents cross-account leakage on shared devices).
     final hasShownPrompt =
@@ -616,41 +957,76 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     await _showPermissionsIntroThenRequest(firebaseUid);
   }
 
-  Future<void> _showPermissionsIntroThenRequest(String userId) async {
+  Future<void> _showPermissionsIntroThenRequest(
+    String userId, {
+    AppModalPriority priority = AppModalPriority.high,
+  }) async {
     if (!mounted) return;
 
     final completer = Completer<bool>();
     final id = ref
         .read(modalCoordinatorProvider.notifier)
         .nextRequestId('permissions');
+    unawaited(
+      OnboardingPopupStateService.markSeen(uid: userId, step: OnboardingStep.permission),
+    );
+    unawaited(
+      OnboardingPopupStateService.markEnqueued(uid: userId, step: OnboardingStep.permission),
+    );
+    debugPrint('[ONBOARDING_POPUP] popup_enqueued uid=$userId step=permission');
     ref
         .read(modalCoordinatorProvider.notifier)
         .enqueue<bool>(
           AppModalRequest<bool>(
             id: id,
-            priority: AppModalPriority.high,
+            priority: priority,
             dedupeKey: 'onboarding-permissions',
-            present: (ctx, _) => showAppModalBottomSheet<bool>(
-              context: ctx,
-              isDismissible: true,
-              enableDrag: true,
-              builder: (sheetContext) => PermissionsIntroBottomSheet(
-                onAgree: () {
-                  if (sheetContext.mounted) {
-                    Navigator.of(sheetContext).pop(true);
-                  }
-                },
-                onNotNow: () {
-                  if (sheetContext.mounted) {
-                    Navigator.of(sheetContext).pop(false);
-                  }
-                },
-              ),
-            ),
+            present: (ctx, _) {
+              Timer? watchdog;
+              return showAppModalBottomSheet<bool>(
+                context: ctx,
+                isDismissible: true,
+                enableDrag: true,
+                builder: (sheetContext) => PermissionsIntroBottomSheet(
+                  onPresented: () async {
+                    await OnboardingPopupStateService.markShown(
+                      uid: userId,
+                      step: OnboardingStep.permission,
+                    );
+                    debugPrint('[ONBOARDING_POPUP] popup_rendered uid=$userId step=permission');
+                    _startOnboardingWatchdog(
+                      sheetContext: sheetContext,
+                      firebaseUid: userId,
+                      step: OnboardingStep.permission,
+                    );
+                    watchdog = _onboardingPopupWatchdog;
+                  },
+                  onAgree: () {
+                    if (sheetContext.mounted) {
+                      Navigator.of(sheetContext).pop(true);
+                    }
+                  },
+                  onNotNow: () {
+                    if (sheetContext.mounted) {
+                      Navigator.of(sheetContext).pop(false);
+                    }
+                  },
+                ),
+              ).whenComplete(() {
+                watchdog?.cancel();
+              });
+            },
             onCompleted: (result) {
               if (!completer.isCompleted) {
                 completer.complete(result == true);
               }
+              unawaited(
+                OnboardingPopupStateService.markCompleted(
+                  uid: userId,
+                  step: OnboardingStep.permission,
+                ),
+              );
+              debugPrint('[ONBOARDING_POPUP] popup_dismissed uid=$userId step=permission');
             },
           ),
         );
@@ -659,8 +1035,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (agreed != true || !mounted) {
       try {
         await PermissionPromptService.markPermissionPromptAsShown(userId);
-        await OnboardingFlowService.markPermissionsSeen(userId);
-      } catch (_) {}
+        OnboardingFlowService.setLocalStageOverride(
+          firebaseUid: userId,
+          step: OnboardingStep.permission,
+        );
+        await OnboardingFlowService.submitPermissionsDecision(
+          firebaseUid: userId,
+          decision: PermissionsDecision.notNow,
+          cameraMicStatus: await PermissionService.cameraMicStatusForApi(),
+          notificationStatus: 'unknown',
+          sessionId: _onboardingSessionId,
+        );
+        unawaited(ref.read(authProvider.notifier).refreshUser());
+      } catch (_) {
+        OnboardingFlowService.clearLocalStageOverride(userId);
+      }
       ref
           .read(modalCoordinatorProvider.notifier)
           .setOnboardingInProgress(false);
@@ -676,10 +1065,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           await PermissionService.ensureCameraAndMicrophonePermissions();
       final notificationSettings =
           await FirebaseMessaging.instance.requestPermission();
+      final notificationStatus = switch (notificationSettings.authorizationStatus) {
+        AuthorizationStatus.authorized => 'granted',
+        AuthorizationStatus.provisional => 'granted',
+        AuthorizationStatus.denied => 'denied',
+        AuthorizationStatus.notDetermined => 'unknown',
+      };
+      final cameraMicStatus = await PermissionService.cameraMicStatusForApi();
 
       await PermissionPromptService.markPermissionPromptAsShown(userId);
-      await OnboardingFlowService.markPermissionsSeen(userId);
-      await OnboardingFlowService.markCompleted(userId);
+      OnboardingFlowService.setLocalStageOverride(
+        firebaseUid: userId,
+        step: OnboardingStep.completed,
+      );
+      await OnboardingFlowService.submitPermissionsDecision(
+        firebaseUid: userId,
+        decision: PermissionsDecision.accept,
+        cameraMicStatus: cameraMicStatus,
+        notificationStatus: notificationStatus,
+        sessionId: _onboardingSessionId,
+      );
+      unawaited(ref.read(authProvider.notifier).refreshUser());
       ref
           .read(modalCoordinatorProvider.notifier)
           .setOnboardingInProgress(false);
@@ -711,9 +1117,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         );
       }
     } catch (e) {
-      await PermissionPromptService.markPermissionPromptAsShown(userId);
-      await OnboardingFlowService.markPermissionsSeen(userId);
-      await OnboardingFlowService.markCompleted(userId);
+      OnboardingFlowService.clearLocalStageOverride(userId);
+      if (!AppConstants.enableDeterministicOnboardingRunner) {
+        await PermissionPromptService.markPermissionPromptAsShown(userId);
+      }
       ref
           .read(modalCoordinatorProvider.notifier)
           .setOnboardingInProgress(false);

@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../home/providers/availability_provider.dart';
+import '../controllers/call_connection_controller.dart';
 
 // ── State ──────────────────────────────────────────────────────────────────
 //
@@ -143,15 +145,90 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
   final Ref _ref;
 
   late final void Function() _onSocketReconnected;
+  Timer? _billingRecoveryRetryTimer;
+  int _billingRecoveryAttempts = 0;
+  static const int _maxBillingRecoveryAttempts = 10;
+  Timer? _connectedWithoutBillingTimer;
+  DateTime? _connectedStuckSince;
+  DateTime? _lastOrphanRecoveryEmit;
+  bool _stuckEndRequested = false;
 
   CallBillingNotifier(this._ref) : super(const CallBillingState()) {
     _onSocketReconnected = () {
-      final socketService = _ref.read(socketServiceProvider);
-      if (state.isActive && state.callId != null) {
-        socketService.requestBillingStateRecovery();
-      }
+      _startBillingRecoveryRetry();
     };
     _wireSocketCallbacks();
+    _connectedWithoutBillingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _onConnectedWithoutBillingWatchTick();
+    });
+  }
+
+  void _startBillingRecoveryRetry() {
+    _billingRecoveryRetryTimer?.cancel();
+    _billingRecoveryAttempts = 0;
+    _requestBillingRecoveryWithBackoff();
+  }
+
+  void _requestBillingRecoveryWithBackoff() {
+    if (state.isActive && state.callStartTimeMs != null) return;
+    if (_billingRecoveryAttempts >= _maxBillingRecoveryAttempts) {
+      debugPrint(
+        '💰 [BILLING] billing_recovery_failed attempts=$_billingRecoveryAttempts callId=${state.callId}',
+      );
+      return;
+    }
+    _billingRecoveryAttempts += 1;
+    final socketService = _ref.read(socketServiceProvider);
+    debugPrint(
+      '💰 [BILLING] billing_recovery_requested attempt=$_billingRecoveryAttempts callId=${state.callId}',
+    );
+    socketService.requestBillingStateRecovery();
+
+    final nextDelaySeconds = math.min(5, 1 << (_billingRecoveryAttempts - 1));
+    _billingRecoveryRetryTimer = Timer(
+      Duration(seconds: nextDelaySeconds),
+      _requestBillingRecoveryWithBackoff,
+    );
+  }
+
+  void _stopBillingRecoveryRetry() {
+    _billingRecoveryRetryTimer?.cancel();
+    _billingRecoveryRetryTimer = null;
+    _billingRecoveryAttempts = 0;
+  }
+
+  void _onConnectedWithoutBillingWatchTick() {
+    final phase = _ref.read(callConnectionControllerProvider).phase;
+    if (phase != CallConnectionPhase.connected) {
+      _connectedStuckSince = null;
+      _stuckEndRequested = false;
+      _lastOrphanRecoveryEmit = null;
+      return;
+    }
+    if (state.isActive || state.callStartTimeMs != null) {
+      _connectedStuckSince = null;
+      _stuckEndRequested = false;
+      _lastOrphanRecoveryEmit = null;
+      return;
+    }
+    _connectedStuckSince ??= DateTime.now();
+    final stuckFor = DateTime.now().difference(_connectedStuckSince!);
+
+    if (stuckFor > const Duration(milliseconds: 1500)) {
+      final now = DateTime.now();
+      if (_lastOrphanRecoveryEmit == null ||
+          now.difference(_lastOrphanRecoveryEmit!) > const Duration(seconds: 2)) {
+        _lastOrphanRecoveryEmit = now;
+        _ref.read(socketServiceProvider).requestBillingStateRecovery();
+      }
+    }
+    if (stuckFor > const Duration(seconds: 8) && !_stuckEndRequested) {
+      _stuckEndRequested = true;
+      debugPrint(
+        '💰 [BILLING] billing_stuck_ending_call no_active_billing after ${stuckFor.inSeconds}s',
+      );
+      unawaited(_ref.read(callConnectionControllerProvider.notifier).endCall());
+    }
   }
 
   void _wireSocketCallbacks() {
@@ -160,6 +237,7 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
 
     socketService.onBillingStarted = (data) {
       debugPrint('💰 [BILLING] Started: $data');
+      _stopBillingRecoveryRetry();
       final callId = data['callId'] as String?;
       final coins = (data['coins'] as num?)?.toInt();
       final earnings = (data['earnings'] as num?)?.toDouble();
@@ -316,16 +394,25 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
       lastServerTimestampMs: serverTs ?? state.lastServerTimestampMs,
       callStartTimeMs: startMs ?? state.callStartTimeMs,
     );
+    _stopBillingRecoveryRetry();
+    debugPrint('💰 [BILLING] billing_recovery_succeeded callId=$expectedCallId');
     debugPrint('💰 [BILLING] Recovered state for call $expectedCallId');
   }
 
   void reset() {
+    _stopBillingRecoveryRetry();
+    _connectedStuckSince = null;
+    _stuckEndRequested = false;
+    _lastOrphanRecoveryEmit = null;
     state = const CallBillingState();
   }
 
   @override
   void dispose() {
     try {
+      _stopBillingRecoveryRetry();
+      _connectedWithoutBillingTimer?.cancel();
+      _connectedWithoutBillingTimer = null;
       final socketService = _ref.read(socketServiceProvider);
       if (identical(socketService.onReconnected, _onSocketReconnected)) {
         socketService.onReconnected = null;

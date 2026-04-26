@@ -3,12 +3,18 @@ import '../models/app_update_model.dart';
 
 class AppUpdatePopupState {
   final AppUpdateModel? pendingUpdate;
+  final String? source;
 
-  const AppUpdatePopupState({this.pendingUpdate});
+  const AppUpdatePopupState({this.pendingUpdate, this.source});
 
-  AppUpdatePopupState copyWith({AppUpdateModel? pendingUpdate, bool clear = false}) {
+  AppUpdatePopupState copyWith({
+    AppUpdateModel? pendingUpdate,
+    String? source,
+    bool clear = false,
+  }) {
     return AppUpdatePopupState(
       pendingUpdate: clear ? null : (pendingUpdate ?? this.pendingUpdate),
+      source: clear ? null : (source ?? this.source),
     );
   }
 }
@@ -16,8 +22,12 @@ class AppUpdatePopupState {
 class AppUpdatePopupNotifier extends StateNotifier<AppUpdatePopupState> {
   AppUpdatePopupNotifier() : super(const AppUpdatePopupState());
 
-  void setPendingUpdate(AppUpdateModel? update) {
-    state = state.copyWith(pendingUpdate: update, clear: update == null);
+  void setPendingUpdate(AppUpdateModel? update, {String? source}) {
+    state = state.copyWith(
+      pendingUpdate: update,
+      source: source,
+      clear: update == null,
+    );
   }
 
   void clearPendingUpdate() {

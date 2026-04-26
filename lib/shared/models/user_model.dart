@@ -27,6 +27,14 @@ class UserModel extends Equatable {
   /// Incremented when admin updates profile; app shows a one-time toast when this increases.
   final int profileRevision;
   final String? onboardingStage;
+  final DateTime? onboardingWelcomeSeenAt;
+  final DateTime? onboardingBonusSeenAt;
+  final DateTime? onboardingPermissionSeenAt;
+  final DateTime? onboardingCompletedAt;
+  final DateTime? onboardingPermissionsIntroAcceptedAt;
+  final DateTime? onboardingPermissionsLastCheckedAt;
+  final String onboardingCameraMicStatus;
+  final String onboardingNotificationStatus;
 
   const UserModel({
     required this.id,
@@ -52,9 +60,18 @@ class UserModel extends Equatable {
     this.updatedAt,
     this.profileRevision = 0,
     this.onboardingStage,
+    this.onboardingWelcomeSeenAt,
+    this.onboardingBonusSeenAt,
+    this.onboardingPermissionSeenAt,
+    this.onboardingCompletedAt,
+    this.onboardingPermissionsIntroAcceptedAt,
+    this.onboardingPermissionsLastCheckedAt,
+    this.onboardingCameraMicStatus = 'unknown',
+    this.onboardingNotificationStatus = 'unknown',
   });
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
+    final onboarding = json['onboarding'] as Map<String, dynamic>?;
     return UserModel(
       id: json['id'] as String,
       email: json['email'] as String?,
@@ -85,8 +102,31 @@ class UserModel extends Equatable {
           ? DateTime.parse(json['updatedAt'] as String)
           : null,
       profileRevision: (json['profileRevision'] as num?)?.toInt() ?? 0,
-      onboardingStage: (json['onboarding'] as Map<String, dynamic>?)?['stage']
-          as String?,
+      onboardingStage: onboarding?['stage'] as String?,
+      onboardingWelcomeSeenAt: onboarding?['welcomeSeenAt'] != null
+          ? DateTime.tryParse(onboarding!['welcomeSeenAt'] as String)
+          : null,
+      onboardingBonusSeenAt: onboarding?['bonusSeenAt'] != null
+          ? DateTime.tryParse(onboarding!['bonusSeenAt'] as String)
+          : null,
+      onboardingPermissionSeenAt: onboarding?['permissionSeenAt'] != null
+          ? DateTime.tryParse(onboarding!['permissionSeenAt'] as String)
+          : null,
+      onboardingCompletedAt: onboarding?['completedAt'] != null
+          ? DateTime.tryParse(onboarding!['completedAt'] as String)
+          : null,
+      onboardingPermissionsIntroAcceptedAt:
+          onboarding?['permissionsIntroAcceptedAt'] != null
+          ? DateTime.tryParse(onboarding!['permissionsIntroAcceptedAt'] as String)
+          : null,
+      onboardingPermissionsLastCheckedAt:
+          onboarding?['permissionsLastCheckedAt'] != null
+          ? DateTime.tryParse(onboarding!['permissionsLastCheckedAt'] as String)
+          : null,
+      onboardingCameraMicStatus:
+          (onboarding?['cameraMicStatus'] as String?) ?? 'unknown',
+      onboardingNotificationStatus:
+          (onboarding?['notificationStatus'] as String?) ?? 'unknown',
     );
   }
 
@@ -114,7 +154,21 @@ class UserModel extends Equatable {
       'createdAt': createdAt?.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
       'profileRevision': profileRevision,
-      'onboarding': onboardingStage != null ? {'stage': onboardingStage} : null,
+      'onboarding': onboardingStage != null
+          ? {
+              'stage': onboardingStage,
+              'welcomeSeenAt': onboardingWelcomeSeenAt?.toIso8601String(),
+              'bonusSeenAt': onboardingBonusSeenAt?.toIso8601String(),
+              'permissionSeenAt': onboardingPermissionSeenAt?.toIso8601String(),
+              'completedAt': onboardingCompletedAt?.toIso8601String(),
+              'permissionsIntroAcceptedAt':
+                  onboardingPermissionsIntroAcceptedAt?.toIso8601String(),
+              'permissionsLastCheckedAt':
+                  onboardingPermissionsLastCheckedAt?.toIso8601String(),
+              'cameraMicStatus': onboardingCameraMicStatus,
+              'notificationStatus': onboardingNotificationStatus,
+            }
+          : null,
     };
   }
 
@@ -142,6 +196,14 @@ class UserModel extends Equatable {
     DateTime? updatedAt,
     int? profileRevision,
     String? onboardingStage,
+    DateTime? onboardingWelcomeSeenAt,
+    DateTime? onboardingBonusSeenAt,
+    DateTime? onboardingPermissionSeenAt,
+    DateTime? onboardingCompletedAt,
+    DateTime? onboardingPermissionsIntroAcceptedAt,
+    DateTime? onboardingPermissionsLastCheckedAt,
+    String? onboardingCameraMicStatus,
+    String? onboardingNotificationStatus,
   }) {
     return UserModel(
       id: id ?? this.id,
@@ -170,6 +232,22 @@ class UserModel extends Equatable {
       updatedAt: updatedAt ?? this.updatedAt,
       profileRevision: profileRevision ?? this.profileRevision,
       onboardingStage: onboardingStage ?? this.onboardingStage,
+      onboardingWelcomeSeenAt:
+          onboardingWelcomeSeenAt ?? this.onboardingWelcomeSeenAt,
+      onboardingBonusSeenAt: onboardingBonusSeenAt ?? this.onboardingBonusSeenAt,
+      onboardingPermissionSeenAt:
+          onboardingPermissionSeenAt ?? this.onboardingPermissionSeenAt,
+      onboardingCompletedAt: onboardingCompletedAt ?? this.onboardingCompletedAt,
+      onboardingPermissionsIntroAcceptedAt:
+          onboardingPermissionsIntroAcceptedAt ??
+          this.onboardingPermissionsIntroAcceptedAt,
+      onboardingPermissionsLastCheckedAt:
+          onboardingPermissionsLastCheckedAt ??
+          this.onboardingPermissionsLastCheckedAt,
+      onboardingCameraMicStatus:
+          onboardingCameraMicStatus ?? this.onboardingCameraMicStatus,
+      onboardingNotificationStatus:
+          onboardingNotificationStatus ?? this.onboardingNotificationStatus,
     );
   }
 
@@ -198,5 +276,13 @@ class UserModel extends Equatable {
         updatedAt,
         profileRevision,
         onboardingStage,
+        onboardingWelcomeSeenAt,
+        onboardingBonusSeenAt,
+        onboardingPermissionSeenAt,
+        onboardingCompletedAt,
+        onboardingPermissionsIntroAcceptedAt,
+        onboardingPermissionsLastCheckedAt,
+        onboardingCameraMicStatus,
+        onboardingNotificationStatus,
       ];
 }
