@@ -256,42 +256,20 @@ class AvailabilitySocketService {
       _isConnected = false;
       debugPrint('🔌 [SOCKET] Disconnected: $reason');
       
-      // 🔥 AUTOMATIC OFFLINE: Creators are automatically offline when app closes
-      // Backend socket handler will also set offline on disconnect
-      // This ensures instant offline status when socket disconnects
+      // IMPORTANT:
+      // Socket disconnects can be transient (wifi switch, background jitter, etc.).
+      // Do NOT immediately flip the creator to offline locally, because the backend
+      // is authoritative and may still consider the creator online (or will restore
+      // them quickly on reconnect). Immediate local offline causes the creator
+      // homepage to show "offline" while user homepage still shows "online".
       if (_isCreator) {
-        debugPrint('📤 [SOCKET] Creator disconnected - updating status to offline');
-        // Note: Socket is already disconnected, so we can't emit
-        // Backend will handle this automatically via disconnect event
-        _availabilityToggleOn = false;
-        _persistToggleState(false);
-        
-        // 🔥 CRITICAL: Update creator's own status immediately in BOTH providers
-        // Backend will broadcast the status change, but we update locally first
-        // for instant UI feedback
-        if (_globalContainer != null) {
-          try {
-            final authState = _globalContainer!.read(authProvider);
-            final firebaseUid = authState.firebaseUser?.uid;
-            if (firebaseUid != null) {
-              // Update provider from availability_socket_service.dart
-              _globalContainer!.read(creatorAvailabilityProvider.notifier)
-                  .update(firebaseUid, CreatorAvailability.busy);
-              
-              // 🔥 CRITICAL FIX: Also update provider from availability_provider.dart
-              // This ensures users see creator as busy instantly
-              try {
-                _globalContainer!.read(home_provider.creatorAvailabilityProvider.notifier)
-                    .updateSingle(firebaseUid, 'busy');
-                debugPrint('📡 [SOCKET] Updated both providers: creator own status to offline immediately');
-              } catch (e) {
-                debugPrint('⚠️  [SOCKET] Failed to update home provider: $e');
-              }
-            }
-          } catch (e) {
-            debugPrint('⚠️  [SOCKET] Failed to update creator own status: $e');
-          }
-        }
+        debugPrint(
+          '📤 [SOCKET] Creator disconnected — keeping last known status (await reconnect / backend status)',
+        );
+        // Keep creators logically "available" while app is running; reconnect path
+        // will emit creator:online again on connect.
+        _availabilityToggleOn = true;
+        _persistToggleState(true);
       }
     });
 

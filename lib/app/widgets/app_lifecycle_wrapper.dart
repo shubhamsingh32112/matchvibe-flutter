@@ -72,7 +72,11 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     final phase = ref.read(callConnectionControllerProvider).phase;
     return phase == CallConnectionPhase.preparing ||
         phase == CallConnectionPhase.joining ||
-        phase == CallConnectionPhase.connected;
+        phase == CallConnectionPhase.connected ||
+        // Important: during `disconnecting` the call route can still be visible
+        // while GoRouter transitions to home. Presenting a bottom sheet/dialog
+        // in that window yields a full-screen scrim over the video call.
+        phase == CallConnectionPhase.disconnecting;
   }
 
   @override

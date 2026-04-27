@@ -580,6 +580,20 @@ class _VideoCallScreenContentState
       _loggedBillingConnectionIssue = false;
     }
 
+    // Pointer probe: if this log stops appearing when the gray scrim is visible,
+    // it's strong evidence a route-level ModalBarrier is intercepting taps.
+    void logPointerDown() {
+      debugPrint(
+        '🖱️ [CALL_OVERLAY] pointer_down '
+        'phase=${callConnectionState.phase.name} '
+        'callId=${billingState.callId} '
+        'remainingSeconds=${billingState.remainingSeconds} '
+        'showHeartbeatBorder=$showHeartbeatBorder '
+        'showBillingSyncHint=$showBillingSyncing '
+        'showBillingConnectionIssue=$showBillingConnectionIssue',
+      );
+    }
+
     // ── Force-end handling (billing is server-driven; UI only reacts) ──
     ref.listen<CallBillingState>(callBillingProvider, (prev, next) {
       if ((prev?.isActive != true && next.isActive) ||
@@ -635,10 +649,13 @@ class _VideoCallScreenContentState
           }
         }
       },
-      child: Scaffold(
-        backgroundColor: Colors.black,
-        body: Stack(
-          children: [
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (_) => logPointerDown(),
+        child: Scaffold(
+          backgroundColor: Colors.black,
+          body: Stack(
+            children: [
             if (remoteImageUrl != null)
               Positioned.fill(
                 child: Image.network(
@@ -714,7 +731,7 @@ class _VideoCallScreenContentState
 
             // Show heartbeat warning for true last 10 seconds.
             if (showHeartbeatBorder)
-              const RepaintBoundary(child: _LowBalanceHeartbeatBorder()),
+              const _LowBalanceHeartbeatBorder(),
 
             // Policy-managed security overlay.
             if (showSecurityBlock)
@@ -751,6 +768,7 @@ class _VideoCallScreenContentState
                 ),
               ),
           ],
+          ),
         ),
       ),
     );

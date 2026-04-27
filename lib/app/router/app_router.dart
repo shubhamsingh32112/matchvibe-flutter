@@ -25,6 +25,7 @@ import '../../features/withdrawal/screens/withdrawal_screen.dart';
 import '../../features/support/screens/support_screen.dart';
 import '../../features/support/screens/payment_complaint_screen.dart';
 import '../../features/wallet/models/transaction_model.dart';
+import '../../core/utils/route_log_observer.dart';
 
 /// Global GoRouter instance
 /// 
@@ -37,6 +38,7 @@ import '../../features/wallet/models/transaction_model.dart';
 /// ```
 final appRouter = GoRouter(
   initialLocation: '/splash',
+  observers: [RouteLogObserver()],
   routes: [
     GoRoute(
       path: '/splash',
