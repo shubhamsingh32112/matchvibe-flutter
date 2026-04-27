@@ -5,6 +5,14 @@ import '../../../core/api/api_client.dart';
 import '../../../core/constants/app_constants.dart';
 
 class OnboardingFlowService {
+  /// Called after a successful `POST /user/onboarding/stage` (e.g. refresh auth
+  /// `onboardingStage`). Set from app bootstrap; cleared on dispose.
+  static Future<void> Function()? _afterStageAdvanceSuccess;
+
+  static void setAfterStageAdvanceSuccess(Future<void> Function()? fn) {
+    _afterStageAdvanceSuccess = fn;
+  }
+
   static const String _welcomePrefix = 'onboarding_welcome_seen';
   static const String _bonusPrefix = 'onboarding_bonus_seen';
   static const String _permissionsPrefix = 'onboarding_permissions_seen';
@@ -100,9 +108,13 @@ class OnboardingFlowService {
     String firebaseUid, {
     String? sessionId,
   }) async {
+    // Backend maps POST `stage` → transition event: `welcome` → welcome_seen
+    // (welcome_seen advances server from welcome → bonus). Do NOT send `bonus`
+    // here — that maps to bonus_seen and targets permissions while still on
+    // welcome, causing invalid transitions / 500s and an onboarding loop.
     await _advanceOnServer(
       firebaseUid: firebaseUid,
-      stage: OnboardingStageContract.bonus,
+      stage: OnboardingStageContract.welcome,
       event: 'welcome_seen',
       sessionId: sessionId,
     );
@@ -217,6 +229,11 @@ class OnboardingFlowService {
               },
             )
             .timeout(const Duration(seconds: 4));
+        try {
+          await _afterStageAdvanceSuccess?.call();
+        } catch (_) {
+          // Non-fatal: server stage already advanced; profile can refresh later.
+        }
         await _clearStageIdempotencyKey(firebaseUid: firebaseUid, event: event);
         return;
       } catch (e) {

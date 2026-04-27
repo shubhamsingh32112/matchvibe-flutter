@@ -30,6 +30,7 @@ class SocketService {
   // ── Pending billing events (queued when socket is disconnected) ─────────
   Map<String, dynamic>? _pendingCallStarted;
   Map<String, dynamic>? _pendingCallEnded;
+  bool _pendingBillingRecoverState = false;
 
   // ── Availability callbacks ──────────────────────────────────────────────
   void Function(Map<String, String>)? onAvailabilityBatch;
@@ -421,7 +422,14 @@ class SocketService {
     if (_socket != null && _isConnected) {
       debugPrint('💰 [SOCKET] Emitting billing:recover-state');
       _socket!.emit('billing:recover-state');
+      _pendingBillingRecoverState = false;
+      return;
     }
+    // Socket not connected → queue for next reconnect.
+    _pendingBillingRecoverState = true;
+    debugPrint(
+      '⏳ [SOCKET] Not connected — billing:recover-state queued',
+    );
   }
 
   void emitCallEnded({required String callId}) {
@@ -476,6 +484,12 @@ class SocketService {
       _socket!.emit('call:ended', _pendingCallEnded!);
       _pendingCallEnded = null;
     }
+
+    if (_pendingBillingRecoverState) {
+      debugPrint('💰 [SOCKET] Flushing queued billing:recover-state');
+      _socket!.emit('billing:recover-state');
+      _pendingBillingRecoverState = false;
+    }
   }
 
   // ── Disconnect ──────────────────────────────────────────────────────────
@@ -490,6 +504,7 @@ class SocketService {
     _lastRequestedUserIds = [];
     _pendingCallStarted = null;
     _pendingCallEnded = null;
+    _pendingBillingRecoverState = false;
     if (_connectCompleter != null && !_connectCompleter!.isCompleted) {
       _connectCompleter!.complete(false);
     }

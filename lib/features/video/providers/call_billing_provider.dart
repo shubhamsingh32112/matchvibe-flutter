@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../home/providers/availability_provider.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../controllers/call_connection_controller.dart';
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -219,7 +220,25 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
       if (_lastOrphanRecoveryEmit == null ||
           now.difference(_lastOrphanRecoveryEmit!) > const Duration(seconds: 2)) {
         _lastOrphanRecoveryEmit = now;
-        _ref.read(socketServiceProvider).requestBillingStateRecovery();
+        final socketService = _ref.read(socketServiceProvider);
+        socketService.requestBillingStateRecovery();
+
+        // If the call is already connected but the billing socket isn't, try to
+        // reconnect immediately so `billing:started` / recover-state can land
+        // within the 8s safety window.
+        if (!socketService.isConnected) {
+          final firebaseUser = _ref.read(authProvider).firebaseUser;
+          if (firebaseUser != null) {
+            unawaited(() async {
+              try {
+                final token = await firebaseUser.getIdToken();
+                if (token != null) {
+                  await socketService.ensureConnected(token);
+                }
+              } catch (_) {}
+            }());
+          }
+        }
       }
     }
     if (stuckFor > const Duration(seconds: 8) && !_stuckEndRequested) {

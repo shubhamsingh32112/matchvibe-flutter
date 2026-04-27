@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:ui' show TimingsCallback;
 import 'dart:math';
+import 'package:permission_handler/permission_handler.dart' as ph;
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -34,9 +36,9 @@ import '../../video/providers/call_feedback_prompt_provider.dart';
 import '../../video/providers/creator_busy_toast_provider.dart';
 import '../../withdrawal/screens/withdrawal_screen.dart';
 import '../../../shared/widgets/app_modal_bottom_sheet.dart';
+import '../../../shared/widgets/app_modal_dialog.dart';
 import '../../../shared/widgets/permissions_intro_bottom_sheet.dart';
 import '../../../core/services/modal_coordinator_service.dart';
-import '../../../core/constants/app_constants.dart';
 import '../../onboarding/models/onboarding_step.dart';
 import '../../onboarding/services/onboarding_flow_service.dart';
 import '../../onboarding/services/onboarding_popup_state_service.dart';
@@ -62,6 +64,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   ProviderSubscription<AuthState>? _authSub;
   TimingsCallback? _homeTimingsCallback;
   bool _isOnboardingRunnerActive = false;
+  bool _isRequestingBundledPermissions = false;
   // Watchdog to prevent onboarding deadlocks if user never interacts.
   Timer? _onboardingPopupWatchdog;
   String? _onboardingSessionId;
@@ -287,6 +290,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       ref.read(modalCoordinatorProvider.notifier).setOnboardingInProgress(false);
       return;
     }
+    debugPrint(
+      '[ONBOARDING_DEBUG] runner uid=$firebaseUid createdNow=${authState.createdNow} '
+      'welcomeBonusClaimed=${user.welcomeBonusClaimed} serverStage=${user.onboardingStage} '
+      'welcomeSeenAt=${user.onboardingWelcomeSeenAt} bonusSeenAt=${user.onboardingBonusSeenAt} '
+      'permissionSeenAt=${user.onboardingPermissionSeenAt}',
+    );
     if (authState.createdNow) {
       await OnboardingFlowService.clearLocalFlags(firebaseUid);
       await WelcomeService.clearWelcomeStatusForUser(firebaseUid);
@@ -592,11 +601,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             dedupeKey: 'onboarding-welcome',
             present: (ctx, _) {
               Timer? watchdog;
-              return showAppModalBottomSheet<void>(
+              return showAppModalDialog<void>(
                 context: ctx,
-                isDismissible: true,
-                enableDrag: true,
-                builder: (sheetContext) => WelcomeBottomSheet(
+                barrierDismissible: false,
+                builder: (dialogContext) => WelcomeBottomSheet(
                   onPresented: () async {
                     final uid = ref.read(authProvider).firebaseUser?.uid;
                     if (uid == null) return;
@@ -606,7 +614,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     );
                     debugPrint('[ONBOARDING_POPUP] popup_rendered uid=$uid step=welcome');
                     _startOnboardingWatchdog(
-                      sheetContext: sheetContext,
+                      sheetContext: dialogContext,
                       firebaseUid: uid,
                       step: OnboardingStep.welcome,
                     );
@@ -627,17 +635,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       await _markWelcomeAsSeenWithRetry();
                     } catch (_) {
                       OnboardingFlowService.clearLocalStageOverride(firebaseUid);
-                      if (sheetContext.mounted) {
+                      if (dialogContext.mounted) {
                         AppToast.showError(
-                          sheetContext,
+                          dialogContext,
                           'Please check internet and try again.',
                         );
                       }
                       return;
                     }
                   }
-                  if (sheetContext.mounted) {
-                    Navigator.of(sheetContext).pop();
+                  if (dialogContext.mounted) {
+                    Navigator.of(dialogContext).pop();
                   }
                 },
                 onNotNow: () async {
@@ -655,17 +663,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       await WelcomeService.markWelcomeAsSeen(firebaseUid);
                     } catch (_) {
                       OnboardingFlowService.clearLocalStageOverride(firebaseUid);
-                      if (sheetContext.mounted) {
+                      if (dialogContext.mounted) {
                         AppToast.showError(
-                          sheetContext,
+                          dialogContext,
                           'Please check internet and try again.',
                         );
                       }
                       return;
                     }
                   }
-                  if (sheetContext.mounted) {
-                    Navigator.of(sheetContext).pop();
+                  if (dialogContext.mounted) {
+                    Navigator.of(dialogContext).pop();
                   }
                 },
               ),
@@ -720,6 +728,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       final firebaseUid = authState.firebaseUser?.uid;
       if (firebaseUid != null) {
         try {
+          final serverStage = user?.onboardingStage?.trim().toLowerCase();
+          if (serverStage == 'welcome') {
+            await OnboardingFlowService.markWelcomeSeen(
+              firebaseUid,
+              sessionId: _onboardingSessionId,
+            );
+          }
           await OnboardingFlowService.markBonusSeen(
             firebaseUid,
             sessionId: _onboardingSessionId,
@@ -781,11 +796,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             dedupeKey: 'onboarding-bonus',
             present: (ctx, _) {
               Timer? watchdog;
-              return showAppModalBottomSheet<void>(
+              return showAppModalDialog<void>(
                 context: ctx,
-                isDismissible: true,
-                enableDrag: true,
-                builder: (sheetContext) => StatefulBuilder(
+                barrierDismissible: false,
+                builder: (dialogContext) => StatefulBuilder(
                   builder: (ctx, setBottomSheetState) => WelcomeBonusBottomSheet(
                     onPresented: () async {
                       final uid = ref.read(authProvider).firebaseUser?.uid;
@@ -796,7 +810,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       );
                       debugPrint('[ONBOARDING_POPUP] popup_rendered uid=$uid step=bonus');
                       _startOnboardingWatchdog(
-                        sheetContext: sheetContext,
+                        sheetContext: dialogContext,
                         firebaseUid: uid,
                         step: OnboardingStep.bonus,
                       );
@@ -927,6 +941,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// Check and request onboarding-time permissions for users.
   Future<void> _checkAndRequestOnboardingPermissions() async {
     if (!mounted) return;
+    if (_isRequestingBundledPermissions) {
+      // Prevent tight-loop re-enqueue while the OS permission flow is in flight.
+      debugPrint(
+        '⏳ [ONBOARDING] permissions request already in flight — skipping re-prompt',
+      );
+      return;
+    }
 
     final authState = ref.read(authProvider);
     final user = authState.user;
@@ -1056,21 +1077,40 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       return;
     }
 
+    // Mark prompt as shown immediately on Agree so transient failures in the
+    // OS prompt / Firebase Messaging flow don't cause a tight re-prompt loop.
+    unawaited(PermissionPromptService.markPermissionPromptAsShown(userId));
     await _requestBundledPermissions(userId);
   }
 
   Future<void> _requestBundledPermissions(String userId) async {
+    if (_isRequestingBundledPermissions) return;
+    _isRequestingBundledPermissions = true;
     try {
+      // Order matches the "Permissions Required" sheet: camera, mic, then alerts.
       final videoGranted =
           await PermissionService.ensureCameraAndMicrophonePermissions();
+
+      if (Platform.isAndroid) {
+        try {
+          await ph.Permission.notification.request();
+        } catch (e) {
+          debugPrint('[ONBOARDING] Android POST_NOTIFICATIONS request: $e');
+        }
+      }
+
       final notificationSettings =
           await FirebaseMessaging.instance.requestPermission();
-      final notificationStatus = switch (notificationSettings.authorizationStatus) {
-        AuthorizationStatus.authorized => 'granted',
-        AuthorizationStatus.provisional => 'granted',
-        AuthorizationStatus.denied => 'denied',
-        AuthorizationStatus.notDetermined => 'unknown',
-      };
+      final notificationStatus = Platform.isAndroid
+          ? PermissionService.mapStatusForApi(
+              await ph.Permission.notification.status,
+            )
+          : switch (notificationSettings.authorizationStatus) {
+              AuthorizationStatus.authorized => 'granted',
+              AuthorizationStatus.provisional => 'granted',
+              AuthorizationStatus.denied => 'denied',
+              AuthorizationStatus.notDetermined => 'unknown',
+            };
       final cameraMicStatus = await PermissionService.cameraMicStatusForApi();
 
       await PermissionPromptService.markPermissionPromptAsShown(userId);
@@ -1093,10 +1133,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       if (!mounted) return;
 
       if (videoGranted) {
-        final status = notificationSettings.authorizationStatus;
-        final notificationAllowed =
-            status == AuthorizationStatus.authorized ||
-            status == AuthorizationStatus.provisional;
+        final notificationAllowed = Platform.isAndroid
+            ? (await ph.Permission.notification.status).isGranted
+            : notificationSettings.authorizationStatus ==
+                    AuthorizationStatus.authorized ||
+                notificationSettings.authorizationStatus ==
+                    AuthorizationStatus.provisional;
+        if (!mounted) return;
         final message = notificationAllowed
             ? 'Permissions granted! You can now make video calls.'
             : 'Camera and microphone enabled. You can enable notifications later in Settings.';
@@ -1118,9 +1161,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       }
     } catch (e) {
       OnboardingFlowService.clearLocalStageOverride(userId);
-      if (!AppConstants.enableDeterministicOnboardingRunner) {
-        await PermissionPromptService.markPermissionPromptAsShown(userId);
-      }
+      // Always persist "shown" on error so we don't instantly re-open the sheet
+      // in a loop; server-driven re-prompts can still happen on later sessions.
+      await PermissionPromptService.markPermissionPromptAsShown(userId);
       ref
           .read(modalCoordinatorProvider.notifier)
           .setOnboardingInProgress(false);
@@ -1132,6 +1175,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           fallback: 'Couldn\'t update permissions. Please try again.',
         ),
       );
+    } finally {
+      _isRequestingBundledPermissions = false;
     }
   }
 

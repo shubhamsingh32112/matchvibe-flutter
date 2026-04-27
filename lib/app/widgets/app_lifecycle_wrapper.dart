@@ -13,11 +13,13 @@ import '../../features/video/controllers/call_connection_controller.dart';
 import '../../features/home/providers/home_provider.dart';
 import '../../shared/widgets/coin_purchase_popup.dart';
 import '../../shared/widgets/app_modal_bottom_sheet.dart';
+import '../../shared/widgets/app_modal_dialog.dart';
 import '../../shared/widgets/app_update_popup.dart';
 import '../../shared/widgets/app_toast.dart';
 import '../../shared/models/app_update_model.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/services/modal_coordinator_service.dart';
+import '../../features/onboarding/services/onboarding_flow_service.dart';
 import '../../features/onboarding/services/onboarding_runner_lock_service.dart';
 import '../../features/onboarding/services/onboarding_popup_state_service.dart';
 import '../../shared/services/app_update_service.dart';
@@ -86,10 +88,14 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       unawaited(_retryDeferredUpdateAcks());
       unawaited(_refreshPendingAppUpdate());
     });
+    OnboardingFlowService.setAfterStageAdvanceSuccess(() async {
+      await ref.read(authProvider.notifier).refreshUser();
+    });
   }
 
   @override
   void dispose() {
+    OnboardingFlowService.setAfterStageAdvanceSuccess(null);
     _modalQueueSub?.close();
     _coinPopupSub?.close();
     _appUpdatePopupSub?.close();
@@ -100,14 +106,76 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     super.dispose();
   }
 
+  /// Dismiss onboarding overlay (if any), then clear modal queue so the next user
+  /// does not inherit stale queue entries. Uses the GoRouter navigator — not this
+  /// widget's [context] — so we never call [Navigator.of] without a Navigator ancestor.
+  Future<void> _onAuthUidChanged({
+    required String? prevUid,
+    required String? nextUid,
+  }) async {
+    final modalState = ref.read(modalCoordinatorProvider);
+    debugPrint(
+      '[MODAL_QUEUE] auth_uid_change begin prev=$prevUid next=$nextUid '
+      'presenting=${modalState.isPresenting} onboarding=${modalState.onboardingInProgress} '
+      'queueSize=${modalState.queue.length}',
+    );
+
+    if (!_isForcingOverlayDismiss &&
+        modalState.isPresenting &&
+        modalState.onboardingInProgress) {
+      _isForcingOverlayDismiss = true;
+      try {
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted) return;
+        final navCtx = appRouter.routerDelegate.navigatorKey.currentContext;
+        if (navCtx != null && navCtx.mounted) {
+          debugPrint(
+            '[MODAL_QUEUE] auth_uid_change maybePop rootNavigator '
+            '(router navigatorKey)',
+          );
+          await Navigator.of(navCtx, rootNavigator: true).maybePop();
+        } else {
+          debugPrint(
+            '[MODAL_QUEUE] auth_uid_change skip_maybePop '
+            'no_router_navigator_context',
+          );
+        }
+      } catch (e, st) {
+        debugPrint(
+          '[MODAL_QUEUE] auth_uid_change maybePop_failed error=$e $st',
+        );
+      } finally {
+        _isForcingOverlayDismiss = false;
+      }
+    }
+
+    if (!mounted) return;
+    ref.read(modalCoordinatorProvider.notifier).clearQueue(
+          reason: 'auth_uid_change prev=$prevUid next=$nextUid',
+        );
+    if (prevUid != null) {
+      unawaited(OnboardingRunnerLockService.clear(prevUid));
+      unawaited(OnboardingPopupStateService.clearAllForUser(prevUid));
+    }
+    if (nextUid != null) {
+      unawaited(OnboardingRunnerLockService.clear(nextUid));
+    }
+  }
+
   void _setupProviderListeners() {
     _modalQueueSub = ref.listenManual<ModalCoordinatorState>(
       modalCoordinatorProvider,
       (prev, next) {
+        debugPrint(
+          '[MODAL_QUEUE] state_change queueSize=${next.queue.length} presenting=${next.isPresenting} onboarding=${next.onboardingInProgress} transitions=${next.queueTransitions} presented=${next.presentedCount}',
+        );
         if (next.queue.isNotEmpty && !next.isPresenting) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _drainModalQueue();
-          });
+          debugPrint(
+            '[MODAL_QUEUE] schedule_drain queueSize=${next.queue.length} presenting=${next.isPresenting}',
+          );
+          // NOTE: addPostFrameCallback will not run if no frame is scheduled.
+          // Use a microtask so the queue drains even when the UI is idle.
+          Future.microtask(_drainModalQueue);
         }
       },
     );
@@ -125,7 +193,13 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
         final shouldSuppress = ref
             .read(modalCoordinatorProvider)
             .onboardingInProgress;
-        if (shouldSuppress) return;
+        if (shouldSuppress) {
+          debugPrint(
+            '[MODAL_QUEUE] coin_intent_suppressed onboarding_in_progress '
+            'dedupeKey=${next.dedupeKey}',
+          );
+          return;
+        }
         final id = ref
             .read(modalCoordinatorProvider.notifier)
             .nextRequestId('coin');
@@ -162,31 +236,9 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       final prevUid = prev?.firebaseUser?.uid;
       final nextUid = next.firebaseUser?.uid;
       if (prevUid != nextUid) {
-        // Best-effort: dismiss any active modal bottom sheet before clearing queue
-        // to avoid leaving an overlay alive with inconsistent dedupe/flags.
-        final modalState = ref.read(modalCoordinatorProvider);
-        if (!_isForcingOverlayDismiss &&
-            modalState.isPresenting &&
-            modalState.onboardingInProgress) {
-          _isForcingOverlayDismiss = true;
-          WidgetsBinding.instance.addPostFrameCallback((_) async {
-            try {
-              if (!mounted) return;
-              await Navigator.of(context, rootNavigator: true).maybePop();
-            } finally {
-              _isForcingOverlayDismiss = false;
-            }
-          });
-        }
-        // Shared-device safety: clear any leftover modal state and onboarding locks.
-        ref.read(modalCoordinatorProvider.notifier).clearQueue();
-        if (prevUid != null) {
-          unawaited(OnboardingRunnerLockService.clear(prevUid));
-          unawaited(OnboardingPopupStateService.clearAllForUser(prevUid));
-        }
-        if (nextUid != null) {
-          unawaited(OnboardingRunnerLockService.clear(nextUid));
-        }
+        unawaited(
+          _onAuthUidChanged(prevUid: prevUid, nextUid: nextUid),
+        );
       }
       final user = next.user;
       final isCreator =
@@ -561,11 +613,10 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
             present: (ctx, _) async {
               _isAppUpdatePopupPresenting = true;
               var submitting = false;
-              return showAppModalBottomSheet<AppUpdatePopupAction>(
+              return showAppModalDialog<AppUpdatePopupAction>(
                 context: ctx,
-                isDismissible: false,
-                enableDrag: false,
-                builder: (sheetContext) {
+                barrierDismissible: false,
+                builder: (dialogContext) {
                   return StatefulBuilder(
                     builder: (context, setState) {
                       return AppUpdatePopup(
@@ -600,9 +651,10 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
                               );
                             }
                             if (context.mounted) {
-                              Navigator.of(context).pop(AppUpdatePopupAction.updateNow);
+                              Navigator.of(context)
+                                  .pop(AppUpdatePopupAction.updateNow);
                             }
-                          } catch (e) {
+                          } catch (_) {
                             if (context.mounted) {
                               AppToast.showError(
                                 context,
@@ -825,22 +877,83 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       );
       return;
     }
+    final stateBefore = ref.read(modalCoordinatorProvider);
+    debugPrint(
+      '[MODAL_QUEUE] drain_start queueSize=${stateBefore.queue.length} presenting=${stateBefore.isPresenting} onboarding=${stateBefore.onboardingInProgress}',
+    );
     _isDrainingModalQueue = true;
     try {
       while (mounted) {
         final state = ref.read(modalCoordinatorProvider);
-        if (state.isPresenting || state.queue.isEmpty) break;
+        if (state.isPresenting) {
+          debugPrint(
+            '[MODAL_QUEUE] drain_loop_exit blocked isPresenting=true '
+            'queueSize=${state.queue.length} onboarding=${state.onboardingInProgress}',
+          );
+          break;
+        }
+        if (state.queue.isEmpty) break;
+        // MaterialApp.router's [builder] runs *above* the Navigator subtree.
+        // This widget's [context] cannot open bottom sheets — use the shell
+        // navigator from GoRouter (same pattern as auth_provider / push).
+        final navCtx = appRouter.routerDelegate.navigatorKey.currentContext;
+        if (navCtx == null || !navCtx.mounted) {
+          debugPrint(
+            '[MODAL_QUEUE] drain_defer no_router_navigator_context '
+            'queueSize=${state.queue.length}',
+          );
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) Future.microtask(_drainModalQueue);
+          });
+          break;
+        }
         final request = ref.read(modalCoordinatorProvider.notifier).takeNext();
         if (request == null) break;
-        final result = await request.present(context, ref);
-        if (!mounted) break;
-        ref
-            .read(modalCoordinatorProvider.notifier)
-            .complete(request.id, result, dedupeKey: request.dedupeKey);
-        request.onCompleted?.call(result);
+        debugPrint(
+          '[MODAL_QUEUE] present_begin id=${request.id} key=${request.dedupeKey ?? "none"}',
+        );
+        try {
+          final result = await request.present(navCtx, ref);
+          if (!mounted) break;
+          ref
+              .read(modalCoordinatorProvider.notifier)
+              .complete(request.id, result, dedupeKey: request.dedupeKey);
+          request.onCompleted?.call(result);
+          debugPrint(
+            '[MODAL_QUEUE] present_done id=${request.id} key=${request.dedupeKey ?? "none"}',
+          );
+        } catch (e, st) {
+          debugPrint(
+            '[MODAL_QUEUE] present_failed id=${request.id} key=${request.dedupeKey ?? "none"} '
+            'error=$e $st',
+          );
+          if (mounted) {
+            ref.read(modalCoordinatorProvider.notifier).complete(
+                  request.id,
+                  null,
+                  dedupeKey: request.dedupeKey,
+                );
+            request.onCompleted?.call(null);
+          }
+        }
       }
     } finally {
       _isDrainingModalQueue = false;
+      final stateAfter = ref.read(modalCoordinatorProvider);
+      final pendingKeys = stateAfter.queue
+          .map((r) => r.dedupeKey ?? r.id)
+          .join(', ');
+      debugPrint(
+        '[MODAL_QUEUE] drain_end queueSize=${stateAfter.queue.length} '
+        'presenting=${stateAfter.isPresenting} onboarding=${stateAfter.onboardingInProgress} '
+        'pendingKeys=[$pendingKeys]',
+      );
+      if (stateAfter.queue.isNotEmpty && stateAfter.isPresenting) {
+        debugPrint(
+          '[MODAL_QUEUE] drain_note queue_waiting_behind_active_modal '
+          'size=${stateAfter.queue.length}',
+        );
+      }
     }
   }
 

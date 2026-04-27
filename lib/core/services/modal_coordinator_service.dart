@@ -99,7 +99,23 @@ class ModalCoordinatorNotifier extends StateNotifier<ModalCoordinatorState> {
       }
     }
 
-    final nextQueue = [...state.queue, request];
+    // IMPORTANT: state.queue stores requests as `dynamic`.
+    // If we store a typed `onCompleted` (e.g. `(bool?) => void`) directly, it is
+    // NOT assignable to `void Function(dynamic?)?` and will crash at runtime
+    // when invoked from the drain loop.
+    //
+    // Wrap onCompleted so it always accepts `dynamic` and re-casts internally.
+    final wrapped = AppModalRequest<dynamic>(
+      id: request.id,
+      priority: request.priority,
+      dedupeKey: request.dedupeKey,
+      present: (context, ref) => request.present(context, ref),
+      onCompleted: request.onCompleted == null
+          ? null
+          : (dynamic result) => request.onCompleted!(result as T?),
+    );
+
+    final nextQueue = [...state.queue, wrapped];
     nextQueue.sort(
       (a, b) => _priorityRank(a.priority).compareTo(_priorityRank(b.priority)),
     );
@@ -109,7 +125,12 @@ class ModalCoordinatorNotifier extends StateNotifier<ModalCoordinatorState> {
     );
   }
 
-  void clearQueue() {
+  void clearQueue({String? reason}) {
+    final dropped = state.queue
+        .map((r) => '${r.id}:${r.dedupeKey ?? "no-key"}')
+        .join(', ');
+    final n = state.queue.length;
+    final wasPresenting = state.isPresenting;
     state = state.copyWith(
       queue: const [],
       isPresenting: false,
@@ -117,7 +138,10 @@ class ModalCoordinatorNotifier extends StateNotifier<ModalCoordinatorState> {
       onboardingInProgress: false,
       queueTransitions: state.queueTransitions + 1,
     );
-    debugPrint('[MODAL_QUEUE] clearQueue');
+    debugPrint(
+      '[MODAL_QUEUE] clearQueue reason=${reason ?? "unspecified"} '
+      'droppedCount=$n wasPresenting=$wasPresenting dropped=[$dropped]',
+    );
   }
 
   AppModalRequest<dynamic>? takeNext() {

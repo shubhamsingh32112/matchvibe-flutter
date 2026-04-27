@@ -51,8 +51,26 @@ class PermissionService {
   /// Throws exception if permissions are permanently denied
   static Future<bool> ensurePermissions({required bool video}) async {
     try {
+      // Onboarding (or any prior flow) may have already granted these. Skip
+      // [request()] at call entry so the OS does not show duplicate dialogs.
+      if (video) {
+        if (await hasCameraAndMicrophonePermissions()) {
+          debugPrint(
+            '📷 [PERMISSIONS] Camera+mic already granted — skipping request()',
+          );
+          return true;
+        }
+      } else {
+        if (await hasMicrophonePermission()) {
+          debugPrint(
+            '📷 [PERMISSIONS] Microphone already granted — skipping request()',
+          );
+          return true;
+        }
+      }
+
       debugPrint('📷 [PERMISSIONS] Requesting permissions (video: $video)...');
-      
+
       // Build permission list based on call type
       final permissions = <permission_handler.Permission>[
         permission_handler.Permission.microphone, // Always needed

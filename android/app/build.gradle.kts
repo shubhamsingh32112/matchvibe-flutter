@@ -34,10 +34,14 @@ android {
     // DEV signing config - uses separate keystore with unique SHA-1
     signingConfigs {
         create("devDebug") {
-            storeFile = file("../dev-debug.keystore")
-            storePassword = "android"
-            keyAlias = "devkey"
-            keyPassword = "android"
+            // Optional local keystore. If it's missing, we fall back to default debug signing.
+            val localKeystore = file("../dev-debug.keystore")
+            if (localKeystore.exists()) {
+                storeFile = localKeystore
+                storePassword = "android"
+                keyAlias = "devkey"
+                keyPassword = "android"
+            }
         }
 
         // Release signing config - loaded from android/key.properties (DO NOT COMMIT)
@@ -103,9 +107,12 @@ android {
 
     buildTypes {
         getByName("debug") {
-            applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
-            signingConfig = signingConfigs.getByName("devDebug")
+            // Use the optional local dev keystore when present; otherwise use default debug signing.
+            val localKeystore = file("../dev-debug.keystore")
+            signingConfig =
+                if (localKeystore.exists()) signingConfigs.getByName("devDebug")
+                else signingConfigs.getByName("debug")
             // Dev typically uses HTTP for local backend.
             manifestPlaceholders["usesCleartextTraffic"] = "true"
         }
