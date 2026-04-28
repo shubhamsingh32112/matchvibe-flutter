@@ -50,6 +50,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       'last_handled_payment_deep_link';
   static const String _deferredUpdateAcksKey = 'deferred_update_acks_v1';
   static const String _seenAppUpdatesKey = 'seen_app_updates_v1';
+  static const String _updateNowClickedIdsKey = 'update_now_clicked_ids_v1';
   static const String _deferredAppUpdateKey = 'deferred_app_update_v1';
   static const int _seenAppUpdatesTtlMs = 48 * 60 * 60 * 1000; // 48h
   AppLinks? _appLinks;
@@ -260,7 +261,9 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       }
       if (next.isAuthenticated && user != null) {
         unawaited(_retryDeferredUpdateAcks());
-        unawaited(_refreshPendingAppUpdate());
+        if (!next.createdNow) {
+          unawaited(_refreshPendingAppUpdate());
+        }
       }
     });
 
@@ -320,6 +323,21 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     return seen;
   }
 
+  Future<Set<String>> _loadUpdateNowClickedIds() async {
+    final prefs = await _prefs();
+    final raw = prefs.getStringList(_updateNowClickedIdsKey) ?? <String>[];
+    return raw.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
+  }
+
+  Future<void> _markUpdateNowClicked(String updateId) async {
+    final id = updateId.trim();
+    if (id.isEmpty) return;
+    final prefs = await _prefs();
+    final raw = prefs.getStringList(_updateNowClickedIdsKey) ?? <String>[];
+    if (raw.contains(id)) return;
+    await prefs.setStringList(_updateNowClickedIdsKey, [...raw, id]);
+  }
+
   Future<void> _markUpdateSeen(String updateId) async {
     final id = updateId.trim();
     if (id.isEmpty) return;
@@ -330,6 +348,8 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
   }
 
   Future<bool> _shouldShowAndMarkSeen(AppUpdateModel update) async {
+    final clicked = await _loadUpdateNowClickedIds();
+    if (clicked.contains(update.id)) return false;
     final seen = await _loadSeenUpdateIds();
     if (seen.contains(update.id)) return false;
     await _markUpdateSeen(update.id);
@@ -516,6 +536,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     final auth = ref.read(authProvider);
     final user = auth.user;
     if (!auth.isAuthenticated || user == null) return;
+    if (auth.createdNow) return;
     if (user.role != 'user' && user.role != 'creator' && user.role != 'admin') {
       return;
     }
@@ -536,7 +557,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
         body = e.response?.data;
       }
       final uid = _currentFirebaseUid();
-      final bodyStr = body == null ? null : body.toString();
+      final bodyStr = body?.toString();
       final truncated = bodyStr == null
           ? null
           : (bodyStr.length > 800 ? bodyStr.substring(0, 800) : bodyStr);
@@ -634,6 +655,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
                           if (submitting) return;
                           setState(() => submitting = true);
                           try {
+                            await _markUpdateNowClicked(pending.id);
                             final uri = Uri.tryParse(pending.updateUrl);
                             if (uri == null) {
                               throw Exception('Invalid update URL');

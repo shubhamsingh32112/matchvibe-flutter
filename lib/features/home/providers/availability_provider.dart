@@ -260,6 +260,14 @@ final socketServiceProvider = Provider<SocketService>((ref) {
 
   service.onAppUpdatePublished = (data) {
     debugPrint('🆕 [SOCKET→PROVIDER] app_update:published received');
+    final auth = ref.read(authProvider);
+    if (auth.createdNow) {
+      final updateId = data['id']?.toString() ?? 'unknown';
+      debugPrint(
+        '[AppUpdate] socket_suppressed createdNow=true updateId=$updateId',
+      );
+      return;
+    }
     ref.read(appUpdatePopupProvider.notifier).setPendingUpdate(
           AppUpdateModel.fromJson(data),
           source: 'socket',

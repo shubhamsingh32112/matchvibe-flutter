@@ -7,6 +7,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:stream_chat_flutter/stream_chat_flutter.dart';
 import '../../app/router/app_router.dart';
 import '../constants/app_constants.dart';
+import './in_app_feedback_service.dart';
 
 /// Top-level notification tap handler.
 /// Used by main.dart when initializing the plugin globally.
@@ -181,6 +182,16 @@ class PushNotificationService {
     // Don't notify if the user is currently viewing this channel
     final channelCid = event.cid; // format: "messaging:channelId"
     final rawChannelId = channelCid?.split(':').last;
+
+    // 🔥 In-app vibration/haptics for incoming chat messages (even when chat is open).
+    // Dedupe across WS + FCM using Stream message.id.
+    final messageId = message.id;
+    if (messageId.isNotEmpty) {
+      InAppFeedbackService.instance.notifyChatMessage(
+        dedupeKey: 'chat_message:$messageId',
+      );
+    }
+
     if (rawChannelId != null && rawChannelId == activeChannelId) {
       debugPrint(
         '🔕 [PUSH] Suppressed — user is viewing channel $rawChannelId',
@@ -253,6 +264,15 @@ class PushNotificationService {
     if (type != 'message.new') return;
 
     final channelId = data['channel_id'] as String?;
+
+    final messageId = data['id'] as String?;
+    if (messageId != null && messageId.isNotEmpty) {
+      InAppFeedbackService.instance.notifyChatMessage(
+        dedupeKey: 'chat_message:$messageId',
+      );
+    }
+
+    // Keep banner suppression while viewing the active channel, but do not suppress haptics.
     if (channelId != null && channelId == activeChannelId) return;
 
     String title = 'New Message';

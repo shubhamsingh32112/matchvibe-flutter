@@ -8,8 +8,7 @@ import '../../../shared/widgets/app_toast.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../../shared/models/profile_model.dart';
 import '../../auth/providers/auth_provider.dart';
-import '../../home/providers/home_provider.dart';
-import '../../user/providers/user_availability_provider.dart';
+import '../../user/providers/online_users_provider.dart';
 import '../services/chat_service.dart';
 import '../utils/chat_utils.dart';
 
@@ -306,29 +305,15 @@ class _OnlineUsersTab extends ConsumerStatefulWidget {
 
 class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
   final Set<String> _loadingUserIds = {};
-  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
-    _scrollController.addListener(_onUserListScroll);
   }
 
   @override
   void dispose() {
-    _scrollController
-      ..removeListener(_onUserListScroll)
-      ..dispose();
     super.dispose();
-  }
-
-  void _onUserListScroll() {
-    if (!_scrollController.hasClients) return;
-    if (_scrollController.position.extentAfter > 500) return;
-    final meta = ref.read(usersFeedMetaProvider);
-    if (meta.hasMore && !meta.isLoadingMore) {
-      ref.read(usersProvider.notifier).loadMore();
-    }
   }
 
   Future<void> _openChat(UserProfileModel user) async {
@@ -363,31 +348,12 @@ class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
 
   @override
   Widget build(BuildContext context) {
-    final usersAsync = ref.watch(usersProvider);
-    final usersMeta = ref.watch(usersFeedMetaProvider);
-    final userAvailabilityMap = ref.watch(userAvailabilityProvider);
+    final onlineUsersAsync = ref.watch(onlineUsersProvider);
     final scheme = Theme.of(context).colorScheme;
 
-    return usersAsync.when(
+    return onlineUsersAsync.when(
       data: (users) {
-        final dedupedUsersByKey = <String, UserProfileModel>{};
-        for (final user in users) {
-          final key = user.id.isNotEmpty
-              ? user.id
-              : (user.firebaseUid ?? '');
-          if (key.isEmpty) continue;
-          dedupedUsersByKey[key] = user;
-        }
-        final dedupedUsers = dedupedUsersByKey.values.toList(growable: false);
-
-        // Only users with explicit socket state "online" (Redis/API does not add rows here).
-        final onlineUsers = dedupedUsers.where((user) {
-          if (user.firebaseUid == null) return false;
-          return userAvailabilityMap[user.firebaseUid] ==
-              UserAvailability.online;
-        }).toList();
-
-        if (onlineUsers.isEmpty) {
+        if (users.isEmpty) {
           return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -414,21 +380,15 @@ class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
         }
 
         return RefreshIndicator(
-          onRefresh: () async => ref.read(usersProvider.notifier).refreshFeed(),
+          onRefresh: () async =>
+              ref.read(onlineUsersProvider.notifier).refreshOnlineUsers(),
           child: ListView.separated(
-            controller: _scrollController,
             padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: onlineUsers.length + (usersMeta.hasMore ? 1 : 0),
+            itemCount: users.length,
             separatorBuilder: (_, __) =>
                 Divider(height: 1, color: scheme.outlineVariant.withValues(alpha: 0.3)),
             itemBuilder: (context, index) {
-              if (index >= onlineUsers.length) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 14),
-                  child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                );
-              }
-              final user = onlineUsers[index];
+              final user = users[index];
               final isLoading = _loadingUserIds.contains(user.id);
 
               return ListTile(
@@ -521,7 +481,8 @@ class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
             ),
             const SizedBox(height: 12),
             FilledButton(
-              onPressed: () => ref.read(usersProvider.notifier).refreshFeed(),
+              onPressed: () =>
+                  ref.read(onlineUsersProvider.notifier).refreshOnlineUsers(),
               child: const Text('Retry'),
             ),
           ],
