@@ -10,6 +10,18 @@ class ApiClient {
   static final ApiClient _instance = ApiClient._internal();
   bool _isRefreshingToken = false;
 
+  /// In-memory copy of [AppConstants.keyAuthToken] to avoid SharedPreferences on every request.
+  static String? _cachedAuthToken;
+
+  /// Call when the persisted auth token changes (login, refresh, logout).
+  static void setAuthTokenMemory(String? token) {
+    _cachedAuthToken = token;
+  }
+
+  static void clearAuthTokenMemory() {
+    _cachedAuthToken = null;
+  }
+
   factory ApiClient() => _instance;
 
   ApiClient._internal() {
@@ -61,9 +73,15 @@ class ApiClient {
             }
           }
           
-          final prefs = await SharedPreferences.getInstance();
-          final token = prefs.getString(AppConstants.keyAuthToken);
-          if (token != null) {
+          var token = _cachedAuthToken;
+          if (token == null || token.isEmpty) {
+            final prefs = await SharedPreferences.getInstance();
+            token = prefs.getString(AppConstants.keyAuthToken);
+            if (token != null && token.isNotEmpty) {
+              _cachedAuthToken = token;
+            }
+          }
+          if (token != null && token.isNotEmpty) {
             options.headers['Authorization'] = 'Bearer $token';
             if (kDebugMode) {
               debugPrint('   🔑 Auth token attached (length: ${token.length})');
@@ -134,6 +152,7 @@ class ApiClient {
                   if (kDebugMode) {
                     debugPrint('   ✅ Token refreshed, retrying request');
                   }
+                  _cachedAuthToken = newToken;
                   final opts = error.requestOptions;
                   opts.headers['Authorization'] = 'Bearer $newToken';
                   final response = await _dio.fetch(opts);
@@ -281,6 +300,7 @@ class ApiClient {
     if (token == null) return null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(AppConstants.keyAuthToken, token);
+    _cachedAuthToken = token;
     return token;
   }
 
@@ -428,6 +448,13 @@ class ApiClient {
   }
 
   static String _latencyCategory(String path) {
+    final noQuery = path.split('?').first;
+    if (noQuery.startsWith('/creator/feed')) return 'creator_feed';
+    if (noQuery.startsWith('/creator/uids')) return 'creator_uids';
+    if (noQuery.startsWith('/creator/by-firebase-uid/')) return 'creator_by_uid';
+    if (RegExp(r'^/creator/[a-fA-F0-9]{24}$').hasMatch(noQuery)) {
+      return 'creator_detail';
+    }
     if (path.startsWith('/creator')) return 'creator_page';
     if (path.startsWith('/user/list')) return 'user_page';
     if (path.startsWith('/user/favorites/creators')) return 'favorites_page';

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_spacing.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +11,7 @@ import '../../../shared/widgets/ui_primitives.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../chat/services/chat_service.dart';
 import '../providers/availability_provider.dart';
+import '../providers/home_provider.dart';
 import '../../video/controllers/call_connection_controller.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/services/avatar_upload_service.dart';
@@ -73,7 +75,7 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
           .startUserCall(
             creatorFirebaseUid: creatorFirebaseUid,
             creatorMongoId: widget.creator!.id,
-            creatorImageUrl: widget.creator!.photo,
+            creatorImageUrl: widget.creator!.displayPhoto,
             creatorName: widget.creator!.name,
             creatorAge: _creatorAge(),
             creatorCountry: _creatorCountry(),
@@ -545,7 +547,7 @@ class _CreatorInfoText extends StatelessWidget {
   }
 }
 
-class _CreatorProfilePage extends StatelessWidget {
+class _CreatorProfilePage extends ConsumerStatefulWidget {
   final CreatorModel creator;
   final bool isOnline;
   final VoidCallback? onCallPressed;
@@ -566,16 +568,28 @@ class _CreatorProfilePage extends StatelessWidget {
     required this.age,
   });
 
-  List<String> _orderedGalleryUrls() {
-    final sorted = List<CreatorGalleryImage>.from(creator.galleryImages)
+  @override
+  ConsumerState<_CreatorProfilePage> createState() => _CreatorProfilePageState();
+}
+
+class _CreatorProfilePageState extends ConsumerState<_CreatorProfilePage> {
+  static List<({String thumbUrl, String fullUrl})> _galleryItems(CreatorModel c) {
+    final sorted = List<CreatorGalleryImage>.from(c.galleryImages)
       ..sort((a, b) => a.position.compareTo(b.position));
-    return sorted.map((e) => e.url.trim()).where((u) => u.isNotEmpty).toList();
+    final out = <({String thumbUrl, String fullUrl})>[];
+    for (final e in sorted) {
+      final full = e.url.trim();
+      if (full.isEmpty) continue;
+      final t = e.thumbnailUrl?.trim();
+      out.add((thumbUrl: (t != null && t.isNotEmpty) ? t : full, fullUrl: full));
+    }
+    return out;
   }
 
-  void _openGalleryImage(BuildContext context, String url) {
+  void _openGalleryImage(BuildContext context, String fullUrl) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (ctx) => _CreatorGalleryImageViewer(url: url),
+        builder: (ctx) => _CreatorGalleryImageViewer(url: fullUrl),
       ),
     );
   }
@@ -583,10 +597,28 @@ class _CreatorProfilePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final galleryUrls = _orderedGalleryUrls();
+    final detailAsync = ref.watch(creatorDetailProvider(widget.creator.id));
+    final merged = detailAsync.maybeWhen(
+      data: (d) => widget.creator.copyWith(
+        about: d.about,
+        galleryImages: d.galleryImages,
+        photo: d.photo,
+        thumbnailPhoto: d.thumbnailPhoto,
+      ),
+      orElse: () => widget.creator,
+    );
+
+    final galleryItems = _galleryItems(merged);
+    final galleryLoading =
+        detailAsync.isLoading && widget.creator.galleryImages.isEmpty;
+    final dpr = MediaQuery.of(context).devicePixelRatio;
+    final avatarMemW = (100 * dpr).round();
+    final avatarMemH = avatarMemW;
+    final gridMemW = (140 * dpr).round();
+    final gridMemH = (180 * dpr).round();
 
     return Scaffold(
-      appBar: buildBrandAppBar(context, title: creator.name),
+      appBar: buildBrandAppBar(context, title: merged.name),
       body: ColoredBox(
         color: AppBrandGradients.accountMenuPageBackground,
         child: Column(
@@ -608,28 +640,21 @@ class _CreatorProfilePage extends StatelessWidget {
                         child: SizedBox(
                           width: 100,
                           height: 100,
-                          child: Image.network(
-                            creator.photo,
+                          child: CachedNetworkImage(
+                            imageUrl: merged.displayPhoto,
                             fit: BoxFit.cover,
-                            cacheWidth:
-                                (100 * MediaQuery.of(context).devicePixelRatio)
-                                    .round(),
-                            cacheHeight:
-                                (100 * MediaQuery.of(context).devicePixelRatio)
-                                    .round(),
-                            loadingBuilder: (context, child, loadingProgress) {
-                              if (loadingProgress == null) return child;
-                              return ColoredBox(
-                                color: scheme.surfaceContainerHigh,
-                                child: Center(
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: scheme.onSurfaceVariant,
-                                  ),
+                            memCacheWidth: avatarMemW,
+                            memCacheHeight: avatarMemH,
+                            placeholder: (_, __) => ColoredBox(
+                              color: scheme.surfaceContainerHigh,
+                              child: Center(
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: scheme.onSurfaceVariant,
                                 ),
-                              );
-                            },
-                            errorBuilder: (_, _, _) => ColoredBox(
+                              ),
+                            ),
+                            errorWidget: (_, __, ___) => ColoredBox(
                               color: scheme.surfaceContainerHigh,
                               child: Icon(
                                 Icons.broken_image_outlined,
@@ -643,9 +668,9 @@ class _CreatorProfilePage extends StatelessWidget {
                     const SizedBox(height: AppSpacing.sm),
                     Center(
                       child: Text(
-                        isOnline ? '● Online' : '● Busy',
+                        widget.isOnline ? '● Online' : '● Busy',
                         style: TextStyle(
-                          color: isOnline
+                          color: widget.isOnline
                               ? AppPalette.success
                               : AppPalette.warning,
                           fontSize: 16,
@@ -656,14 +681,14 @@ class _CreatorProfilePage extends StatelessWidget {
                     const SizedBox(height: AppSpacing.sm),
                     Center(
                       child: Text(
-                        '${creator.name} $age',
+                        '${merged.name} ${widget.age}',
                         style: Theme.of(context).textTheme.headlineSmall
                             ?.copyWith(fontWeight: FontWeight.w600),
                       ),
                     ),
                     Center(
                       child: Text(
-                        country,
+                        widget.country,
                         style: Theme.of(context).textTheme.titleMedium
                             ?.copyWith(color: scheme.onSurfaceVariant),
                       ),
@@ -671,7 +696,7 @@ class _CreatorProfilePage extends StatelessWidget {
                     const SizedBox(height: AppSpacing.sm),
                     Center(
                       child: CreatorPricePerMinuteLabel(
-                        price: creator.price,
+                        price: merged.price,
                         iconColor: scheme.onSurface,
                         textStyle: Theme.of(context).textTheme.titleMedium
                             ?.copyWith(
@@ -689,12 +714,27 @@ class _CreatorProfilePage extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: AppSpacing.sm),
-                    Text(
-                      creator.about.isNotEmpty
-                          ? creator.about
-                          : 'No bio available.',
-                      style: Theme.of(context).textTheme.bodyLarge,
-                    ),
+                    if (detailAsync.isLoading && merged.about.trim().isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+                        child: Center(
+                          child: SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      )
+                    else
+                      Text(
+                        merged.about.trim().isNotEmpty
+                            ? merged.about
+                            : 'No bio available.',
+                        style: Theme.of(context).textTheme.bodyLarge,
+                      ),
                     const SizedBox(height: AppSpacing.lg),
                     Text(
                       'Pictures',
@@ -703,7 +743,36 @@ class _CreatorProfilePage extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: AppSpacing.md),
-                    if (galleryUrls.isEmpty)
+                    if (galleryLoading)
+                      GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 3,
+                              crossAxisSpacing: AppSpacing.sm,
+                              mainAxisSpacing: AppSpacing.sm,
+                              childAspectRatio: 0.85,
+                            ),
+                        itemCount: 6,
+                        itemBuilder: (_, __) => DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: scheme.surfaceContainerHigh,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Center(
+                            child: SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ),
+                      )
+                    else if (galleryItems.isEmpty)
                       Text(
                         'no pictures added',
                         style: Theme.of(context).textTheme.bodyLarge?.copyWith(
@@ -721,47 +790,32 @@ class _CreatorProfilePage extends StatelessWidget {
                               mainAxisSpacing: AppSpacing.sm,
                               childAspectRatio: 0.85,
                             ),
-                        itemCount: galleryUrls.length,
+                        itemCount: galleryItems.length,
                         itemBuilder: (context, index) {
-                          final url = galleryUrls[index];
+                          final item = galleryItems[index];
                           return Material(
                             color: Colors.transparent,
                             child: InkWell(
-                              onTap: () => _openGalleryImage(context, url),
+                              onTap: () =>
+                                  _openGalleryImage(context, item.fullUrl),
                               borderRadius: BorderRadius.circular(14),
                               child: ClipRRect(
                                 borderRadius: BorderRadius.circular(14),
-                                child: Image.network(
-                                  url,
+                                child: CachedNetworkImage(
+                                  imageUrl: item.thumbUrl,
                                   fit: BoxFit.cover,
-                                  cacheWidth:
-                                      (140 *
-                                              MediaQuery.of(
-                                                context,
-                                              ).devicePixelRatio)
-                                          .round(),
-                                  cacheHeight:
-                                      (180 *
-                                              MediaQuery.of(
-                                                context,
-                                              ).devicePixelRatio)
-                                          .round(),
-                                  loadingBuilder:
-                                      (context, child, loadingProgress) {
-                                        if (loadingProgress == null) {
-                                          return child;
-                                        }
-                                        return ColoredBox(
-                                          color: scheme.surfaceContainerHigh,
-                                          child: Center(
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              color: scheme.onSurfaceVariant,
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                  errorBuilder: (_, _, _) => ColoredBox(
+                                  memCacheWidth: gridMemW,
+                                  memCacheHeight: gridMemH,
+                                  placeholder: (_, __) => ColoredBox(
+                                    color: scheme.surfaceContainerHigh,
+                                    child: Center(
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: scheme.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ),
+                                  errorWidget: (_, __, ___) => ColoredBox(
                                     color: scheme.surfaceContainerHigh,
                                     child: Icon(
                                       Icons.broken_image_outlined,
@@ -791,8 +845,9 @@ class _CreatorProfilePage extends StatelessWidget {
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: isOpeningChat ? null : onChatPressed,
-                        icon: isOpeningChat
+                        onPressed:
+                            widget.isOpeningChat ? null : widget.onChatPressed,
+                        icon: widget.isOpeningChat
                             ? const SizedBox(
                                 width: 16,
                                 height: 16,
@@ -813,8 +868,8 @@ class _CreatorProfilePage extends StatelessWidget {
                     const SizedBox(width: AppSpacing.md),
                     Expanded(
                       child: FilledButton.icon(
-                        onPressed: isOnline ? onCallPressed : null,
-                        icon: isCalling
+                        onPressed: widget.isOnline ? widget.onCallPressed : null,
+                        icon: widget.isCalling
                             ? const SizedBox(
                                 width: 16,
                                 height: 16,
@@ -865,28 +920,25 @@ class _CreatorGalleryImageViewer extends StatelessWidget {
         child: InteractiveViewer(
           minScale: 0.5,
           maxScale: 4,
-          child: Image.network(
-            url,
+          child: CachedNetworkImage(
+            imageUrl: url,
             fit: BoxFit.contain,
-            cacheWidth:
+            memCacheWidth:
                 (MediaQuery.of(context).size.width *
                         MediaQuery.of(context).devicePixelRatio)
                     .round(),
-            cacheHeight:
+            memCacheHeight:
                 (MediaQuery.of(context).size.height *
                         MediaQuery.of(context).devicePixelRatio)
                     .round(),
-            loadingBuilder: (context, child, loadingProgress) {
-              if (loadingProgress == null) return child;
-              return const SizedBox(
-                height: 120,
-                width: 120,
-                child: Center(
-                  child: CircularProgressIndicator(color: Colors.white70),
-                ),
-              );
-            },
-            errorBuilder: (_, _, _) => const Icon(
+            placeholder: (_, __) => const SizedBox(
+              height: 120,
+              width: 120,
+              child: Center(
+                child: CircularProgressIndicator(color: Colors.white70),
+              ),
+            ),
+            errorWidget: (_, __, ___) => const Icon(
               Icons.broken_image_outlined,
               color: Colors.white54,
               size: 64,
@@ -910,20 +962,20 @@ class _CardImage extends StatelessWidget {
     final width = MediaQuery.of(context).size.width;
     final tileWidthPx = math.max(120, (width / 2 * dpr).round());
     final tileHeightPx = math.max(180, (tileWidthPx * 1.4).round());
-    final creatorPhoto = creator?.photo;
-    if (creator != null) {
+    final c = creator;
+    if (c != null) {
+      final creatorPhoto = c.displayPhoto;
       // Creators must use Firebase/network image only.
-      if (creatorPhoto != null &&
-          creatorPhoto.isNotEmpty &&
+      if (creatorPhoto.isNotEmpty &&
           (creatorPhoto.startsWith('http://') ||
               creatorPhoto.startsWith('https://') ||
               creatorPhoto.startsWith('data:'))) {
-        return Image.network(
-          creatorPhoto,
+        return CachedNetworkImage(
+          imageUrl: creatorPhoto,
           fit: BoxFit.cover,
-          cacheWidth: tileWidthPx,
-          cacheHeight: tileHeightPx,
-          errorBuilder: (context, error, stackTrace) {
+          memCacheWidth: tileWidthPx,
+          memCacheHeight: tileHeightPx,
+          errorWidget: (context, _, __) {
             final scheme = Theme.of(context).colorScheme;
             return DecoratedBox(
               decoration: BoxDecoration(color: scheme.surfaceContainerHigh),

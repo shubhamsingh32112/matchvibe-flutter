@@ -2,9 +2,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/home_provider.dart';
 
-const int _presenceHydrationPageSize = 50;
-const int _presenceHydrationMaxPages = 8;
-
 final presenceHydrationServiceProvider = Provider<PresenceHydrationService>((ref) {
   return PresenceHydrationService(apiGet: ref.read(homeApiGetProvider));
 });
@@ -14,23 +11,43 @@ class PresenceHydrationService {
 
   final HomeApiGet _apiGet;
 
+  /// Single round-trip: all creator Firebase UIDs for presence (no gallery / Storage work).
   Future<List<String>> collectCreatorFirebaseUids() async {
-    return _collectFirebaseUids(
-      pathBuilder: (page) =>
-          '/creator?page=$page&limit=$_presenceHydrationPageSize',
-      listSelector: (data) => data['creators'] as List? ?? const [],
-    );
+    final response = await _apiGet('/creator/uids');
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Presence hydration failed at /creator/uids with status ${response.statusCode}',
+      );
+    }
+    final body = response.data as Map<String, dynamic>? ?? const {};
+    final data = body['data'] as Map<String, dynamic>? ?? const {};
+    final raw = data['firebaseUids'];
+    if (raw is! List) return const [];
+    final ids = <String>{};
+    for (final e in raw) {
+      final s = e?.toString().trim();
+      if (s != null && s.isNotEmpty) ids.add(s);
+    }
+    if (kDebugMode) {
+      debugPrint(
+        '📡 [PRESENCE HYDRATION] Collected ${ids.length} uid(s) from /creator/uids',
+      );
+    }
+    return ids.toList(growable: false);
   }
 
   Future<List<String>> collectUserFirebaseUids() async {
-    return _collectFirebaseUids(
+    return _collectFirebaseUidsFromPagedList(
       pathBuilder: (page) =>
           '/user/list?page=$page&limit=$_presenceHydrationPageSize',
       listSelector: (data) => data['users'] as List? ?? const [],
     );
   }
 
-  Future<List<String>> _collectFirebaseUids({
+  static const int _presenceHydrationPageSize = 50;
+  static const int _presenceHydrationMaxPages = 8;
+
+  Future<List<String>> _collectFirebaseUidsFromPagedList({
     required String Function(int page) pathBuilder,
     required List<dynamic> Function(Map<String, dynamic> data) listSelector,
   }) async {
@@ -71,7 +88,7 @@ class PresenceHydrationService {
 
     if (kDebugMode) {
       debugPrint(
-        '📡 [PRESENCE HYDRATION] Collected ${ids.length} uid(s) with page sweep',
+        '📡 [PRESENCE HYDRATION] Collected ${ids.length} user uid(s) with page sweep',
       );
     }
     return ids.toList(growable: false);

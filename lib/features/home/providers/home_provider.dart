@@ -62,7 +62,6 @@ class CreatorFeedNotifier extends AsyncNotifier<List<CreatorModel>> {
   bool _isLoadingMore = false;
   int _requestId = 0;
   List<CreatorModel> _items = const [];
-  List<CreatorModel>? _fallbackFullList;
 
   @override
   Future<List<CreatorModel>> build() async {
@@ -75,21 +74,13 @@ class CreatorFeedNotifier extends AsyncNotifier<List<CreatorModel>> {
     _publishMeta();
     final localRequest = ++_requestId;
     try {
-      if (_fallbackFullList != null) {
-        final all = _fallbackFullList!;
-        final nextLength = (_items.length + homeFeedPageSize).clamp(0, all.length);
-        _items = all.take(nextLength).toList();
-        _hasMore = _items.length < all.length;
-        state = AsyncData(_items);
-      } else {
-        final page = await _fetchPage(_nextPage);
-        if (localRequest != _requestId) return;
-        _items = [..._items, ...page.items];
-        _nextPage = page.page + 1;
-        _total = page.total ?? _items.length;
-        _hasMore = page.hasMore;
-        state = AsyncData(_items);
-      }
+      final page = await _fetchPage(_nextPage);
+      if (localRequest != _requestId) return;
+      _items = [..._items, ...page.items];
+      _nextPage = page.page + 1;
+      _total = page.total ?? _items.length;
+      _hasMore = page.hasMore;
+      state = AsyncData(_items);
     } catch (e, st) {
       debugPrint('❌ [HOME] Failed to load more creators: $e');
       state = AsyncError(e, st);
@@ -109,7 +100,6 @@ class CreatorFeedNotifier extends AsyncNotifier<List<CreatorModel>> {
     _total = 0;
     _hasMore = true;
     _isLoadingMore = false;
-    _fallbackFullList = null;
     _publishMeta();
     final page = await _fetchPage(1);
     _items = page.items;
@@ -122,7 +112,7 @@ class CreatorFeedNotifier extends AsyncNotifier<List<CreatorModel>> {
 
   Future<_CreatorPage> _fetchPage(int page) async {
     final response = await ref.read(homeApiGetProvider)(
-      '/creator?page=$page&limit=$homeFeedPageSize',
+      '/creator/feed?page=$page&limit=$homeFeedPageSize',
     );
     if (response.statusCode != 200) {
       throw Exception('Failed to fetch creators: status ${response.statusCode}');
@@ -148,26 +138,22 @@ class CreatorFeedNotifier extends AsyncNotifier<List<CreatorModel>> {
 
     final pagination =
         responseData['data']['pagination'] as Map<String, dynamic>?;
-    if (pagination != null) {
-      final currentPage = (pagination['page'] as num?)?.toInt() ?? page;
-      final total = (pagination['total'] as num?)?.toInt();
-      final totalPages = (pagination['totalPages'] as num?)?.toInt() ?? currentPage;
+    if (pagination == null) {
       return _CreatorPage(
         items: creators,
-        page: currentPage,
-        total: total,
-        hasMore: currentPage < totalPages,
+        page: page,
+        total: creators.length,
+        hasMore: false,
       );
     }
-
-    // Backward-compatible fallback for backends that still return full catalog.
-    _fallbackFullList = creators;
-    final firstPage = creators.take(homeFeedPageSize).toList();
+    final currentPage = (pagination['page'] as num?)?.toInt() ?? page;
+    final total = (pagination['total'] as num?)?.toInt();
+    final totalPages = (pagination['totalPages'] as num?)?.toInt() ?? currentPage;
     return _CreatorPage(
-      items: firstPage,
-      page: 1,
-      total: creators.length,
-      hasMore: creators.length > firstPage.length,
+      items: creators,
+      page: currentPage,
+      total: total,
+      hasMore: currentPage < totalPages,
     );
   }
 
@@ -290,6 +276,27 @@ final creatorsProvider =
     AsyncNotifierProvider<CreatorFeedNotifier, List<CreatorModel>>(
       CreatorFeedNotifier.new,
     );
+
+/// Full creator profile (gallery, about) for progressive hydration after feed cards.
+final creatorDetailProvider =
+    FutureProvider.autoDispose.family<CreatorModel, String>((ref, creatorId) async {
+  final response = await ref.read(homeApiGetProvider)('/creator/$creatorId');
+  if (response.statusCode != 200) {
+    throw Exception(
+      'Failed to fetch creator detail: status ${response.statusCode}',
+    );
+  }
+  final responseData = response.data as Map<String, dynamic>?;
+  if (responseData?['success'] != true || responseData?['data'] == null) {
+    throw Exception('Invalid creator detail response');
+  }
+  final data = responseData!['data'] as Map<String, dynamic>;
+  final raw = data['creator'];
+  if (raw is! Map) {
+    throw Exception('Missing creator in response');
+  }
+  return CreatorModel.fromJson(Map<String, dynamic>.from(raw));
+});
 
 // Provider to fetch creators (for users)
 // Provider to fetch users (for creators)

@@ -3,6 +3,7 @@ import 'package:equatable/equatable.dart';
 class CreatorGalleryImage extends Equatable {
   final String id;
   final String url;
+  final String? thumbnailUrl;
   final String storagePath;
   final int position;
   final DateTime? createdAt;
@@ -10,6 +11,7 @@ class CreatorGalleryImage extends Equatable {
   const CreatorGalleryImage({
     required this.id,
     required this.url,
+    this.thumbnailUrl,
     required this.storagePath,
     required this.position,
     this.createdAt,
@@ -25,6 +27,7 @@ class CreatorGalleryImage extends Equatable {
     return CreatorGalleryImage(
       id: json['id'] as String,
       url: json['url'] as String,
+      thumbnailUrl: json['thumbnailUrl'] as String?,
       storagePath: json['storagePath'] as String? ?? '',
       position: (json['position'] as num?)?.toInt() ?? 0,
       createdAt: createdAt,
@@ -35,6 +38,7 @@ class CreatorGalleryImage extends Equatable {
     return {
       'id': id,
       'url': url,
+      if (thumbnailUrl != null) 'thumbnailUrl': thumbnailUrl,
       'storagePath': storagePath,
       'position': position,
       'createdAt': createdAt?.toIso8601String(),
@@ -42,7 +46,8 @@ class CreatorGalleryImage extends Equatable {
   }
 
   @override
-  List<Object?> get props => [id, url, storagePath, position, createdAt];
+  List<Object?> get props =>
+      [id, url, thumbnailUrl, storagePath, position, createdAt];
 }
 
 class CreatorModel extends Equatable {
@@ -52,6 +57,8 @@ class CreatorModel extends Equatable {
   final String name;
   final String about;
   final String photo;
+  /// Resized avatar URL when backend / extension provides it.
+  final String? thumbnailPhoto;
   final List<CreatorGalleryImage> galleryImages;
   final List<String>? categories;
   final double price;
@@ -72,6 +79,7 @@ class CreatorModel extends Equatable {
     required this.name,
     required this.about,
     required this.photo,
+    this.thumbnailPhoto,
     this.galleryImages = const [],
     this.categories,
     required this.price,
@@ -83,14 +91,22 @@ class CreatorModel extends Equatable {
     this.updatedAt,
   });
 
+  /// Prefer small thumbnail for grid when available.
+  String get displayPhoto {
+    final t = thumbnailPhoto?.trim();
+    if (t != null && t.isNotEmpty) return t;
+    return photo;
+  }
+
   factory CreatorModel.fromJson(Map<String, dynamic> json) {
     return CreatorModel(
       id: json['id'] as String,
-      userId: json['userId'] as String, // Required - no fallback
+      userId: (json['userId'] as String?) ?? '',
       firebaseUid: json['firebaseUid'] as String?,
       name: json['name'] as String,
-      about: json['about'] as String,
+      about: (json['about'] as String?) ?? '',
       photo: json['photo'] as String,
+      thumbnailPhoto: json['thumbnailPhoto'] as String?,
       galleryImages: _parseGalleryImages(json['galleryImages']),
       categories: json['categories'] != null
           ? List<String>.from(json['categories'] as List)
@@ -126,6 +142,44 @@ class CreatorModel extends Equatable {
     return out;
   }
 
+  CreatorModel copyWith({
+    String? id,
+    String? userId,
+    String? firebaseUid,
+    String? name,
+    String? about,
+    String? photo,
+    String? thumbnailPhoto,
+    List<CreatorGalleryImage>? galleryImages,
+    List<String>? categories,
+    double? price,
+    int? age,
+    bool? isOnline,
+    bool? isFavorite,
+    String? availability,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return CreatorModel(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      firebaseUid: firebaseUid ?? this.firebaseUid,
+      name: name ?? this.name,
+      about: about ?? this.about,
+      photo: photo ?? this.photo,
+      thumbnailPhoto: thumbnailPhoto ?? this.thumbnailPhoto,
+      galleryImages: galleryImages ?? this.galleryImages,
+      categories: categories ?? this.categories,
+      price: price ?? this.price,
+      age: age ?? this.age,
+      isOnline: isOnline ?? this.isOnline,
+      isFavorite: isFavorite ?? this.isFavorite,
+      availability: availability ?? this.availability,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -134,6 +188,7 @@ class CreatorModel extends Equatable {
       'name': name,
       'about': about,
       'photo': photo,
+      'thumbnailPhoto': thumbnailPhoto,
       'galleryImages': galleryImages.map((e) => e.toJson()).toList(),
       'categories': categories,
       'price': price,
@@ -154,6 +209,7 @@ class CreatorModel extends Equatable {
         name,
         about,
         photo,
+        thumbnailPhoto,
         galleryImages,
         categories,
         price,

@@ -203,6 +203,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         if (token != null && token.isNotEmpty) {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString(AppConstants.keyAuthToken, token);
+          ApiClient.setAuthTokenMemory(token);
           if (kDebugMode) {
             debugPrint('💾 [AUTH] ID token persisted from idTokenChanges');
           }
@@ -251,6 +252,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         _lastSyncedUid = null;
         _phoneVerificationInProgress = false;
         _phoneBlockedUntil = null;
+        ApiClient.clearAuthTokenMemory();
         state = AuthState();
       }
     });
@@ -347,6 +349,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(AppConstants.keyAuthToken, token);
+      ApiClient.setAuthTokenMemory(token);
       debugPrint('💾 [AUTH] Token saved to local storage');
 
       debugPrint('───────────────────────────────────────────────────────');
@@ -1328,6 +1331,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       }
 
       debugPrint('🗑️  [AUTH] Clearing local storage...');
+      ApiClient.clearAuthTokenMemory();
       final prefs = await SharedPreferences.getInstance();
       await prefs.clear();
       debugPrint('✅ [AUTH] Local storage cleared');
@@ -1383,6 +1387,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       if (token == null) return false;
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(AppConstants.keyAuthToken, token);
+      ApiClient.setAuthTokenMemory(token);
       if (kDebugMode) {
         debugPrint('🔑 [AUTH] Firebase ID token refreshed proactively');
       }

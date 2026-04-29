@@ -98,7 +98,7 @@ void main() {
       overrides: [
         homeApiGetProvider.overrideWith((ref) {
           return (path) async {
-            if (path.contains('/creator?page=1')) {
+            if (path.contains('/creator/feed?page=1')) {
               return _responseFor(path, {
                 'success': true,
                 'data': {
@@ -112,7 +112,7 @@ void main() {
                 },
               });
             }
-            if (path.contains('/creator?page=2')) {
+            if (path.contains('/creator/feed?page=2')) {
               return _responseFor(path, {
                 'success': true,
                 'data': {

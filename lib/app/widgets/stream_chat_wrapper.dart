@@ -130,6 +130,8 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
     if (role != 'creator') {
       Future<void>(() async {
         try {
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+          if (!mounted) return;
           final ids = await ref
               .read(presenceHydrationServiceProvider)
               .collectCreatorFirebaseUids();
@@ -148,6 +150,8 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
     if (role == 'creator' || role == 'admin') {
       Future<void>(() async {
         try {
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+          if (!mounted) return;
           final ids = await ref
               .read(presenceHydrationServiceProvider)
               .collectUserFirebaseUids();

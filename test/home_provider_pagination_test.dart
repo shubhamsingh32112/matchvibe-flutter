@@ -38,7 +38,7 @@ void main() {
       overrides: [
         homeApiGetProvider.overrideWith((ref) {
           return (path) async {
-            if (path.contains('/creator?page=1')) {
+            if (path.contains('/creator/feed?page=1')) {
               return _responseFor(path, {
                 'success': true,
                 'data': {
