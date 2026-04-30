@@ -34,6 +34,7 @@ class AuthState {
   final int? resendToken;
   final String? phoneNumber;
   final bool createdNow;
+  final bool showWelcomeBackDialog;
 
   AuthState({
     this.firebaseUser,
@@ -44,6 +45,7 @@ class AuthState {
     this.resendToken,
     this.phoneNumber,
     this.createdNow = false,
+    this.showWelcomeBackDialog = false,
   });
 
   bool get isAuthenticated => firebaseUser != null && user != null;
@@ -57,6 +59,7 @@ class AuthState {
     int? resendToken,
     String? phoneNumber,
     bool? createdNow,
+    bool? showWelcomeBackDialog,
   }) {
     return AuthState(
       firebaseUser: firebaseUser ?? this.firebaseUser,
@@ -67,6 +70,7 @@ class AuthState {
       resendToken: resendToken ?? this.resendToken,
       phoneNumber: phoneNumber ?? this.phoneNumber,
       createdNow: createdNow ?? this.createdNow,
+      showWelcomeBackDialog: showWelcomeBackDialog ?? this.showWelcomeBackDialog,
     );
   }
 }
@@ -390,6 +394,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
       if (response.statusCode == 200) {
         final responseData = response.data['data'] as Map<String, dynamic>;
+        final meta = responseData['meta'];
+        final showWelcomeBackDialog =
+            meta is Map<String, dynamic> && meta['showWelcomeBackDialog'] == true;
         String? referralToastMessage;
         String? referralToastCode;
 
@@ -550,6 +557,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
           user: user,
           isLoading: false,
           createdNow: createdNow,
+          showWelcomeBackDialog: showWelcomeBackDialog,
         );
         debugPrint('✅ [AUTH] User authenticated and synced successfully');
         debugPrint('   🎉 Ready for app usage');
@@ -660,6 +668,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
       // 🔥 FIX: Always reset sync guard
       _isSyncingToBackend = false;
     }
+  }
+
+  void clearWelcomeBackDialogFlag() {
+    if (state.showWelcomeBackDialog == false) return;
+    state = state.copyWith(showWelcomeBackDialog: false);
   }
 
   Future<void> _persistPendingReferralCode() async {

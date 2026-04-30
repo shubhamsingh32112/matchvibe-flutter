@@ -55,6 +55,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     with WidgetsBindingObserver {
   bool _welcomeDialogShown = false;
   bool _welcomeDialogActive = false;
+  bool _welcomeBackDialogActive = false;
   final SupportService _supportService = SupportService();
   String? _lastHandledFeedbackCallId;
   final ScrollController _homeScrollController = ScrollController();
@@ -79,6 +80,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(_checkAndShowWelcomeBackDialog());
     _checkAndShowWelcomeDialog();
     // Note: Permission onboarding is now requested after welcome bonus accept
     // Connect Socket.IO and hydrate creator availability from Redis
@@ -113,6 +115,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       final stageChanged =
           previous?.user?.onboardingStage != next.user?.onboardingStage;
       if (userBecameReady || stageChanged) {
+        unawaited(_checkAndShowWelcomeBackDialog());
         unawaited(_checkAndShowWelcomeDialog());
       }
     });
@@ -149,6 +152,61 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             );
       },
     );
+  }
+
+  Future<void> _checkAndShowWelcomeBackDialog() async {
+    if (!mounted || _welcomeBackDialogActive) return;
+    final authState = ref.read(authProvider);
+    if (!authState.showWelcomeBackDialog) return;
+
+    final firebaseUid = authState.firebaseUser?.uid;
+    if (firebaseUid == null) {
+      ref.read(authProvider.notifier).clearWelcomeBackDialogFlag();
+      return;
+    }
+
+    final alreadyShown =
+        await WelcomeService.hasWelcomeBackDialogBeenShown(firebaseUid);
+    if (alreadyShown) {
+      ref.read(authProvider.notifier).clearWelcomeBackDialogFlag();
+      return;
+    }
+
+    _welcomeBackDialogActive = true;
+    await WelcomeService.markWelcomeBackDialogShown(firebaseUid);
+
+    final id = ref
+        .read(modalCoordinatorProvider.notifier)
+        .nextRequestId('welcome-back');
+    ref.read(modalCoordinatorProvider.notifier).enqueue<void>(
+          AppModalRequest<void>(
+            id: id,
+            priority: AppModalPriority.high,
+            dedupeKey: 'welcome-back',
+            present: (ctx, _) {
+              return showAppModalDialog<void>(
+                context: ctx,
+                barrierDismissible: true,
+                builder: (context) => AlertDialog(
+                  title: const Text('Welcome back'),
+                  content: const Text(
+                    'Your account was previously deleted. You can continue using the app, but the welcome bonus is only available once.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('OK'),
+                    ),
+                  ],
+                ),
+              );
+            },
+            onCompleted: (_) {
+              _welcomeBackDialogActive = false;
+              ref.read(authProvider.notifier).clearWelcomeBackDialogFlag();
+            },
+          ),
+        );
   }
 
   @override
