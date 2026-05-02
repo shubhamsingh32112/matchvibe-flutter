@@ -56,6 +56,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
   AppLinks? _appLinks;
   StreamSubscription<Uri>? _deepLinkSub;
   bool _coinPopupShownThisSession = false;
+  bool _sessionCoinPopupDeferInFlight = false;
   final AppUpdateService _appUpdateService = AppUpdateService();
   String? _lastDeferredAppUpdateId;
   bool _isAppUpdatePopupPresenting = false;
@@ -89,7 +90,6 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(socketServiceProvider);
       _ensureCreatorOnline();
-      _maybeShowCoinPopupForCurrentState();
       unawaited(_retryDeferredUpdateAcks());
       unawaited(_refreshPendingAppUpdate());
     });
@@ -241,6 +241,8 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       final prevUid = prev?.firebaseUser?.uid;
       final nextUid = next.firebaseUser?.uid;
       if (prevUid != nextUid) {
+        // New session or account switch — allow session-start coin sheet again.
+        _coinPopupShownThisSession = false;
         unawaited(
           _onAuthUidChanged(prevUid: prevUid, nextUid: nextUid),
         );
@@ -252,13 +254,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
         _ensureCreatorOnline();
       }
 
-      if (prev != null &&
-          next.isAuthenticated &&
-          !_coinPopupShownThisSession &&
-          user != null &&
-          user.role == 'user') {
-        _showCoinPurchasePopupOnAppOpen();
-      }
+      _maybeDeferSessionStartCoinPopup(prev, next);
       if (next.isAuthenticated && user != null) {
         unawaited(_retryDeferredUpdateAcks());
         if (!next.createdNow) {
@@ -424,13 +420,77 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     _enqueueAppUpdatePopup(pending, source: source);
   }
 
-  void _maybeShowCoinPopupForCurrentState() {
-    final authState = ref.read(authProvider);
-    if (authState.isAuthenticated &&
-        !_coinPopupShownThisSession &&
-        authState.user != null &&
-        authState.user!.role == 'user') {
-      _showCoinPurchasePopupOnAppOpen();
+  /// Session-start upsell: single path from [authProvider], deferred until the
+  /// shell router and auth are stable so the bottom sheet is not immediately
+  /// disposed by a GoRouter transition.
+  void _maybeDeferSessionStartCoinPopup(AuthState? prev, AuthState next) {
+    if (_coinPopupShownThisSession || _sessionCoinPopupDeferInFlight) return;
+
+    final becameStableUser = next.isAuthenticated &&
+        next.user != null &&
+        next.user!.role == 'user' &&
+        !next.isLoading;
+
+    final prevWasNotReady = prev == null ||
+        !prev.isAuthenticated ||
+        prev.user == null ||
+        prev.user!.role != 'user' ||
+        prev.isLoading;
+
+    if (!becameStableUser || !prevWasNotReady) return;
+
+    unawaited(_deferSessionStartCoinPopup());
+  }
+
+  bool _sessionCoinPopupRouterLocationOk() {
+    final path = appRouter.routeInformationProvider.value.uri.path;
+    if (path == '/splash' ||
+        path == '/login' ||
+        path == '/otp' ||
+        path == '/gender') {
+      return false;
+    }
+    if (path.startsWith('/agent-verification')) return false;
+    return true;
+  }
+
+  Future<void> _deferSessionStartCoinPopup() async {
+    if (_coinPopupShownThisSession ||
+        _sessionCoinPopupDeferInFlight ||
+        !mounted) {
+      return;
+    }
+    _sessionCoinPopupDeferInFlight = true;
+    try {
+      for (var i = 0; i < 25; i++) {
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted || _coinPopupShownThisSession) return;
+
+        final auth = ref.read(authProvider);
+        if (!auth.isAuthenticated ||
+            auth.user?.role != 'user' ||
+            auth.isLoading) {
+          return;
+        }
+        if (_isInActiveCallPhase()) return;
+        if (ref.read(modalCoordinatorProvider).onboardingInProgress) return;
+
+        if (!_sessionCoinPopupRouterLocationOk()) {
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+          continue;
+        }
+
+        final navCtx = appRouter.routerDelegate.navigatorKey.currentContext;
+        if (navCtx == null || !navCtx.mounted) {
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+          continue;
+        }
+
+        _showCoinPurchasePopupOnAppOpen();
+        return;
+      }
+    } finally {
+      _sessionCoinPopupDeferInFlight = false;
     }
   }
 

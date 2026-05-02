@@ -152,17 +152,14 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
       );
     }
 
-    // ── Regular user view: just recent chats ─────────────────────────────
+    // ── Regular user view: same tile titles as creators (other member, not channel name)
     return MainLayout(
       selectedIndex: 2,
       child: Scaffold(
-        body: RefreshIndicator(
-          onRefresh: () => _controller!.refresh(),
-          child: StreamChannelListView(
-            controller: _controller!,
-            onChannelTap: _onChannelTap,
-            emptyBuilder: (context) => _buildEmptyState(),
-          ),
+        body: _RecentChatsChannelList(
+          controller: _controller!,
+          onChannelTap: _onChannelTap,
+          emptyBuilder: (context) => _buildEmptyState(),
         ),
       ),
     );
@@ -202,38 +199,39 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Tab 1 — Recent Chats (existing Stream channel list)
+// Recent chats list — shared between regular users and creators (tab 1)
 // ═════════════════════════════════════════════════════════════════════════════
 
-class _RecentChatsTab extends StatelessWidget {
+class _RecentChatsChannelList extends StatelessWidget {
   final StreamChannelListController controller;
   final void Function(Channel) onChannelTap;
+  final Widget Function(BuildContext context) emptyBuilder;
 
-  const _RecentChatsTab({
+  const _RecentChatsChannelList({
     required this.controller,
     required this.onChannelTap,
+    required this.emptyBuilder,
   });
 
   @override
   Widget build(BuildContext context) {
     final streamChat = StreamChat.maybeOf(context);
     final currentUserId = streamChat?.client.state.currentUser?.id;
-    
+
     return RefreshIndicator(
       onRefresh: () => controller.refresh(),
       child: StreamChannelListView(
         controller: controller,
         onChannelTap: onChannelTap,
-        // Custom item builder to show other user's name (not channel name)
         itemBuilder: currentUserId != null
             ? (context, channels, index, defaultTile) {
                 final channel = channels[index];
-                // Get the other user's display name
-                final otherUserName = getOtherUserDisplayName(channel, currentUserId);
-                final otherUser = getOtherUserFromChannel(channel, currentUserId);
+                final otherUserName =
+                    getOtherUserDisplayName(channel, currentUserId);
+                final otherUser =
+                    getOtherUserFromChannel(channel, currentUserId);
                 final otherUserImage = otherUser?.image;
-                
-                // Use StreamChannelListTile but customize the title to show other user's name
+
                 return StreamChannelListTile(
                   channel: channel,
                   onTap: () => onChannelTap(channel),
@@ -247,45 +245,72 @@ class _RecentChatsTab extends StatelessWidget {
                           radius: 20,
                         )
                       : CircleAvatar(
-                          backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                          radius: 20,
+                          backgroundColor: Theme.of(context)
+                              .colorScheme
+                              .primaryContainer,
                           child: Icon(
                             Icons.person,
-                            color: Theme.of(context).colorScheme.onPrimaryContainer,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onPrimaryContainer,
                             size: 20,
                           ),
-                          radius: 20,
                         ),
                 );
               }
             : null,
-        emptyBuilder: (context) => Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.chat_bubble_outline,
-                size: 64,
-                color: AppPalette.emptyIcon,
+        emptyBuilder: emptyBuilder,
+      ),
+    );
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Tab 1 — Recent Chats (creator shell)
+// ═════════════════════════════════════════════════════════════════════════════
+
+class _RecentChatsTab extends StatelessWidget {
+  final StreamChannelListController controller;
+  final void Function(Channel) onChannelTap;
+
+  const _RecentChatsTab({
+    required this.controller,
+    required this.onChannelTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _RecentChatsChannelList(
+      controller: controller,
+      onChannelTap: onChannelTap,
+      emptyBuilder: (context) => Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.chat_bubble_outline,
+              size: 64,
+              color: AppPalette.emptyIcon,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No conversations yet',
+              style: TextStyle(
+                fontSize: 18,
+                color: AppPalette.onSurface,
+                fontWeight: FontWeight.w600,
               ),
-              const SizedBox(height: 16),
-              Text(
-                'No conversations yet',
-                style: TextStyle(
-                  fontSize: 18,
-                  color: AppPalette.onSurface,
-                  fontWeight: FontWeight.w600,
-                ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Users will appear here after they message you',
+              style: TextStyle(
+                fontSize: 14,
+                color: AppPalette.subtitle,
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Users will appear here after they message you',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: AppPalette.subtitle,
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
