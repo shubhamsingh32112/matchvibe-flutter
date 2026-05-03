@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:stream_video_flutter/stream_video_flutter.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../shared/widgets/coin_purchase_popup.dart';
-import '../../../shared/widgets/app_modal_bottom_sheet.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../controllers/call_connection_controller.dart';
 import '../utils/call_remote_image_resolver.dart';
@@ -115,10 +114,7 @@ class _IncomingCallWidgetState extends ConsumerState<IncomingCallWidget>
                   if (user != null &&
                       user.role == 'user' &&
                       user.coins < 10) {
-                    showAppModalBottomSheet(
-                      context: context,
-                      builder: (context) => const CoinPurchaseBottomSheet(),
-                    );
+                    context.push('/wallet');
                     return;
                   }
                   ref

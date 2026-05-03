@@ -11,8 +11,6 @@ import '../../features/home/providers/availability_provider.dart';
 import '../../features/creator/providers/creator_dashboard_provider.dart';
 import '../../features/video/controllers/call_connection_controller.dart';
 import '../../features/home/providers/home_provider.dart';
-import '../../shared/widgets/coin_purchase_popup.dart';
-import '../../shared/widgets/app_modal_bottom_sheet.dart';
 import '../../shared/widgets/app_modal_dialog.dart';
 import '../../shared/widgets/app_update_popup.dart';
 import '../../shared/widgets/app_toast.dart';
@@ -215,10 +213,9 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
                 id: id,
                 priority: AppModalPriority.normal,
                 dedupeKey: next.dedupeKey,
-                present: (ctx, _) => showAppModalBottomSheet<void>(
-                  context: ctx,
-                  builder: (_) => const CoinPurchaseBottomSheet(),
-                ),
+                present: (ctx, _) async {
+                  await appRouter.push('/wallet');
+                },
                 onCompleted: (_) {
                   ref.read(coinPurchasePopupProvider.notifier).state = null;
                 },

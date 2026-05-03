@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../../app/widgets/main_layout.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../creator/providers/creator_dashboard_provider.dart';
 import '../../home/providers/availability_provider.dart';
+import '../../video/providers/call_billing_provider.dart';
 import '../providers/wallet_pricing_provider.dart';
 import '../services/payment_service.dart';
 import '../models/earnings_model.dart';
@@ -17,20 +20,34 @@ import '../../../shared/widgets/gem_icon.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 import '../../../shared/widgets/brand_app_chrome.dart';
 
-/// Bottom sheet wrapper for wallet screen
-class WalletBottomSheet extends StatelessWidget {
-  const WalletBottomSheet({super.key});
+/// Reference palette (buy-coins marketing screen — matches design spec).
+const Color _kBuyCoinsPurple = Color(0xFF7B39FD);
+const Color _kBuyCoinsPink = Color(0xFFFF4081);
+const Color _kPageBackground = Color(0xFFFFFFFF);
+const Color _kTextPrimary = Color(0xFF4A2C5E);
+const Color _kTextMuted = Color(0xFF9E9E9E);
 
-  @override
-  Widget build(BuildContext context) {
-    return DraggableScrollableSheet(
-      initialChildSize: 0.75,
-      minChildSize: 0.5,
-      maxChildSize: 0.95,
-      builder: (context, scrollController) => const WalletScreen(),
-    );
-  }
-}
+/// Left art per sorted pack index (0–5). Filenames match [frontend/lib/assets/wallet_icons].
+const List<String> _kWalletTierArt = <String>[
+  'lib/assets/wallet_icons/purple_diamonds_pouch_small.png',
+  'lib/assets/wallet_icons/blue_diamonds.png',
+  'lib/assets/wallet_icons/purple_diamonds.png',
+  'lib/assets/wallet_icons/yellow_diamonds.png',
+  'lib/assets/wallet_icons/purple_diamonds_pouch_big.png',
+  'lib/assets/wallet_icons/diamond_ chest.png',
+];
+
+const String _kWalletBuyCoinsHeroAsset =
+    'lib/assets/wallet_icons/hero_section.jpeg';
+
+const List<Color> _kTierBadgeColors = <Color>[
+  Color(0xFFFF4081),
+  Color(0xFF42A5F5),
+  Color(0xFF9C27B0),
+  Color(0xFFFF9800),
+  Color(0xFF8E24AA),
+  Color(0xFF7B1FA2),
+];
 
 class WalletScreen extends ConsumerStatefulWidget {
   const WalletScreen({super.key});
@@ -46,19 +63,11 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
   @override
   void initState() {
     super.initState();
-
-    // Refresh user data to ensure balance is up-to-date when screen loads
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _refreshUserData();
     });
   }
 
-  @override
-  void dispose() {
-    super.dispose();
-  }
-
-  /// Refresh user data from backend to get latest coin balance
   Future<void> _refreshUserData() async {
     try {
       debugPrint('🔄 [WALLET] Refreshing user data to update balance...');
@@ -69,87 +78,70 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final authState = ref.watch(authProvider);
-    final user = authState.user;
-    final coins = user?.coins ?? 0;
-    final isCreator = user?.role == 'creator' || user?.role == 'admin';
-    final walletPricingAsync = isCreator
-        ? null
-        : ref.watch(walletPricingProvider);
+  Future<void> _addCoins(int coins) async {
+    if (_isAddingCoins) return;
 
-    // Watch the dashboard provider for creator earnings (auto-refreshes via socket)
-    final earningsAsync = isCreator
-        ? ref.watch(dashboardEarningsProvider)
-        : null;
-    ref.watch(socketServiceProvider);
+    bool loadingDialogVisible = false;
+    setState(() {
+      _isAddingCoins = true;
+    });
 
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      child: ColoredBox(
-        color: AppBrandGradients.accountMenuPageBackground,
-        child: SafeArea(
-          top: false,
-          child: Column(
-            children: [
-              BrandSheetHeader(
-                title: 'Wallet',
-                trailing: [BrandHeaderCoinsChip(coins: coins)],
-              ),
-              Expanded(
-              child: isCreator
-                  ? earningsAsync!.when(
-                      data: (earnings) => _CreatorWalletView(
-                        earnings: earnings,
-                        isLoadingEarnings: false,
-                        earningsError: null,
-                        onRefresh: () async {
-                          await _refreshUserData();
-                          ref.invalidate(creatorDashboardProvider);
-                        },
-                        onRetry: () => ref.invalidate(creatorDashboardProvider),
-                        buildCallEarningCard: _buildCallEarningCard,
-                      ),
-                      loading: () => const Center(child: LoadingIndicator()),
-                      error: (error, _) => ErrorState(
-                        title: 'Failed to load earnings',
-                        message: UserMessageMapper.userMessageFor(
-                          error,
-                          fallback: 'Couldn\'t load earnings. Please try again.',
-                        ),
-                        actionLabel: 'Retry',
-                        onAction: () => ref.invalidate(creatorDashboardProvider),
-                      ),
-                    )
-                  : walletPricingAsync!.when(
-                      data: (pricingData) => _UserWalletView(
-                        isAddingCoins: _isAddingCoins,
-                        packages: pricingData.packages,
-                        onRefresh: () async {
-                          await _refreshUserData();
-                          ref.invalidate(walletPricingProvider);
-                        },
-                        onRetry: () => ref.invalidate(walletPricingProvider),
-                        onAddCoins: _addCoins,
-                      ),
-                      loading: () => const Center(child: LoadingIndicator()),
-                      error: (error, _) => ErrorState(
-                        title: 'Failed to load wallet pricing',
-                        message: UserMessageMapper.userMessageFor(
-                          error,
-                          fallback: 'Couldn\'t load coin packs. Please try again.',
-                        ),
-                        actionLabel: 'Retry',
-                        onAction: () => ref.invalidate(walletPricingProvider),
-                      ),
-                    ),
-            ),
-          ],
-        ),
-        ),
-      ),
-    );
+    try {
+      if (!mounted) return;
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
+      loadingDialogVisible = true;
+
+      final checkoutData = await _paymentService.initiateWebCheckout(coins);
+      final checkoutUrl = checkoutData['checkoutUrl'] as String;
+
+      if (mounted && loadingDialogVisible) {
+        Navigator.of(context).pop();
+        loadingDialogVisible = false;
+      }
+
+      final uri = Uri.parse(checkoutUrl);
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched) {
+        throw Exception('Unable to open checkout website');
+      }
+
+      if (mounted) {
+        AppToast.showInfo(
+          context,
+          'Complete payment on the website. App will reopen automatically.',
+          duration: const Duration(seconds: 3),
+        );
+      }
+    } catch (e) {
+      if (mounted && loadingDialogVisible) {
+        Navigator.of(context).pop();
+        loadingDialogVisible = false;
+      }
+
+      if (mounted) {
+        AppToast.showError(
+          context,
+          UserMessageMapper.userMessageFor(
+            e,
+            fallback: 'Couldn\'t start checkout. Please try again.',
+          ),
+          duration: const Duration(seconds: 3),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isAddingCoins = false;
+        });
+      }
+    }
   }
 
   Widget _buildCallEarningCard(CallEarning call) {
@@ -215,13 +207,11 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const GemIcon(
-                    size: 18,
-                  ),
-                  const SizedBox(width: 4),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const GemIcon(size: 18),
+                    const SizedBox(width: 4),
                     Flexible(
                       child: Text(
                         '+${call.earnings.toStringAsFixed(0)}',
@@ -237,7 +227,10 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                 ),
                 Text(
                   'coins',
-                  style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+                  style: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontSize: 12,
+                  ),
                 ),
               ],
             ),
@@ -247,77 +240,104 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
     );
   }
 
-  /// Start web checkout flow for selected pack.
-  Future<void> _addCoins(int coins) async {
-    if (_isAddingCoins) return; // Prevent multiple simultaneous requests
+  @override
+  Widget build(BuildContext context) {
+    final authState = ref.watch(authProvider);
+    final user = authState.user;
+    final isCreator = user?.role == 'creator' || user?.role == 'admin';
+    final billingState = ref.watch(callBillingProvider);
+    final coins = billingState.isActive && !isCreator
+        ? billingState.userCoins
+        : (user?.coins ?? 0);
+    final walletPricingAsync =
+        isCreator ? null : ref.watch(walletPricingProvider);
 
-    bool loadingDialogVisible = false;
-    setState(() {
-      _isAddingCoins = true;
-    });
+    final earningsAsync =
+        isCreator ? ref.watch(dashboardEarningsProvider) : null;
+    ref.watch(socketServiceProvider);
 
-    try {
-      // Show loading dialog while creating order
-      if (!mounted) return;
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(child: CircularProgressIndicator()),
-      );
-      loadingDialogVisible = true;
-
-      // Step 1: Initiate web checkout session
-      final checkoutData = await _paymentService.initiateWebCheckout(coins);
-      final checkoutUrl = checkoutData['checkoutUrl'] as String;
-
-      // Close loading dialog
-      if (mounted && loadingDialogVisible) {
-        Navigator.of(context).pop();
-        loadingDialogVisible = false;
-      }
-
-      // Step 2: Open website checkout in external browser
-      final uri = Uri.parse(checkoutUrl);
-      final launched = await launchUrl(
-        uri,
-        mode: LaunchMode.externalApplication,
-      );
-      if (!launched) {
-        throw Exception('Unable to open checkout website');
-      }
-
-      if (mounted) {
-        AppToast.showInfo(
+    if (isCreator) {
+      return Scaffold(
+        backgroundColor: AppBrandGradients.accountMenuPageBackground,
+        appBar: buildBrandAppBar(
           context,
-          'Complete payment on the website. App will reopen automatically.',
-          duration: const Duration(seconds: 3),
-        );
-      }
-    } catch (e) {
-      // Close loading dialog if still open
-      if (mounted && loadingDialogVisible) {
-        Navigator.of(context).pop();
-        loadingDialogVisible = false;
-      }
-
-      // Show error message
-      if (mounted) {
-        AppToast.showError(
-          context,
-          UserMessageMapper.userMessageFor(
-            e,
-            fallback: 'Couldn\'t start checkout. Please try again.',
+          title: 'Wallet',
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => context.pop(),
           ),
-          duration: const Duration(seconds: 3),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isAddingCoins = false;
-        });
-      }
+          automaticallyImplyLeading: false,
+          actions: [
+            BrandHeaderCoinsChip(coins: coins),
+          ],
+        ),
+        body: earningsAsync!.when(
+          data: (earnings) => _CreatorWalletView(
+            earnings: earnings,
+            isLoadingEarnings: false,
+            earningsError: null,
+            onRefresh: () async {
+              await _refreshUserData();
+              ref.invalidate(creatorDashboardProvider);
+            },
+            onRetry: () => ref.invalidate(creatorDashboardProvider),
+            buildCallEarningCard: _buildCallEarningCard,
+          ),
+          loading: () => const Center(child: LoadingIndicator()),
+          error: (error, _) => ErrorState(
+            title: 'Failed to load earnings',
+            message: UserMessageMapper.userMessageFor(
+              error,
+              fallback: 'Couldn\'t load earnings. Please try again.',
+            ),
+            actionLabel: 'Retry',
+            onAction: () => ref.invalidate(creatorDashboardProvider),
+          ),
+        ),
+      );
     }
+
+    return MainLayout(
+      selectedIndex: 0,
+      child: AppScaffold(
+        // Full-width white sheet (no duplicate horizontal inset vs. inner padding).
+        padded: false,
+        child: walletPricingAsync!.when(
+          data: (pricingData) => SizedBox(
+            width: double.infinity,
+            child: ClipRRect(
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(20)),
+              child: ColoredBox(
+              color: _kPageBackground,
+                child: _UserBuyCoinsBody(
+                  isAddingCoins: _isAddingCoins,
+                  packages: pricingData.packages.take(6).toList(),
+                  onRefresh: () async {
+                    await _refreshUserData();
+                    ref.invalidate(walletPricingProvider);
+                  },
+                  onRetry: () => ref.invalidate(walletPricingProvider),
+                  onAddCoins: _addCoins,
+                ),
+              ),
+            ),
+          ),
+          loading: () => const Center(child: LoadingIndicator()),
+          error: (error, _) => SingleChildScrollView(
+            child: ErrorState(
+              title: 'Failed to load wallet pricing',
+              message: UserMessageMapper.userMessageFor(
+                error,
+                fallback: 'Couldn\'t load coin packs. Please try again.',
+              ),
+              actionLabel: 'Retry',
+              onAction: () => ref.invalidate(walletPricingProvider),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -373,174 +393,169 @@ class _CreatorWalletView extends StatelessWidget {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
         child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Total Earnings Card
-              AppCard(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.account_balance_wallet,
-                          size: 20,
-                          color: scheme.primary,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Total Earnings',
-                          style: TextStyle(
-                            color: scheme.onSurfaceVariant,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        const GemIcon(
-                          size: 36,
-                        ),
-                        const SizedBox(width: 8),
-                        Flexible(
-                          child: Text(
-                            e.totalEarnings.toStringAsFixed(0),
-                            style: TextStyle(
-                              color: scheme.onSurface,
-                              fontSize: 42,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 1,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Text(
-                            'coins',
-                            style: TextStyle(
-                              color: scheme.onSurfaceVariant,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _CreatorStatItem(
-                            label: 'Total Calls',
-                            value: e.totalCalls.toString(),
-                            icon: Icons.phone,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: _CreatorStatItem(
-                            label: 'Total Minutes',
-                            value: e.totalMinutes.toStringAsFixed(1),
-                            icon: Icons.timer,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: () => context.push('/creator/tasks'),
-                        icon: const Icon(Icons.task_alt),
-                        label: const Text('View Tasks & Rewards'),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AppCard(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.account_balance_wallet,
+                        size: 20,
+                        color: scheme.primary,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Total Earnings',
+                        style: TextStyle(
+                          color: scheme.onSurfaceVariant,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-              // Earnings per minute info - Current rate
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: scheme.surfaceContainerHigh,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: scheme.outlineVariant),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.info_outline,
-                          color: scheme.onSurfaceVariant,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'Current rate: ${e.earningsPerMinute.toStringAsFixed(2)} coins/min (${e.calculatedPercentage}% of call rate)',
-                            style: TextStyle(
-                              color: scheme.onSurface,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (e.avgEarningsPerMinute != null &&
-                        e.avgEarningsPerMinute! != e.earningsPerMinute) ...[
-                      const SizedBox(height: 8),
-                      Padding(
-                        padding: const EdgeInsets.only(left: 32),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      const GemIcon(size: 36),
+                      const SizedBox(width: 8),
+                      Flexible(
                         child: Text(
-                          'Historical average: ${e.avgEarningsPerMinute!.toStringAsFixed(2)} coins/min',
+                          e.totalEarnings.toStringAsFixed(0),
+                          style: TextStyle(
+                            color: scheme.onSurface,
+                            fontSize: 42,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          'coins',
                           style: TextStyle(
                             color: scheme.onSurfaceVariant,
-                            fontSize: 12,
-                            fontStyle: FontStyle.italic,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _CreatorStatItem(
+                          label: 'Total Calls',
+                          value: e.totalCalls.toString(),
+                          icon: Icons.phone,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: _CreatorStatItem(
+                          label: 'Total Minutes',
+                          value: e.totalMinutes.toStringAsFixed(1),
+                          icon: Icons.timer,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => context.push('/creator/tasks'),
+                      icon: const Icon(Icons.task_alt),
+                      label: const Text('View Tasks & Rewards'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: scheme.outlineVariant),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        color: scheme.onSurfaceVariant,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Current rate: ${e.earningsPerMinute.toStringAsFixed(2)} coins/min (${e.calculatedPercentage}% of call rate)',
+                          style: TextStyle(
+                            color: scheme.onSurface,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (e.avgEarningsPerMinute != null &&
+                      e.avgEarningsPerMinute! != e.earningsPerMinute) ...[
+                    const SizedBox(height: 8),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 32),
+                      child: Text(
+                        'Historical average: ${e.avgEarningsPerMinute!.toStringAsFixed(2)} coins/min',
+                        style: TextStyle(
+                          color: scheme.onSurfaceVariant,
+                          fontSize: 12,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
                   ],
-                ),
+                ],
               ),
-              const SizedBox(height: 20),
-              // Call History
-              Text(
-                'Call History',
-                style: TextStyle(
-                  color: scheme.onSurface,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Call History',
+              style: TextStyle(
+                color: scheme.onSurface,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
               ),
-              const SizedBox(height: 12),
-              if (e.calls.isEmpty)
-                const EmptyState(
-                  icon: Icons.phone_disabled_outlined,
-                  title: 'No calls yet',
-                  message: 'Your call history will appear here',
-                )
-              else
-                ...e.calls.map((call) => buildCallEarningCard(call)),
-            ],
-          ),
+            ),
+            const SizedBox(height: 12),
+            if (e.calls.isEmpty)
+              const EmptyState(
+                icon: Icons.phone_disabled_outlined,
+                title: 'No calls yet',
+                message: 'Your call history will appear here',
+              )
+            else
+              ...e.calls.map(buildCallEarningCard),
+          ],
         ),
-      );
+      ),
+    );
   }
 }
 
@@ -603,14 +618,14 @@ class _CreatorStatItem extends StatelessWidget {
   }
 }
 
-class _UserWalletView extends StatelessWidget {
+class _UserBuyCoinsBody extends StatelessWidget {
   final bool isAddingCoins;
   final List<WalletCoinPack> packages;
   final Future<void> Function() onRefresh;
   final VoidCallback onRetry;
   final void Function(int coins) onAddCoins;
 
-  const _UserWalletView({
+  const _UserBuyCoinsBody({
     required this.isAddingCoins,
     required this.packages,
     required this.onRefresh,
@@ -620,21 +635,7 @@ class _UserWalletView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final uiPackages = packages
-        .asMap()
-        .entries
-        .map(
-          (entry) => _CoinPack(
-            coins: entry.value.coins,
-            price: entry.value.priceInr,
-            oldPrice: entry.value.oldPriceInr,
-            badge: entry.value.badge,
-          ),
-        )
-        .toList();
-
-    if (uiPackages.isEmpty) {
+    if (packages.isEmpty) {
       return Center(
         child: EmptyState(
           icon: Icons.account_balance_wallet_outlined,
@@ -648,213 +649,289 @@ class _UserWalletView extends StatelessWidget {
 
     return RefreshIndicator(
       onRefresh: onRefresh,
-      color: scheme.onSurface,
-      backgroundColor: AppBrandGradients.walletRefreshIndicatorBackground,
-      child: SingleChildScrollView(
+      color: _kBuyCoinsPurple,
+      backgroundColor: _kPageBackground,
+      child: CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Choose your coin pack',
-                          style: TextStyle(
-                            color: scheme.onSurface,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Secure payment and instant balance update',
-                          style: TextStyle(
-                            color: scheme.onSurfaceVariant,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
+        slivers: [
+          SliverToBoxAdapter(
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                Image.asset(
+                  _kWalletBuyCoinsHeroAsset,
+                  width: double.infinity,
+                  fit: BoxFit.fitWidth,
+                  filterQuality: FilterQuality.medium,
+                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                ),
+                if (isAddingCoins)
+                  Positioned(
+                    right: 20,
+                    top: 12,
+                    child: SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: _kBuyCoinsPurple,
+                      ),
                     ),
                   ),
-                  if (isAddingCoins)
-                    const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+              ],
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final pack = packages[index];
+                  final art = index < _kWalletTierArt.length
+                      ? _kWalletTierArt[index]
+                      : _kWalletTierArt.last;
+                  final accent = index < _kTierBadgeColors.length
+                      ? _kTierBadgeColors[index]
+                      : _kTierBadgeColors.last;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: _BuyCoinPackCard(
+                      pack: pack,
+                      tierArtAsset: art,
+                      accentColor: accent,
+                      onTap: isAddingCoins
+                          ? null
+                          : () => onAddCoins(pack.coins),
                     ),
-                ],
+                  );
+                },
+                childCount: packages.length,
               ),
             ),
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              itemCount: uiPackages.length,
-              itemBuilder: (context, index) {
-                final pack = uiPackages[index];
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: _VerticalCoinPackCard(
-                    pack: pack,
-                    onTap: isAddingCoins ? null : () => onAddCoins(pack.coins),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 20),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _CoinPack {
-  final int coins;
-  final int price;
-  final int? oldPrice;
-  final String? badge;
-
-  const _CoinPack({
-    required this.coins,
-    required this.price,
-    this.oldPrice,
-    this.badge,
-  });
-}
-
-class _VerticalCoinPackCard extends StatelessWidget {
-  final _CoinPack pack;
+class _BuyCoinPackCard extends StatelessWidget {
+  final WalletCoinPack pack;
+  final String tierArtAsset;
+  final Color accentColor;
   final VoidCallback? onTap;
 
-  const _VerticalCoinPackCard({required this.pack, this.onTap});
+  const _BuyCoinPackCard({
+    required this.pack,
+    required this.tierArtAsset,
+    required this.accentColor,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final hasDiscount = pack.oldPrice != null && pack.oldPrice! > pack.price;
+    final hasDiscount =
+        pack.oldPriceInr != null && pack.oldPriceInr! > pack.priceInr;
     final discountPercent = hasDiscount
-        ? (((pack.oldPrice! - pack.price) / pack.oldPrice!) * 100).round()
+        ? (((pack.oldPriceInr! - pack.priceInr) / pack.oldPriceInr!) * 100)
+            .round()
         : null;
+    final String? centerPromo = hasDiscount
+        ? (pack.badge != null && pack.badge!.trim().isNotEmpty
+            ? pack.badge!.trim()
+            : 'Flat $discountPercent% off')
+        : (pack.badge != null && pack.badge!.trim().isNotEmpty
+            ? pack.badge!.trim()
+            : null);
 
-    return AppCard(
-      padding: const EdgeInsets.all(14),
-      onTap: onTap,
-      margin: EdgeInsets.zero,
-      child: Stack(
-        children: [
-          Row(
-            children: [
-              // Coin Icon on the left
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: scheme.primaryContainer.withValues(alpha: 0.4),
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: scheme.primary.withValues(alpha: 0.1),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: const Color(0xFFE0E0E0),
+                  width: 1,
                 ),
-                child: const GemIcon(
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 16),
-              // Coins amount in the middle
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '${pack.coins} coins',
-                      style: TextStyle(
-                        color: scheme.onSurface,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    if (pack.badge != null) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        pack.badge!,
-                        style: TextStyle(
-                          color: scheme.primary,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              // Price on the right
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (pack.oldPrice != null)
-                    Text(
-                      '₹${pack.oldPrice}',
-                      style: TextStyle(
-                        color: scheme.onSurfaceVariant,
-                        decoration: TextDecoration.lineThrough,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    )
-                  else
-                    const SizedBox.shrink(),
-                  if (pack.oldPrice != null) const SizedBox(height: 2),
-                  Text(
-                    '₹${pack.price}',
-                    style: TextStyle(
-                      color: scheme.primary,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.06),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
                   ),
                 ],
               ),
-            ],
-          ),
-          // Discount badge at top right (if applicable)
-          if (hasDiscount && discountPercent != null)
-            Positioned(
-              top: 0,
-              right: 0,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 6,
-                  vertical: 2,
-                ),
-                decoration: BoxDecoration(
-                  color: scheme.tertiaryContainer,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  '-$discountPercent%',
-                  style: TextStyle(
-                    color: scheme.onTertiaryContainer,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                  ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final artLane =
+                        (constraints.maxWidth * 0.40).clamp(102.0, 142.0);
+                    return Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Positioned(
+                          left: -4,
+                          top: -14,
+                          bottom: -14,
+                          width: artLane + 22,
+                          child: IgnorePointer(
+                            child: Image.asset(
+                              tierArtAsset,
+                              fit: BoxFit.contain,
+                              alignment: Alignment.centerLeft,
+                              filterQuality: FilterQuality.medium,
+                              errorBuilder: (_, _, _) => Align(
+                                alignment: Alignment.centerLeft,
+                                child: Icon(
+                                  Icons.diamond_outlined,
+                                  size: 50,
+                                  color: accentColor,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 20,
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              SizedBox(width: artLane * 0.72),
+                              Expanded(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Text.rich(
+                                      TextSpan(
+                                        children: [
+                                          TextSpan(
+                                            text: '${pack.coins}',
+                                            style: GoogleFonts.poppins(
+                                              fontSize: 22,
+                                              fontWeight: FontWeight.w800,
+                                              color: _kTextPrimary,
+                                              height: 1.1,
+                                            ),
+                                          ),
+                                          TextSpan(
+                                            text: ' Coins',
+                                            style: GoogleFonts.poppins(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w600,
+                                              color: _kTextPrimary
+                                                  .withValues(alpha: 0.92),
+                                              height: 1.1,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                    if (centerPromo != null)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 10),
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 5,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: hasDiscount
+                                                ? _kBuyCoinsPink
+                                                    .withValues(alpha: 0.14)
+                                                : accentColor
+                                                    .withValues(alpha: 0.14),
+                                            borderRadius:
+                                                BorderRadius.circular(20),
+                                          ),
+                                          child: Text(
+                                            centerPromo,
+                                            textAlign: TextAlign.center,
+                                            style: GoogleFonts.poppins(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w700,
+                                              color: hasDiscount
+                                                  ? _kBuyCoinsPink
+                                                      .withValues(alpha: 0.95)
+                                                  : accentColor
+                                                      .withValues(alpha: 0.95),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              SizedBox(
+                                width: 76,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    if (hasDiscount && discountPercent != null)
+                                      Container(
+                                        margin:
+                                            const EdgeInsets.only(bottom: 5),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 3,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: _kBuyCoinsPink
+                                              .withValues(alpha: 0.18),
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: Text(
+                                          '-$discountPercent%',
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w800,
+                                            color: _kBuyCoinsPink,
+                                          ),
+                                        ),
+                                      ),
+                                    Text(
+                                      '₹${pack.priceInr}',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.w800,
+                                        color: _kBuyCoinsPurple,
+                                      ),
+                                    ),
+                                    if (hasDiscount && pack.oldPriceInr != null)
+                                      Text(
+                                        '₹${pack.oldPriceInr}',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 12,
+                                          color: _kTextMuted,
+                                          decoration:
+                                              TextDecoration.lineThrough,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ),
             ),
-        ],
       ),
     );
   }

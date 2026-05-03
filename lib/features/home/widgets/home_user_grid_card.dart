@@ -17,8 +17,6 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/services/avatar_upload_service.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/widgets/app_toast.dart';
-import '../../../shared/widgets/coin_purchase_popup.dart';
-import '../../../shared/widgets/app_modal_bottom_sheet.dart';
 import '../../../shared/widgets/brand_app_chrome.dart';
 import '../../../shared/widgets/creator_price_per_minute_label.dart';
 
@@ -91,10 +89,7 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
 
   /// PHASE 2: Show modal for insufficient coins
   void _showInsufficientCoinsModal() {
-    showAppModalBottomSheet(
-      context: context,
-      builder: (context) => const CoinPurchaseBottomSheet(),
-    );
+    context.push('/wallet');
   }
 
   void _openCreatorProfileModal({required bool isCreatorOnline}) {

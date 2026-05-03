@@ -14,8 +14,6 @@ import '../../home/providers/availability_provider.dart';
 import '../../video/controllers/call_connection_controller.dart';
 import '../../support/services/support_service.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../shared/widgets/coin_purchase_popup.dart';
-import '../../../shared/widgets/app_modal_bottom_sheet.dart';
 import '../../../shared/widgets/gem_icon.dart';
 
 class _CreatorImageAttachmentBuilder extends StreamAttachmentWidgetBuilder {
@@ -679,10 +677,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   void _showInsufficientCoinsDialog(String message) {
-    showAppModalBottomSheet(
-      context: context,
-      builder: (context) => const CoinPurchaseBottomSheet(),
-    );
+    final role = ref.read(authProvider).user?.role;
+    if (role == 'user' && mounted) {
+      context.push('/wallet');
+    }
   }
 
   // ── Video call from chat ───────────────────────────────────────────────

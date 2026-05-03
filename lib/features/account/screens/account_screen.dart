@@ -22,7 +22,6 @@ import '../../referral/screens/referral_screen.dart';
 import '../../support/screens/support_screen.dart';
 import '../../video/providers/call_billing_provider.dart';
 import '../../wallet/screens/transactions_screen.dart';
-import '../../wallet/screens/wallet_screen.dart';
 import '../widgets/become_creator_bottom_sheet.dart';
 import 'account_settings_screen.dart';
 import 'help_support_screen.dart';
@@ -121,13 +120,6 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     if (becameCreator) {
       context.go('/home');
     }
-  }
-
-  void _showWalletBottomSheet(BuildContext context) {
-    showAppModalBottomSheet(
-      context: context,
-      builder: (context) => const WalletBottomSheet(),
-    );
   }
 
   void _showTransactionsBottomSheet(BuildContext context) {
@@ -364,7 +356,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                 ),
               ),
               InkWell(
-                onTap: () => _showWalletBottomSheet(context),
+                onTap: () => context.push('/wallet'),
                 borderRadius: BorderRadius.circular(20),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
@@ -619,7 +611,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         leading: const GemIcon(size: 24),
         title: 'Coins',
         subtitle: '$coins',
-        onTap: () => _showWalletBottomSheet(context),
+        onTap: () => context.push('/wallet'),
       ),
       _exploreTile(
         context: context,

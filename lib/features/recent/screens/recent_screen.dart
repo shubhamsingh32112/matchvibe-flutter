@@ -14,8 +14,6 @@ import '../../home/providers/availability_provider.dart';
 import '../../video/controllers/call_connection_controller.dart';
 import '../models/call_history_model.dart';
 import '../providers/recent_provider.dart';
-import '../../../shared/widgets/coin_purchase_popup.dart';
-import '../../../shared/widgets/app_modal_bottom_sheet.dart';
 
 class RecentScreen extends ConsumerStatefulWidget {
   const RecentScreen({super.key});
@@ -316,10 +314,7 @@ class _CallButtonState extends ConsumerState<_CallButton> {
     final user = authState.user;
     if (user != null && user.coins < 10) {
       if (mounted) {
-        showAppModalBottomSheet(
-          context: context,
-          builder: (context) => const CoinPurchaseBottomSheet(),
-        );
+        context.push('/wallet');
       }
       return;
     }

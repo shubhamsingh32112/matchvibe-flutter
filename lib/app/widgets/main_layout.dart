@@ -9,12 +9,10 @@ import '../../features/creator/providers/creator_dashboard_provider.dart';
 import '../../features/creator/providers/creator_status_provider.dart';
 import '../../features/recent/providers/recent_provider.dart';
 import '../../features/video/providers/call_billing_provider.dart';
-import '../../features/wallet/screens/wallet_screen.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/styles/app_brand_styles.dart';
 import '../../shared/widgets/loading_indicator.dart';
 import '../../shared/widgets/gem_icon.dart';
-import '../../shared/widgets/app_modal_bottom_sheet.dart';
 import '../../shared/widgets/brand_app_chrome.dart';
 
 class MainLayout extends ConsumerStatefulWidget {
@@ -52,13 +50,6 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
         context.go('/account');
         break;
     }
-  }
-
-  void _showWalletBottomSheet(BuildContext context) {
-    showAppModalBottomSheet(
-      context: context,
-      builder: (context) => const WalletBottomSheet(),
-    );
   }
 
   @override
@@ -161,7 +152,15 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                     onPressed: () => context.push('/home/favorites'),
                   ),
                 InkWell(
-                  onTap: () => _showWalletBottomSheet(context),
+                  onTap: () {
+                    final path =
+                        GoRouter.of(context).routeInformationProvider.value.uri.path;
+                    if (path == '/wallet') {
+                      ref.read(authProvider.notifier).refreshUser();
+                      return;
+                    }
+                    context.push('/wallet');
+                  },
                   borderRadius: BorderRadius.circular(8),
                   child: Padding(
                     padding:

@@ -2,7 +2,7 @@ name: zztherapy
 description: "Match Vibe - Flutter mobile app"
 publish_to: 'none'
 
-version: 1.0.0+31
+version: 1.0.0+32
 
 
 environment:
@@ -106,6 +106,7 @@ flutter:
     - lib/assets/ringtone/
     - lib/assets/addpopup-bg.jpeg
     - lib/assets/app_logo.png
+    - lib/assets/wallet_icons/
     - lib/assets/loader_bg.png
     - lib/assets/loginpage_video.mp4
     - .env.development
