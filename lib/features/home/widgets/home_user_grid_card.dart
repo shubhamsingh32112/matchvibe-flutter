@@ -13,9 +13,11 @@ import '../../chat/services/chat_service.dart';
 import '../providers/availability_provider.dart';
 import '../providers/home_provider.dart';
 import '../../video/controllers/call_connection_controller.dart';
+import 'call_button_variant.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/services/avatar_upload_service.dart';
 import '../../../core/utils/user_message_mapper.dart';
+import '../../../shared/providers/coin_purchase_popup_provider.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/brand_app_chrome.dart';
 import '../../../shared/widgets/creator_price_per_minute_label.dart';
@@ -56,9 +58,17 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
     // PHASE 2: Check coins before initiating call
     final authState = ref.read(authProvider);
     final user = authState.user;
-    if (user != null && user.coins < 10) {
+    if (user != null && user.spendableCallCoins < 10) {
       if (mounted) {
-        _showInsufficientCoinsModal();
+        final c = widget.creator!;
+        final fb = c.firebaseUid;
+        ref.read(coinPurchasePopupProvider.notifier).state = CoinPopupIntent(
+          reason: 'preflight_low_coins_grid',
+          dedupeKey: 'low-coins-grid-${c.id}',
+          remoteDisplayName: c.name,
+          remotePhotoUrl: c.displayPhoto,
+          remoteFirebaseUid: fb,
+        );
       }
       return;
     }
@@ -87,16 +97,16 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
     }
   }
 
-  /// PHASE 2: Show modal for insufficient coins
-  void _showInsufficientCoinsModal() {
-    context.push('/wallet');
-  }
-
   void _openCreatorProfileModal({required bool isCreatorOnline}) {
     if (widget.creator == null) return;
+    final u = ref.read(authProvider).user;
+    final modalCallVariant = u?.welcomeFreeCallEligible == true
+        ? CallButtonVariant.welcomeFree
+        : CallButtonVariant.normal;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (pageContext) => _CreatorProfilePage(
+          callVariant: modalCallVariant,
           creator: widget.creator!,
           isOnline: isCreatorOnline,
           onCallPressed: _isInitiatingCall
@@ -177,6 +187,9 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
     final authState = ref.watch(authProvider);
     final isRegularUser = authState.user?.role == 'user';
     final showVideoCall = isRegularUser && widget.creator != null;
+    final callVariant = authState.user?.welcomeFreeCallEligible == true
+        ? CallButtonVariant.welcomeFree
+        : CallButtonVariant.normal;
 
     // ── Availability (only relevant for creator cards) ────────────────────
     final creatorAvailability = ref.watch(
@@ -251,6 +264,7 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
                       ),
                       if (showVideoCall)
                         _VideoCallButton(
+                          variant: callVariant,
                           isLoading: _isInitiatingCall,
                           onPressed: isCreatorOnline
                               ? _initiateVideoCall
@@ -290,11 +304,13 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
 
 /// Video call FAB on home creator tiles: optional heartbeat scale when tappable.
 class _VideoCallButton extends StatefulWidget {
+  final CallButtonVariant variant;
   final bool isLoading;
   final VoidCallback? onPressed;
   final bool disabled;
 
   const _VideoCallButton({
+    required this.variant,
     required this.isLoading,
     this.onPressed,
     this.disabled = false,
@@ -390,7 +406,9 @@ class _VideoCallButtonState extends State<_VideoCallButton>
   @override
   Widget build(BuildContext context) {
     final effectiveDisabled = widget.disabled || widget.onPressed == null;
-    final brand = AppBrandGradients.userHomeVideoCall;
+    final normalBrand = AppBrandGradients.userHomeVideoCall;
+    final welcomeGreen = AppPalette.success;
+    final useWelcome = widget.variant.showWelcomePromo;
     final shouldPulse =
         !effectiveDisabled &&
         !widget.isLoading &&
@@ -399,12 +417,16 @@ class _VideoCallButtonState extends State<_VideoCallButton>
 
     Widget button = Material(
       color: effectiveDisabled
-          ? brand.withValues(alpha: 0.42)
-          : brand.withValues(alpha: 0.95),
-      borderRadius: BorderRadius.circular(999),
+          ? (useWelcome ? welcomeGreen : normalBrand).withValues(alpha: 0.42)
+          : (useWelcome ? welcomeGreen : normalBrand).withValues(
+              alpha: useWelcome ? 1 : 0.95,
+            ),
+      shape: const CircleBorder(
+        side: BorderSide(color: Colors.white, width: 1),
+      ),
       child: InkWell(
+        customBorder: const CircleBorder(),
         onTap: widget.isLoading || effectiveDisabled ? null : widget.onPressed,
-        borderRadius: BorderRadius.circular(999),
         child: SizedBox(
           width: _buttonSize,
           height: _buttonSize,
@@ -419,6 +441,45 @@ class _VideoCallButtonState extends State<_VideoCallButton>
                         Colors.white,
                       ),
                     ),
+                  )
+                : useWelcome
+                ? Column(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Transform.rotate(
+                        angle: -0.785,
+                        child: Icon(
+                          Icons.phone,
+                          color: effectiveDisabled
+                              ? Colors.white.withValues(alpha: 0.72)
+                              : Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                      Text(
+                        widget.variant.stackedPromoLine,
+                        style: TextStyle(
+                          color: effectiveDisabled
+                              ? Colors.white.withValues(alpha: 0.72)
+                              : Colors.white,
+                          fontSize: 8,
+                          fontWeight: FontWeight.w800,
+                          height: 1,
+                        ),
+                      ),
+                      Text(
+                        widget.variant.stackedPromoLine,
+                        style: TextStyle(
+                          color: effectiveDisabled
+                              ? Colors.white.withValues(alpha: 0.72)
+                              : Colors.white,
+                          fontSize: 8,
+                          fontWeight: FontWeight.w800,
+                          height: 1,
+                        ),
+                      ),
+                    ],
                   )
                 : Icon(
                     Icons.videocam,
@@ -543,6 +604,7 @@ class _CreatorInfoText extends StatelessWidget {
 }
 
 class _CreatorProfilePage extends ConsumerStatefulWidget {
+  final CallButtonVariant callVariant;
   final CreatorModel creator;
   final bool isOnline;
   final VoidCallback? onCallPressed;
@@ -553,6 +615,7 @@ class _CreatorProfilePage extends ConsumerStatefulWidget {
   final int age;
 
   const _CreatorProfilePage({
+    required this.callVariant,
     required this.creator,
     required this.isOnline,
     required this.onCallPressed,
@@ -873,10 +936,21 @@ class _CreatorProfilePageState extends ConsumerState<_CreatorProfilePage> {
                                   color: Colors.white,
                                 ),
                               )
-                            : const Icon(Icons.videocam),
-                        label: const Text('Video Call'),
+                            : Icon(
+                                widget.callVariant.showWelcomePromo
+                                    ? Icons.phone
+                                    : Icons.videocam,
+                              ),
+                        label: Text(
+                          widget.callVariant.showWelcomePromo
+                              ? 'Free intro call'
+                              : 'Video Call',
+                        ),
                         style: FilledButton.styleFrom(
-                          backgroundColor: AppBrandGradients.userHomeVideoCall,
+                          backgroundColor:
+                              widget.callVariant.showWelcomePromo
+                              ? AppPalette.success
+                              : AppBrandGradients.userHomeVideoCall,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(

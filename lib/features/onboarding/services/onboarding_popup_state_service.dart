@@ -149,7 +149,6 @@ class OnboardingPopupStateService {
 
   static List<OnboardingStep> _orderedSteps() => const <OnboardingStep>[
         OnboardingStep.welcome,
-        OnboardingStep.bonus,
         OnboardingStep.permission,
       ];
 

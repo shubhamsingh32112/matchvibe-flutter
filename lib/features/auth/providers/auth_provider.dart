@@ -464,8 +464,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
             usernameChangeCount:
                 creatorData['usernameChangeCount'] as int? ?? 0,
             coins: creatorData['coins'] as int? ?? 0,
-            welcomeBonusClaimed:
-                creatorData['welcomeBonusClaimed'] as bool? ?? false,
+            introFreeCallCredits:
+                (creatorData['introFreeCallCredits'] as num?)?.toInt() ?? 0,
+            welcomeFreeCallEligible:
+                creatorData['welcomeFreeCallEligible'] == true,
             role: creatorData['role'] as String? ?? 'creator',
             creatorApplicationPending:
                 creatorData['creatorApplicationPending'] == true,
@@ -1463,8 +1465,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
             usernameChangeCount:
                 responseData['usernameChangeCount'] as int? ?? 0,
             coins: responseData['coins'] as int? ?? 0,
-            welcomeBonusClaimed:
-                responseData['welcomeBonusClaimed'] as bool? ?? false,
+            introFreeCallCredits:
+                (responseData['introFreeCallCredits'] as num?)?.toInt() ?? 0,
+            welcomeFreeCallEligible:
+                responseData['welcomeFreeCallEligible'] == true,
             role: responseData['role'] as String? ?? 'creator',
             creatorApplicationPending:
                 responseData['creatorApplicationPending'] == true,

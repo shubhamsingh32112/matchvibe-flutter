@@ -22,6 +22,7 @@ import '../../features/onboarding/services/onboarding_runner_lock_service.dart';
 import '../../features/onboarding/services/onboarding_popup_state_service.dart';
 import '../../shared/services/app_update_service.dart';
 import '../../shared/providers/coin_purchase_popup_provider.dart';
+import '../../features/wallet/widgets/call_ended_low_coins_modal.dart';
 import '../../shared/providers/app_update_popup_provider.dart';
 import '../../core/services/permission_reconciliation_service.dart';
 
@@ -53,8 +54,6 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
   static const int _seenAppUpdatesTtlMs = 48 * 60 * 60 * 1000; // 48h
   AppLinks? _appLinks;
   StreamSubscription<Uri>? _deepLinkSub;
-  bool _coinPopupShownThisSession = false;
-  bool _sessionCoinPopupDeferInFlight = false;
   final AppUpdateService _appUpdateService = AppUpdateService();
   String? _lastDeferredAppUpdateId;
   bool _isAppUpdatePopupPresenting = false;
@@ -77,6 +76,16 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
         // while GoRouter transitions to home. Presenting a bottom sheet/dialog
         // in that window yields a full-screen scrim over the video call.
         phase == CallConnectionPhase.disconnecting;
+  }
+
+  /// Coin upsell may fire as soon as the user ends a call (or server force-end).
+  /// Unlike other modals, it should not be blocked during [disconnecting], otherwise
+  /// intents set immediately after `endCall()` never enqueue.
+  bool _shouldDeferCoinPurchaseModal() {
+    final phase = ref.read(callConnectionControllerProvider).phase;
+    return phase == CallConnectionPhase.preparing ||
+        phase == CallConnectionPhase.joining ||
+        phase == CallConnectionPhase.connected;
   }
 
   @override
@@ -187,7 +196,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       coinPurchasePopupProvider,
       (prev, next) {
         if (next == null) return;
-        if (_isInActiveCallPhase()) {
+        if (_shouldDeferCoinPurchaseModal()) {
           debugPrint(
             '🛑 [CALL_OVERLAY] modal_blocked_during_call type=coin_popup phase=${ref.read(callConnectionControllerProvider).phase}',
           );
@@ -213,8 +222,12 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
                 id: id,
                 priority: AppModalPriority.normal,
                 dedupeKey: next.dedupeKey,
-                present: (ctx, _) async {
-                  await appRouter.push('/wallet');
+                present: (ctx, modalRef) async {
+                  await presentCallEndedLowCoinsModal(
+                    ctx,
+                    modalRef,
+                    intent: next,
+                  );
                 },
                 onCompleted: (_) {
                   ref.read(coinPurchasePopupProvider.notifier).state = null;
@@ -238,8 +251,6 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       final prevUid = prev?.firebaseUser?.uid;
       final nextUid = next.firebaseUser?.uid;
       if (prevUid != nextUid) {
-        // New session or account switch — allow session-start coin sheet again.
-        _coinPopupShownThisSession = false;
         unawaited(
           _onAuthUidChanged(prevUid: prevUid, nextUid: nextUid),
         );
@@ -251,7 +262,6 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
         _ensureCreatorOnline();
       }
 
-      _maybeDeferSessionStartCoinPopup(prev, next);
       if (next.isAuthenticated && user != null) {
         unawaited(_retryDeferredUpdateAcks());
         if (!next.createdNow) {
@@ -263,14 +273,12 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     _callStateSub = ref.listenManual<CallConnectionState>(
       callConnectionControllerProvider,
       (prev, next) {
-        final wasInCall = prev != null &&
-            (prev.phase == CallConnectionPhase.preparing ||
-                prev.phase == CallConnectionPhase.joining ||
-                prev.phase == CallConnectionPhase.connected);
-        final isInCall = next.phase == CallConnectionPhase.preparing ||
-            next.phase == CallConnectionPhase.joining ||
-            next.phase == CallConnectionPhase.connected;
-        if (wasInCall && !isInCall) {
+        final prevPhase = prev?.phase;
+        final nextPhase = next.phase;
+        final wasNonIdle =
+            prevPhase != null && prevPhase != CallConnectionPhase.idle;
+        final isIdle = nextPhase == CallConnectionPhase.idle;
+        if (wasNonIdle && isIdle) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _drainModalQueue();
           });
@@ -415,80 +423,6 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
 
     ref.read(appUpdatePopupProvider.notifier).clearPendingUpdate();
     _enqueueAppUpdatePopup(pending, source: source);
-  }
-
-  /// Session-start upsell: single path from [authProvider], deferred until the
-  /// shell router and auth are stable so the bottom sheet is not immediately
-  /// disposed by a GoRouter transition.
-  void _maybeDeferSessionStartCoinPopup(AuthState? prev, AuthState next) {
-    if (_coinPopupShownThisSession || _sessionCoinPopupDeferInFlight) return;
-
-    final becameStableUser = next.isAuthenticated &&
-        next.user != null &&
-        next.user!.role == 'user' &&
-        !next.isLoading;
-
-    final prevWasNotReady = prev == null ||
-        !prev.isAuthenticated ||
-        prev.user == null ||
-        prev.user!.role != 'user' ||
-        prev.isLoading;
-
-    if (!becameStableUser || !prevWasNotReady) return;
-
-    unawaited(_deferSessionStartCoinPopup());
-  }
-
-  bool _sessionCoinPopupRouterLocationOk() {
-    final path = appRouter.routeInformationProvider.value.uri.path;
-    if (path == '/splash' ||
-        path == '/login' ||
-        path == '/otp' ||
-        path == '/gender') {
-      return false;
-    }
-    if (path.startsWith('/agent-verification')) return false;
-    return true;
-  }
-
-  Future<void> _deferSessionStartCoinPopup() async {
-    if (_coinPopupShownThisSession ||
-        _sessionCoinPopupDeferInFlight ||
-        !mounted) {
-      return;
-    }
-    _sessionCoinPopupDeferInFlight = true;
-    try {
-      for (var i = 0; i < 25; i++) {
-        await WidgetsBinding.instance.endOfFrame;
-        if (!mounted || _coinPopupShownThisSession) return;
-
-        final auth = ref.read(authProvider);
-        if (!auth.isAuthenticated ||
-            auth.user?.role != 'user' ||
-            auth.isLoading) {
-          return;
-        }
-        if (_isInActiveCallPhase()) return;
-        if (ref.read(modalCoordinatorProvider).onboardingInProgress) return;
-
-        if (!_sessionCoinPopupRouterLocationOk()) {
-          await Future<void>.delayed(const Duration(milliseconds: 200));
-          continue;
-        }
-
-        final navCtx = appRouter.routerDelegate.navigatorKey.currentContext;
-        if (navCtx == null || !navCtx.mounted) {
-          await Future<void>.delayed(const Duration(milliseconds: 200));
-          continue;
-        }
-
-        _showCoinPurchasePopupOnAppOpen();
-        return;
-      }
-    } finally {
-      _sessionCoinPopupDeferInFlight = false;
-    }
   }
 
   Future<void> _initDeepLinks() async {
@@ -927,28 +861,6 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     // No manual status setting needed
     debugPrint(
       '✅ [APP LIFECYCLE] Socket connection handles creator status automatically',
-    );
-  }
-
-  /// Show coin purchase popup once per app session when app opens.
-  /// Only for regular users, not creators or admins.
-  void _showCoinPurchasePopupOnAppOpen() {
-    if (_coinPopupShownThisSession) return;
-    if (!mounted) return;
-
-    final authState = ref.read(authProvider);
-    if (!authState.isAuthenticated) return;
-
-    final user = authState.user;
-    // Only show for regular users, not creators or admins
-    if (user == null || user.role != 'user') return;
-
-    // Mark as shown immediately to prevent duplicate displays
-    _coinPopupShownThisSession = true;
-
-    ref.read(coinPurchasePopupProvider.notifier).state = const CoinPopupIntent(
-      reason: 'session_start',
-      dedupeKey: 'coin-session-start',
     );
   }
 

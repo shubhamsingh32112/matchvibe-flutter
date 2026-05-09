@@ -12,6 +12,7 @@ import '../../auth/providers/auth_provider.dart';
 import '../../chat/services/chat_service.dart';
 import '../../home/providers/availability_provider.dart';
 import '../../video/controllers/call_connection_controller.dart';
+import '../../../shared/providers/coin_purchase_popup_provider.dart';
 import '../models/call_history_model.dart';
 import '../providers/recent_provider.dart';
 
@@ -312,9 +313,15 @@ class _CallButtonState extends ConsumerState<_CallButton> {
     // Check coin balance
     final authState = ref.read(authProvider);
     final user = authState.user;
-    if (user != null && user.coins < 10) {
+    if (user != null && user.spendableCallCoins < 10) {
       if (mounted) {
-        context.push('/wallet');
+        ref.read(coinPurchasePopupProvider.notifier).state = CoinPopupIntent(
+          reason: 'preflight_low_coins_recent',
+          dedupeKey: 'low-coins-recent-${widget.otherMongoId}',
+          remoteDisplayName: widget.otherName,
+          remotePhotoUrl: widget.otherAvatar,
+          remoteFirebaseUid: widget.otherFirebaseUid,
+        );
       }
       return;
     }

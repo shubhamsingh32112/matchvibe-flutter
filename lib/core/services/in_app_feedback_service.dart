@@ -36,7 +36,14 @@ class InAppFeedbackService {
   final bool Function() _isMobileFn;
 
   static int _defaultNowMs() => DateTime.now().millisecondsSinceEpoch;
-  static Future<void> _defaultHaptic() => HapticFeedback.lightImpact();
+  static Future<void> _defaultHaptic() {
+    // `lightImpact()` is frequently imperceptible or a no-op on many Android devices
+    // (and on emulators). Prefer a stronger, more widely supported signal there.
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return HapticFeedback.vibrate();
+    }
+    return HapticFeedback.lightImpact();
+  }
   static bool _defaultIsMobile() {
     if (kIsWeb) return false;
     return defaultTargetPlatform == TargetPlatform.android ||

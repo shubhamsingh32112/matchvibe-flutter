@@ -80,6 +80,24 @@ String? resolveRemoteImageUrl({
       }
     }
 
+    // Fallback: Stream Call custom data (set by our app on getOrCreate).
+    // This helps incoming-call UI show the caller image before members/createdBy hydrate.
+    final customImage = _asNonEmptyString(
+      _extractFromCallCustom(callState, 'initiatorImageUrl') ??
+          _extractFromCallCustom(callState, 'image') ??
+          _extractFromCallCustom(callState, 'imageUrl'),
+    );
+    if (customImage != null) {
+      _debugDumpOnce(
+        enable: enableDebugLogs,
+        key: debugKey,
+        lines: [
+          '✅ [CALL BG][$sourceTag] Resolved image from call custom: $customImage',
+        ],
+      );
+      return customImage;
+    }
+
     final fallback = _asNonEmptyString(fallbackImageUrl);
     if (fallback != null) {
       _debugDumpOnce(
@@ -109,6 +127,45 @@ String? resolveRemoteImageUrl({
   return _asNonEmptyString(fallbackImageUrl);
 }
 
+/// Firebase UID of the **remote** participant (not [currentUserId]), if known.
+String? resolveRemoteParticipantFirebaseUid({
+  required Call? call,
+  required String? currentUserId,
+}) {
+  if (call == null) return null;
+  try {
+    final dynamic callState = (call as dynamic).state?.value;
+    final dynamic members = callState?.members;
+    if (members is Iterable) {
+      for (final dynamic member in members) {
+        final memberId = _asNonEmptyString(
+          (member as dynamic).userId ??
+              (member as dynamic).user?.id ??
+              (member as dynamic).user?.userId,
+        );
+        if (memberId == null) continue;
+        if (currentUserId != null &&
+            currentUserId.isNotEmpty &&
+            memberId == currentUserId) {
+          continue;
+        }
+        return memberId;
+      }
+    }
+    final createdById = _asNonEmptyString(
+      callState?.createdBy?.id?.toString() ??
+          callState?.createdBy?.userId?.toString(),
+    );
+    if (createdById != null &&
+        (currentUserId == null ||
+            currentUserId.isEmpty ||
+            createdById != currentUserId)) {
+      return createdById;
+    }
+  } catch (_) {}
+  return null;
+}
+
 String? _extractImageFromExtraData(dynamic extraData) {
   if (extraData is! Map) return null;
   const keys = [
@@ -122,12 +179,30 @@ String? _extractImageFromExtraData(dynamic extraData) {
     'profile_image',
     'photoURL',
     'photoUrl',
+    // Our Stream call custom key (copied into extraData in some SDK versions).
+    'initiatorImageUrl',
   ];
   for (final key in keys) {
     final value = extraData[key];
     final parsed = _asNonEmptyString(value);
     if (parsed != null) return parsed;
   }
+  return null;
+}
+
+dynamic _extractFromCallCustom(dynamic callState, String key) {
+  try {
+    final dynamic custom = (callState as dynamic)?.custom;
+    if (custom is Map) return custom[key];
+  } catch (_) {}
+  try {
+    final dynamic customData = (callState as dynamic)?.customData;
+    if (customData is Map) return customData[key];
+  } catch (_) {}
+  try {
+    final dynamic extraData = (callState as dynamic)?.extraData;
+    if (extraData is Map) return extraData[key];
+  } catch (_) {}
   return null;
 }
 

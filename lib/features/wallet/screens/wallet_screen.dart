@@ -2,18 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../creator/providers/creator_dashboard_provider.dart';
 import '../../home/providers/availability_provider.dart';
 import '../../video/providers/call_billing_provider.dart';
 import '../providers/wallet_pricing_provider.dart';
-import '../services/payment_service.dart';
+import '../services/wallet_checkout_launcher.dart';
 import '../models/earnings_model.dart';
 import '../models/wallet_pricing_model.dart';
 import '../../../core/utils/user_message_mapper.dart';
-import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/widgets/gem_icon.dart';
@@ -57,7 +55,6 @@ class WalletScreen extends ConsumerStatefulWidget {
 }
 
 class _WalletScreenState extends ConsumerState<WalletScreen> {
-  final PaymentService _paymentService = PaymentService();
   bool _isAddingCoins = false;
 
   @override
@@ -80,61 +77,11 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
 
   Future<void> _addCoins(int coins) async {
     if (_isAddingCoins) return;
-
-    bool loadingDialogVisible = false;
     setState(() {
       _isAddingCoins = true;
     });
-
     try {
-      if (!mounted) return;
-      showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(child: CircularProgressIndicator()),
-      );
-      loadingDialogVisible = true;
-
-      final checkoutData = await _paymentService.initiateWebCheckout(coins);
-      final checkoutUrl = checkoutData['checkoutUrl'] as String;
-
-      if (mounted && loadingDialogVisible) {
-        Navigator.of(context).pop();
-        loadingDialogVisible = false;
-      }
-
-      final uri = Uri.parse(checkoutUrl);
-      final launched = await launchUrl(
-        uri,
-        mode: LaunchMode.externalApplication,
-      );
-      if (!launched) {
-        throw Exception('Unable to open checkout website');
-      }
-
-      if (mounted) {
-        AppToast.showInfo(
-          context,
-          'Complete payment on the website. App will reopen automatically.',
-          duration: const Duration(seconds: 3),
-        );
-      }
-    } catch (e) {
-      if (mounted && loadingDialogVisible) {
-        Navigator.of(context).pop();
-        loadingDialogVisible = false;
-      }
-
-      if (mounted) {
-        AppToast.showError(
-          context,
-          UserMessageMapper.userMessageFor(
-            e,
-            fallback: 'Couldn\'t start checkout. Please try again.',
-          ),
-          duration: const Duration(seconds: 3),
-        );
-      }
+      await WalletCheckoutLauncher.startCheckoutForCoins(context, coins);
     } finally {
       if (mounted) {
         setState(() {

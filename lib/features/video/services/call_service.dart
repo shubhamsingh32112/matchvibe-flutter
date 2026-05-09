@@ -8,29 +8,22 @@ import 'package:stream_video_flutter/stream_video_flutter.dart';
 /// IMPORTANT: Stream Video is SDK-first. Calls MUST be created via SDK (getOrCreate),
 /// NOT via REST API. This ensures proper call lifecycle, ringing, SFU sessions, etc.
 class CallService {
-  /// Initiate a call to a creator
-  /// 
-  /// [creatorFirebaseUid] - Creator's Firebase UID (Stream user ID)
-  /// [currentUserFirebaseUid] - Current user's Firebase UID
-  /// [creatorMongoId] - Creator's MongoDB ObjectId (for deterministic callId)
-  /// 
-  /// Returns the Call object ready to join
-  /// 
-  /// This replaces the old REST-based approach. Call creation is now done entirely
-  /// via the Stream Video SDK, which handles:
-  /// - Call creation
-  /// - Role assignment (admin for caller, call_member for callee)
-  /// - Ringing
-  /// - SFU session creation
-  /// - Push/VoIP notifications
-  Future<Call> initiateCall({
-    required String creatorFirebaseUid,
-    required String currentUserFirebaseUid,
+  /// Initiate a 1:1 call to a single member.
+  ///
+  /// Call id format: `{initiatorFirebaseUid}_{creatorMongoId}_{unixSeconds}`.
+  /// The first segment is **initiator** (never infer payer from it).
+  Future<Call> initiateCallToMember({
+    required String memberFirebaseUid,
+    required String initiatorFirebaseUid,
     required String creatorMongoId,
     required StreamVideo streamVideo,
+    required String initiatedByRole,
+    String? initiatorImageUrl,
+    String? initiatorDisplayName,
+    String? initiatorCountry,
   }) async {
     try {
-      debugPrint('📞 [CALL] Initiating call to creator: $creatorFirebaseUid');
+      debugPrint('📞 [CALL] Initiating call to member: $memberFirebaseUid');
 
       // Generate a unique call ID per attempt.
       // Appending a timestamp ensures that each call creates a fresh session
@@ -40,7 +33,7 @@ class CallService {
       // NOTE: Stream Video enforces a 64-char max on call IDs.
       //   Firebase UID (28) + '_' + Mongo ID (24) + '_' + seconds (10) = 63 chars.
       final ts = DateTime.now().millisecondsSinceEpoch ~/ 1000; // seconds
-      final callId = '${currentUserFirebaseUid}_${creatorMongoId}_$ts';
+      final callId = '${initiatorFirebaseUid}_${creatorMongoId}_$ts';
 
       debugPrint('📞 [CALL] Call ID: $callId');
 
@@ -60,18 +53,46 @@ class CallService {
       // - Opens SFU session
       // - Sends push/VoIP notification to creator
       await call.getOrCreate(
-        memberIds: [creatorFirebaseUid], // Add creator to call (will receive incoming call event)
+        memberIds: [memberFirebaseUid],
         ringing: true, // Enable ringing
         video: true, // Video call
+        // Resilient recovery: persist initiator identity in Stream call custom data.
+        custom: <String, Object>{
+          'initiatedByFirebaseUid': initiatorFirebaseUid,
+          'initiatedByRole': initiatedByRole,
+          if (initiatorImageUrl != null && initiatorImageUrl.trim().isNotEmpty)
+            'initiatorImageUrl': initiatorImageUrl.trim(),
+          if (initiatorDisplayName != null &&
+              initiatorDisplayName.trim().isNotEmpty)
+            'initiatorDisplayName': initiatorDisplayName.trim(),
+          if (initiatorCountry != null && initiatorCountry.trim().isNotEmpty)
+            'initiatorCountry': initiatorCountry.trim(),
+        },
       );
 
       debugPrint('✅ [CALL] Call created with ringing enabled');
 
       return call;
     } catch (e) {
-      debugPrint('❌ [CALL] Error initiating call: $e');
+      debugPrint('❌ [CALL] Error initiating callToMember: $e');
       rethrow;
     }
+  }
+
+  /// Backwards-compatible helper for existing user → creator call sites.
+  Future<Call> initiateCall({
+    required String creatorFirebaseUid,
+    required String currentUserFirebaseUid,
+    required String creatorMongoId,
+    required StreamVideo streamVideo,
+  }) {
+    return initiateCallToMember(
+      memberFirebaseUid: creatorFirebaseUid,
+      initiatorFirebaseUid: currentUserFirebaseUid,
+      creatorMongoId: creatorMongoId,
+      streamVideo: streamVideo,
+      initiatedByRole: 'user',
+    );
   }
 
   /// Join an existing call with retry logic

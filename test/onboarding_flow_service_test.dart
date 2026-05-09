@@ -42,25 +42,25 @@ void main() {
   test('local override wins over stale server stage', () async {
     OnboardingFlowService.setLocalStageOverride(
       firebaseUid: uid,
-      step: OnboardingStep.bonus,
+      step: OnboardingStep.permission,
     );
     final step = await OnboardingFlowService.nextStep(
       firebaseUid: uid,
       bonusAlreadyClaimed: false,
       serverStage: 'welcome',
     );
-    expect(step, OnboardingStep.bonus);
+    expect(step, OnboardingStep.permission);
   });
 
   test('local override clears when server catches up', () async {
     OnboardingFlowService.setLocalStageOverride(
       firebaseUid: uid,
-      step: OnboardingStep.bonus,
+      step: OnboardingStep.permission,
     );
     await OnboardingFlowService.nextStep(
       firebaseUid: uid,
       bonusAlreadyClaimed: false,
-      serverStage: 'bonus',
+      serverStage: 'permission',
     );
     final next = await OnboardingFlowService.nextStep(
       firebaseUid: uid,

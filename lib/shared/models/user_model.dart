@@ -10,8 +10,11 @@ class UserModel extends Equatable {
   final List<String>? categories;
   final int usernameChangeCount;
   final int coins;
-  final bool welcomeBonusClaimed;
-  final int freeTextUsed; // Count of free text messages used (first 3 are free)
+  /// Promo-only intro call credits (server; not real wallet / IAP).
+  final int introFreeCallCredits;
+  /// Server-derived: show welcome-free call UI until first qualifying billed intro call.
+  final bool welcomeFreeCallEligible;
+  final int freeTextUsed; // Legacy; server uses ChatMessageQuota per creator
   final String? role; // 'user', 'creator', 'admin', or 'agent' (app users are never 'agent')
   /// True when user signed up with an agent referral and is waiting for approval.
   final bool creatorApplicationPending;
@@ -46,7 +49,8 @@ class UserModel extends Equatable {
     this.categories,
     this.usernameChangeCount = 0,
     required this.coins,
-    this.welcomeBonusClaimed = false,
+    this.introFreeCallCredits = 0,
+    this.welcomeFreeCallEligible = false,
     this.freeTextUsed = 0,
     this.role,
     this.creatorApplicationPending = false,
@@ -84,7 +88,8 @@ class UserModel extends Equatable {
           : null,
       usernameChangeCount: json['usernameChangeCount'] as int? ?? 0,
       coins: json['coins'] as int? ?? 0,
-      welcomeBonusClaimed: json['welcomeBonusClaimed'] as bool? ?? false,
+      introFreeCallCredits: (json['introFreeCallCredits'] as num?)?.toInt() ?? 0,
+      welcomeFreeCallEligible: json['welcomeFreeCallEligible'] == true,
       freeTextUsed: json['freeTextUsed'] as int? ?? 0,
       role: json['role'] as String?,
       creatorApplicationPending: json['creatorApplicationPending'] == true,
@@ -130,6 +135,9 @@ class UserModel extends Equatable {
     );
   }
 
+  /// Coins that can be admitted to start a call (wallet + unused intro credits).
+  int get spendableCallCoins => coins + introFreeCallCredits;
+
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -141,7 +149,8 @@ class UserModel extends Equatable {
       'categories': categories,
       'usernameChangeCount': usernameChangeCount,
       'coins': coins,
-      'welcomeBonusClaimed': welcomeBonusClaimed,
+      'introFreeCallCredits': introFreeCallCredits,
+      'welcomeFreeCallEligible': welcomeFreeCallEligible,
       'freeTextUsed': freeTextUsed,
       'role': role,
       'creatorApplicationPending': creatorApplicationPending,
@@ -182,7 +191,8 @@ class UserModel extends Equatable {
     List<String>? categories,
     int? usernameChangeCount,
     int? coins,
-    bool? welcomeBonusClaimed,
+    int? introFreeCallCredits,
+    bool? welcomeFreeCallEligible,
     int? freeTextUsed,
     String? role,
     bool? creatorApplicationPending,
@@ -215,7 +225,10 @@ class UserModel extends Equatable {
       categories: categories ?? this.categories,
       usernameChangeCount: usernameChangeCount ?? this.usernameChangeCount,
       coins: coins ?? this.coins,
-      welcomeBonusClaimed: welcomeBonusClaimed ?? this.welcomeBonusClaimed,
+      introFreeCallCredits:
+          introFreeCallCredits ?? this.introFreeCallCredits,
+      welcomeFreeCallEligible:
+          welcomeFreeCallEligible ?? this.welcomeFreeCallEligible,
       freeTextUsed: freeTextUsed ?? this.freeTextUsed,
       role: role ?? this.role,
       creatorApplicationPending:
@@ -262,7 +275,8 @@ class UserModel extends Equatable {
         categories,
         usernameChangeCount,
         coins,
-        welcomeBonusClaimed,
+        introFreeCallCredits,
+        welcomeFreeCallEligible,
         freeTextUsed,
         role,
         creatorApplicationPending,

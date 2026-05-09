@@ -12,9 +12,7 @@ import '../../../shared/widgets/app_toast.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../../shared/widgets/skeleton_card.dart';
 import '../../../shared/widgets/welcome_dialog.dart';
-import '../../../shared/widgets/welcome_bonus_dialog.dart';
 import '../../../shared/widgets/ui_primitives.dart';
-import '../../wallet/services/wallet_service.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 import '../../../shared/widgets/brand_app_chrome.dart';
@@ -39,10 +37,30 @@ import '../../../shared/widgets/app_modal_bottom_sheet.dart';
 import '../../../shared/widgets/app_modal_dialog.dart';
 import '../../../shared/widgets/permissions_intro_bottom_sheet.dart';
 import '../../../core/services/modal_coordinator_service.dart';
+import '../../../core/services/promo_popup_service.dart';
+import '../../../shared/widgets/promo_image_popup.dart';
 import '../../onboarding/models/onboarding_step.dart';
 import '../../onboarding/services/onboarding_flow_service.dart';
 import '../../onboarding/services/onboarding_popup_state_service.dart';
 import '../../onboarding/services/onboarding_runner_lock_service.dart';
+
+String _formatCreatorOnlineDuration(int seconds) {
+  if (seconds < 60) return '${seconds}s';
+  final h = seconds ~/ 3600;
+  final m = (seconds % 3600) ~/ 60;
+  if (h > 0) return '${h}h ${m}m';
+  return '${m}m';
+}
+
+String _shortIsoLocal(String isoUtc) {
+  try {
+    final dt = DateTime.parse(isoUtc).toLocal();
+    return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} '
+        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+  } catch (_) {
+    return isoUtc;
+  }
+}
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -82,7 +100,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     WidgetsBinding.instance.addObserver(this);
     unawaited(_checkAndShowWelcomeBackDialog());
     _checkAndShowWelcomeDialog();
-    // Note: Permission onboarding is now requested after welcome bonus accept
+    // Note: Bonus onboarding removed; flow is welcome → permissions
     // Connect Socket.IO and hydrate creator availability from Redis
     _initSocketAndHydrateAvailability();
     _homeScrollController.addListener(_onHomeScroll);
@@ -115,6 +133,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       final stageChanged =
           previous?.user?.onboardingStage != next.user?.onboardingStage;
       if (userBecameReady || stageChanged) {
+        if (userBecameReady) {
+          unawaited(_maybeShowLoginPromoOnce());
+        }
         unawaited(_checkAndShowWelcomeBackDialog());
         unawaited(_checkAndShowWelcomeDialog());
       }
@@ -154,6 +175,42 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
+  static const String _promoAssetPath = 'lib/assets/promo_first_call_on_us.png';
+
+  Future<void> _maybeShowLoginPromoOnce() async {
+    if (!mounted) return;
+    final authState = ref.read(authProvider);
+    final uid = authState.firebaseUser?.uid;
+    final user = authState.user;
+    if (uid == null || user == null) return;
+    if (user.role != 'user') return;
+
+    final shown = await PromoPopupService.hasShown(uid);
+    if (shown) return;
+
+    // Mark before enqueue to avoid double-enqueue on rapid auth refresh.
+    await PromoPopupService.markShown(uid);
+
+    if (!mounted) return;
+    final id = ref.read(modalCoordinatorProvider.notifier).nextRequestId('promo');
+    ref.read(modalCoordinatorProvider.notifier).enqueue<void>(
+          AppModalRequest<void>(
+            id: id,
+            priority: AppModalPriority.normal,
+            dedupeKey: 'promo-first-call-on-us-$uid',
+            present: (ctx, _) async {
+              await showAppModalDialog<void>(
+                context: ctx,
+                barrierDismissible: true,
+                barrierColor: Colors.transparent,
+                builder: (_) =>
+                    const PromoImagePopup(assetPath: _promoAssetPath),
+              );
+            },
+          ),
+        );
+  }
+
   Future<void> _checkAndShowWelcomeBackDialog() async {
     if (!mounted || _welcomeBackDialogActive) return;
     final authState = ref.read(authProvider);
@@ -190,7 +247,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 builder: (context) => AlertDialog(
                   title: const Text('Welcome back'),
                   content: const Text(
-                    'Your account was previously deleted. You can continue using the app, but the welcome bonus is only available once.',
+                    'Your account was previously deleted. You can keep using the app, but the one-time welcome free intro call is not offered again.',
                   ),
                   actions: [
                     TextButton(
@@ -350,7 +407,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
     debugPrint(
       '[ONBOARDING_DEBUG] runner uid=$firebaseUid createdNow=${authState.createdNow} '
-      'welcomeBonusClaimed=${user.welcomeBonusClaimed} serverStage=${user.onboardingStage} '
+      'serverStage=${user.onboardingStage} '
       'welcomeSeenAt=${user.onboardingWelcomeSeenAt} bonusSeenAt=${user.onboardingBonusSeenAt} '
       'permissionSeenAt=${user.onboardingPermissionSeenAt}',
     );
@@ -370,12 +427,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
     final nextStep = await OnboardingFlowService.nextStep(
       firebaseUid: firebaseUid,
-      bonusAlreadyClaimed: user.welcomeBonusClaimed,
+      bonusAlreadyClaimed: true,
       serverStage: user.onboardingStage,
     );
     debugPrint(
       '[ONBOARDING_STATE] uid=$firebaseUid serverStage=${user.onboardingStage} '
-      'nextStep=$nextStep claimed=${user.welcomeBonusClaimed} '
+      'nextStep=$nextStep '
       'modalOpen=$_welcomeDialogActive',
     );
     if (!mounted) return;
@@ -394,11 +451,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _welcomeDialogShown = true;
       _welcomeDialogActive = true;
       _showWelcomeDialog();
-      return;
-    }
-    if (nextStep == OnboardingStep.bonus) {
-      debugPrint('✅ [ONBOARDING] showing bonus popup');
-      _checkAndShowBonusDialog();
       return;
     }
     if (nextStep == OnboardingStep.permission) {
@@ -421,12 +473,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       switch (step) {
         case OnboardingStep.welcome:
           await OnboardingFlowService.markWelcomeSeen(
-            firebaseUid,
-            sessionId: sessionId,
-          );
-          break;
-        case OnboardingStep.bonus:
-          await OnboardingFlowService.markBonusSeen(
             firebaseUid,
             sessionId: sessionId,
           );
@@ -455,7 +501,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // Read states in rank order and recover only the lowest-rank pending step.
     final ordered = const <OnboardingStep>[
       OnboardingStep.welcome,
-      OnboardingStep.bonus,
       OnboardingStep.permission,
     ];
     final states = <OnboardingStep, OnboardingPopupState>{};
@@ -532,64 +577,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (!mounted) return;
     // Enqueue-time sequencing guard (keeps nextStep pure).
     unawaited(() async {
-      if (step == OnboardingStep.bonus) {
-        final welcome = await OnboardingPopupStateService.read(
-          uid: firebaseUid,
-          step: OnboardingStep.welcome,
-        );
-        if (!welcome.completed) {
-          final k = '$firebaseUid:bonus';
-          final n = (_sequenceBlockCounts[k] ?? 0) + 1;
-          _sequenceBlockCounts[k] = n;
-          debugPrint(
-            '[ONBOARDING_POPUP] sequence_block uid=$firebaseUid step=bonus missing=welcome.completed blockedCount=$n',
-          );
-          _showWelcomeDialog(priority: AppModalPriority.critical);
-          if (n > 3) {
-            debugPrint(
-              '[ONBOARDING_POPUP] sequence_starvation_force_prereq uid=$firebaseUid step=bonus prereq=welcome',
-            );
-            _enqueueOnboardingStep(
-              OnboardingStep.welcome,
-              firebaseUid,
-              priority: AppModalPriority.critical,
-            );
-          }
-          return;
-        }
-      }
       if (step == OnboardingStep.permission) {
-        final bonus = await OnboardingPopupStateService.read(
-          uid: firebaseUid,
-          step: OnboardingStep.bonus,
-        );
-        if (!bonus.completed) {
-          final k = '$firebaseUid:permission';
-          final n = (_sequenceBlockCounts[k] ?? 0) + 1;
-          _sequenceBlockCounts[k] = n;
-          debugPrint(
-            '[ONBOARDING_POPUP] sequence_block uid=$firebaseUid step=permission missing=bonus.completed blockedCount=$n',
-          );
-          _showBonusDialog(priority: AppModalPriority.high);
-          if (n > 3) {
-            debugPrint(
-              '[ONBOARDING_POPUP] sequence_starvation_force_prereq uid=$firebaseUid step=permission prereq=bonus',
-            );
-            _enqueueOnboardingStep(
-              OnboardingStep.bonus,
-              firebaseUid,
-              priority: AppModalPriority.high,
-            );
-          }
-          return;
-        }
       }
       if (step == OnboardingStep.welcome) {
         _showWelcomeDialog(priority: priority);
-        return;
-      }
-      if (step == OnboardingStep.bonus) {
-        _showBonusDialog(priority: priority);
         return;
       }
       if (step == OnboardingStep.permission) {
@@ -684,7 +675,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     try {
                       OnboardingFlowService.setLocalStageOverride(
                         firebaseUid: firebaseUid,
-                        step: OnboardingStep.bonus,
+                        step: OnboardingStep.permission,
                       );
                       await OnboardingFlowService.markWelcomeSeen(
                         firebaseUid,
@@ -712,7 +703,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     try {
                       OnboardingFlowService.setLocalStageOverride(
                         firebaseUid: firebaseUid,
-                        step: OnboardingStep.bonus,
+                        step: OnboardingStep.permission,
                       );
                       await OnboardingFlowService.markWelcomeSeen(
                         firebaseUid,
@@ -754,7 +745,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               if (firebaseUid != null && user != null) {
                 final nextStep = await OnboardingFlowService.nextStep(
                   firebaseUid: firebaseUid,
-                  bonusAlreadyClaimed: user.welcomeBonusClaimed,
+                  bonusAlreadyClaimed: true,
                   serverStage: user.onboardingStage,
                 );
                 _welcomeDialogShown = nextStep != OnboardingStep.welcome;
@@ -767,233 +758,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             },
           ),
         );
-  }
-
-  /// Show the 30-coin welcome bonus dialog if:
-  ///   1. User is a regular user (not creator/admin)
-  ///   2. User hasn't already claimed the bonus (backend flag)
-  ///   3. The dialog hasn't already been shown on this device (local flag)
-  Future<void> _checkAndShowBonusDialog() async {
-    if (!mounted) return;
-    final authState = ref.read(authProvider);
-    final user = authState.user;
-
-    // Only for regular users who haven't claimed
-    if (user == null || user.role != 'user' || user.welcomeBonusClaimed) {
-      debugPrint(
-        '⏭️  [ONBOARDING] bonus popup blocked role=${user?.role} claimed=${user?.welcomeBonusClaimed}',
-      );
-      final firebaseUid = authState.firebaseUser?.uid;
-      if (firebaseUid != null) {
-        try {
-          final serverStage = user?.onboardingStage?.trim().toLowerCase();
-          if (serverStage == 'welcome') {
-            await OnboardingFlowService.markWelcomeSeen(
-              firebaseUid,
-              sessionId: _onboardingSessionId,
-            );
-          }
-          await OnboardingFlowService.markBonusSeen(
-            firebaseUid,
-            sessionId: _onboardingSessionId,
-          );
-        } catch (_) {}
-      }
-      if (mounted) {
-        unawaited(_checkAndShowWelcomeDialog());
-      }
-      return;
-    }
-
-    // Check local persistent flag — once shown, never show again (legacy UX gate).
-    final firebaseUid = authState.firebaseUser?.uid;
-    if (firebaseUid == null) return;
-
-    final alreadyShown = await WelcomeService.hasBonusDialogBeenShown(
-      firebaseUid,
-    );
-    final serverWantsBonus = user.onboardingStage == 'bonus';
-    if (alreadyShown && !serverWantsBonus) {
-      debugPrint('⏭️  [ONBOARDING] bonus popup blocked localAlreadyShown=true');
-      await OnboardingFlowService.markBonusSeen(
-        firebaseUid,
-        sessionId: _onboardingSessionId,
-      );
-      _scheduleOnboardingPermissionRequest();
-      return;
-    }
-
-    // Show bonus dialog (delay already handled in welcome dialog callback)
-    if (mounted) {
-      _showBonusDialog();
-    }
-  }
-
-  bool _isBonusClaiming = false;
-
-  void _showBonusDialog({AppModalPriority priority = AppModalPriority.high}) {
-    final id = ref
-        .read(modalCoordinatorProvider.notifier)
-        .nextRequestId('bonus');
-    final firebaseUid = ref.read(authProvider).firebaseUser?.uid;
-    if (firebaseUid != null) {
-      unawaited(
-        OnboardingPopupStateService.markSeen(uid: firebaseUid, step: OnboardingStep.bonus),
-      );
-      unawaited(
-        OnboardingPopupStateService.markEnqueued(uid: firebaseUid, step: OnboardingStep.bonus),
-      );
-      debugPrint('[ONBOARDING_POPUP] popup_enqueued uid=$firebaseUid step=bonus');
-    }
-    ref
-        .read(modalCoordinatorProvider.notifier)
-        .enqueue<void>(
-          AppModalRequest<void>(
-            id: id,
-            priority: priority,
-            dedupeKey: 'onboarding-bonus',
-            present: (ctx, _) {
-              Timer? watchdog;
-              return showAppModalDialog<void>(
-                context: ctx,
-                barrierDismissible: false,
-                builder: (dialogContext) => StatefulBuilder(
-                  builder: (ctx, setBottomSheetState) => WelcomeBonusBottomSheet(
-                    onPresented: () async {
-                      final uid = ref.read(authProvider).firebaseUser?.uid;
-                      if (uid == null) return;
-                      await OnboardingPopupStateService.markShown(
-                        uid: uid,
-                        step: OnboardingStep.bonus,
-                      );
-                      debugPrint('[ONBOARDING_POPUP] popup_rendered uid=$uid step=bonus');
-                      _startOnboardingWatchdog(
-                        sheetContext: dialogContext,
-                        firebaseUid: uid,
-                        step: OnboardingStep.bonus,
-                      );
-                      watchdog = _onboardingPopupWatchdog;
-                    },
-                  isLoading: _isBonusClaiming,
-                  onAccept: () async {
-                    setBottomSheetState(() => _isBonusClaiming = true);
-                    var claimSucceeded = false;
-                    try {
-                      final walletService = WalletService();
-                      final payload = await walletService.claimWelcomeBonus();
-                      final newCoins = payload['coins'] as int;
-                      // Update auth state with new coins + claimed flag
-                      if (mounted) {
-                        ref.read(authProvider.notifier).refreshUser();
-                      }
-                      if (ctx.mounted) {
-                        Navigator.of(ctx).pop();
-                        AppToast.showSuccess(
-                          context,
-                          '🎉 You received 30 coins! Balance: $newCoins',
-                        );
-                      }
-                      claimSucceeded = true;
-                    } catch (e) {
-                      if (ctx.mounted) {
-                        Navigator.of(ctx).pop();
-                        AppToast.showError(
-                          context,
-                          UserMessageMapper.userMessageFor(
-                            e,
-                            fallback:
-                                'Couldn\'t claim bonus. Please try again.',
-                          ),
-                        );
-                      }
-                    } finally {
-                      _isBonusClaiming = false;
-                    }
-                    if (claimSucceeded) {
-                      final firebaseUid = ref
-                          .read(authProvider)
-                          .firebaseUser
-                          ?.uid;
-                      if (firebaseUid != null) {
-                        try {
-                          OnboardingFlowService.setLocalStageOverride(
-                            firebaseUid: firebaseUid,
-                            step: OnboardingStep.permission,
-                          );
-                          await OnboardingFlowService.markBonusSeen(
-                            firebaseUid,
-                            sessionId: _onboardingSessionId,
-                          );
-                        } catch (_) {
-                          OnboardingFlowService.clearLocalStageOverride(firebaseUid);
-                          if (ctx.mounted) {
-                            AppToast.showError(
-                              ctx,
-                              'Please check internet and try again.',
-                            );
-                          }
-                          return;
-                        }
-                      }
-                      _scheduleOnboardingPermissionRequest();
-                    }
-                  },
-                  onSkip: () async {
-                    final firebaseUid = ref
-                        .read(authProvider)
-                        .firebaseUser
-                        ?.uid;
-                    if (firebaseUid != null) {
-                      try {
-                        OnboardingFlowService.setLocalStageOverride(
-                          firebaseUid: firebaseUid,
-                          step: OnboardingStep.permission,
-                        );
-                        await OnboardingFlowService.markBonusSeen(
-                          firebaseUid,
-                          sessionId: _onboardingSessionId,
-                        );
-                      } catch (_) {
-                        OnboardingFlowService.clearLocalStageOverride(firebaseUid);
-                        if (ctx.mounted) {
-                          AppToast.showError(
-                            ctx,
-                            'Please check internet and try again.',
-                          );
-                        }
-                        return;
-                      }
-                    }
-                    if (ctx.mounted) {
-                      Navigator.of(ctx).pop();
-                    }
-                    _scheduleOnboardingPermissionRequest();
-                  },
-                ),
-              ),
-              ).whenComplete(() {
-                watchdog?.cancel();
-              });
-            },
-            onCompleted: (_) async {
-              final uid = ref.read(authProvider).firebaseUser?.uid;
-              if (uid != null) {
-                await OnboardingPopupStateService.markCompleted(
-                  uid: uid,
-                  step: OnboardingStep.bonus,
-                );
-                debugPrint('[ONBOARDING_POPUP] popup_dismissed uid=$uid step=bonus');
-              }
-            },
-          ),
-        );
-  }
-
-  /// Schedule onboarding permission flow with a delay after welcome bonus dialog
-  void _scheduleOnboardingPermissionRequest() {
-    if (mounted) {
-      unawaited(_checkAndShowWelcomeDialog());
-    }
   }
 
   /// Check and request onboarding-time permissions for users.
@@ -1612,6 +1376,7 @@ class _CreatorTasksViewState extends ConsumerState<_CreatorTasksView> {
     // Use dashboard-derived providers (auto-synced via creator:data_updated socket event)
     final tasksAsync = ref.watch(dashboardTasksProvider);
     final earningsAsync = ref.watch(dashboardEarningsProvider);
+    final dashboardAsync = ref.watch(creatorDashboardProvider);
     // 🔥 FIX: dashboardCoinsProvider is now a Provider (not FutureProvider) for instant updates
     final balance = ref.watch(dashboardCoinsProvider);
     final scheme = Theme.of(context).colorScheme;
@@ -1718,6 +1483,46 @@ class _CreatorTasksViewState extends ConsumerState<_CreatorTasksView> {
               child: Center(child: LoadingIndicator()),
             ),
           ),
+        ),
+        dashboardAsync.when(
+          data: (dashboard) => AppCard(
+            margin: const EdgeInsets.only(bottom: AppSpacing.lg),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Available online today',
+                  style: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _formatCreatorOnlineDuration(dashboard.onlineTodaySeconds),
+                  style: TextStyle(
+                    color: scheme.onSurface,
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                if (dashboard.onlineTodayResetsAt != null &&
+                    dashboard.onlineTodayResetsAt!.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Next reset: ${_shortIsoLocal(dashboard.onlineTodayResetsAt!)}',
+                    style: TextStyle(
+                      color: scheme.onSurfaceVariant,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          loading: () => const SizedBox.shrink(),
+          error: (e, st) => const SizedBox.shrink(),
         ),
         // Withdrawal Button
         AppCard(

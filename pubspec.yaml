@@ -104,9 +104,11 @@ flutter:
     - lib/assets/male/
     - lib/assets/female/
     - lib/assets/ringtone/
+    - lib/assets/promo_first_call_on_us.png
     - lib/assets/addpopup-bg.jpeg
     - lib/assets/app_logo.png
     - lib/assets/wallet_icons/
+    - lib/assets/call_ended_images/
     - lib/assets/loader_bg.png
     - lib/assets/loginpage_video.mp4
     - .env.development

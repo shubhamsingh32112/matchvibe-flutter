@@ -626,9 +626,28 @@ class _VideoCallScreenContentState
         if (showPurchase) {
           ref.read(callBillingProvider.notifier).reset();
           ref.read(authProvider.notifier).refreshUser();
+          final currentUid = ref.read(authProvider).firebaseUser?.uid;
+          final cc = ref.read(callConnectionControllerProvider);
+          final remoteUid = resolveRemoteParticipantFirebaseUid(
+            call: widget.call,
+            currentUserId: currentUid,
+          );
+          final display = resolveRemoteParticipantDisplay(
+            call: widget.call,
+            currentUserId: currentUid,
+            fallbackName: 'Creator',
+          );
+          final photo = resolveRemoteImageUrl(
+            call: widget.call,
+            currentUserId: currentUid,
+            fallbackImageUrl: cc.remoteImageFallbackUrl,
+          );
           ref.read(coinPurchasePopupProvider.notifier).state = CoinPopupIntent(
             reason: 'force_end_out_of_coins',
             dedupeKey: 'coin-force-end-${next.callId ?? 'unknown'}',
+            remoteDisplayName: display.primaryName,
+            remotePhotoUrl: photo,
+            remoteFirebaseUid: remoteUid,
           );
         }
       }

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stream_chat_flutter/stream_chat_flutter.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/services/push_notification_service.dart';
+import '../../../core/services/in_app_feedback_service.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/widgets/app_toast.dart';
@@ -15,6 +16,7 @@ import '../../video/controllers/call_connection_controller.dart';
 import '../../support/services/support_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/gem_icon.dart';
+import '../../../shared/providers/coin_purchase_popup_provider.dart';
 
 class _CreatorImageAttachmentBuilder extends StreamAttachmentWidgetBuilder {
   const _CreatorImageAttachmentBuilder();
@@ -131,6 +133,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   String? _otherUserFirebaseUid;
   String? _otherUserMongoId;
   String? _otherUserAppRole;
+  String? _currentCreatorMongoId; // Creator._id for creator-initiated calls
   final ChatService _chatService = ChatService();
   final SupportService _supportService = SupportService();
   final ApiClient _apiClient = ApiClient();
@@ -589,6 +592,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// Called BEFORE every message send.
   /// Returns the message if allowed, throws to cancel.
   Future<Message> _onPreSend(Message message) async {
+    // Provide immediate tactile feedback on send tap (best-effort).
+    // We do this here because Stream's send completion callback isn't wired in this screen.
+    if (message.id.isNotEmpty) {
+      InAppFeedbackService.instance.notifyChatMessage(
+        dedupeKey: 'chat_send:${message.id}',
+      );
+    }
+
     // Non-creators are not allowed to send media attachments.
     if (!_isCreator && _containsMediaAttachment(message)) {
       _showAttachmentBlockedDialog();
@@ -714,6 +725,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool get _showCallButton {
     if (_isCreator) return false; // Creators use different flow
     return _otherUserFirebaseUid != null;
+  }
+
+  /// Whether creator should see the video call button in this chat.
+  /// Shown only when chatting with a regular user.
+  bool get _showCreatorCallButton {
+    if (!_isCreator) return false;
+    if (_otherUserFirebaseUid == null) return false;
+    final otherRole = _otherUserAppRole;
+    // Many regular users may not have appRole set in Stream extraData.
+    // Be optimistic here and rely on server-authoritative validation to block invalid cases.
+    if (otherRole == null) return true;
+    return otherRole != 'creator' && otherRole != 'admin';
   }
 
   bool get _canReportCreatorFromChat {
@@ -994,10 +1017,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Check coin balance (for regular users)
     final authState = ref.read(authProvider);
     final user = authState.user;
-    if (user != null && user.coins < 10) {
+    if (user != null && user.spendableCallCoins < 10) {
       if (mounted) {
-        _showInsufficientCoinsDialog(
-          'Minimum 10 coins required to start a call.\nYou currently have ${user.coins} coins.',
+        ref.read(coinPurchasePopupProvider.notifier).state = CoinPopupIntent(
+          reason: 'preflight_low_coins_chat',
+          dedupeKey: 'low-coins-chat-$creatorMongoId',
+          remoteDisplayName: _otherUserName,
+          remotePhotoUrl: _otherUserImage,
+          remoteFirebaseUid: creatorFirebaseUid,
         );
       }
       return;
@@ -1013,6 +1040,67 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             creatorMongoId: creatorMongoId,
             creatorImageUrl: _otherUserImage,
             creatorName: _otherUserName,
+          );
+    } finally {
+      if (mounted) setState(() => _isInitiatingCall = false);
+    }
+  }
+
+  Future<String?> _resolveCurrentCreatorMongoId() async {
+    if (_currentCreatorMongoId != null && _currentCreatorMongoId!.isNotEmpty) {
+      return _currentCreatorMongoId;
+    }
+    final currentUid = ref.read(authProvider).firebaseUser?.uid;
+    if (currentUid == null || currentUid.isEmpty) return null;
+
+    try {
+      final resp = await _apiClient.get(
+        '/creator/by-firebase-uid/${Uri.encodeComponent(currentUid)}',
+      );
+      final creator = resp.data?['data']?['creator'];
+      if (creator is Map) {
+        final id = creator['_id']?.toString() ?? creator['id']?.toString();
+        final trimmed = id?.trim();
+        if (trimmed != null && trimmed.isNotEmpty) {
+          _currentCreatorMongoId = trimmed;
+          return trimmed;
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ [CHAT] Failed to resolve current creatorMongoId: $e');
+    }
+    return null;
+  }
+
+  Future<void> _initiateCreatorVideoCall() async {
+    if (_isInitiatingCall) return;
+    if (!_isCreator) return;
+    final otherUid = _otherUserFirebaseUid;
+    if (otherUid == null || otherUid.isEmpty) return;
+
+    // Server-authoritative validation will exist, but we still block obvious cases in UI.
+    if (_otherUserAppRole == 'creator' || _otherUserAppRole == 'admin') {
+      if (mounted) AppToast.showInfo(context, 'You can only call regular users.');
+      return;
+    }
+
+    setState(() => _isInitiatingCall = true);
+    try {
+      final creatorMongoId = await _resolveCurrentCreatorMongoId();
+      if (creatorMongoId == null) {
+        if (mounted) {
+          AppToast.showError(context, 'Unable to start call. Please try again.');
+        }
+        return;
+      }
+
+      await ref
+          .read(callConnectionControllerProvider.notifier)
+          .startCreatorCallToUser(
+            userFirebaseUid: otherUid,
+            creatorMongoId: creatorMongoId,
+            userImageUrl: _otherUserImage,
+            userName: _otherUserName,
           );
     } finally {
       if (mounted) setState(() => _isInitiatingCall = false);
@@ -1120,6 +1208,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             CreatorAvailability.online;
     final canCallFromChat = _showCallButton;
     final canReportFromChat = _canReportCreatorFromChat;
+    final canCreatorCallFromChat = _showCreatorCallButton;
 
     return StreamChatTheme(
       data: StreamChatThemeData(
@@ -1220,6 +1309,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               // Video call button: always visible for users when we have the other member
               if (_showCallButton)
                 _buildCallAction(colorScheme, isCreatorOnline),
+              // Video call button for creators (creator → user)
+              if (canCreatorCallFromChat)
+                IconButton(
+                  onPressed: _initiateCreatorVideoCall,
+                  icon: _isInitiatingCall
+                      ? SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              colorScheme.primary,
+                            ),
+                          ),
+                        )
+                      : Icon(Icons.videocam, color: colorScheme.primary),
+                  tooltip: 'Video Call',
+                ),
             ],
           ),
           body: Column(

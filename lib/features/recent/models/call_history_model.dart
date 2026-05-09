@@ -10,6 +10,7 @@ class CallHistoryModel extends Equatable {
   final String? otherAvatar;
   final String otherFirebaseUid;
   final String ownerRole; // 'user' or 'creator'
+  final String? direction; // 'incoming' | 'outgoing' (relative to owner)
   final int durationSeconds;
   final int coinsDeducted;
   final int coinsEarned;
@@ -25,6 +26,7 @@ class CallHistoryModel extends Equatable {
     this.otherAvatar,
     required this.otherFirebaseUid,
     required this.ownerRole,
+    this.direction,
     required this.durationSeconds,
     required this.coinsDeducted,
     required this.coinsEarned,
@@ -45,6 +47,7 @@ class CallHistoryModel extends Equatable {
       otherAvatar: json['otherAvatar'] as String?,
       otherFirebaseUid: json['otherFirebaseUid'] as String? ?? '',
       ownerRole: json['ownerRole'] as String? ?? 'user',
+      direction: json['direction'] as String?,
       durationSeconds: json['durationSeconds'] as int? ?? 0,
       coinsDeducted: json['coinsDeducted'] as int? ?? 0,
       coinsEarned: json['coinsEarned'] as int? ?? 0,
@@ -64,9 +67,10 @@ class CallHistoryModel extends Equatable {
     return '${durationSeconds}s';
   }
 
-  /// Whether the owner was the caller (user) or receiver (creator)
-  bool get isOutgoing => ownerRole == 'user';
+  /// Whether this record is outgoing relative to the owner.
+  /// Prefer durable `direction`; fall back to legacy `ownerRole` heuristic for old rows.
+  bool get isOutgoing => direction == 'outgoing' || (direction == null && ownerRole == 'user');
 
   @override
-  List<Object?> get props => [id, callId, ownerUserId, otherUserId, otherCreatorId, createdAt];
+  List<Object?> get props => [id, callId, ownerUserId, otherUserId, otherCreatorId, direction, createdAt];
 }

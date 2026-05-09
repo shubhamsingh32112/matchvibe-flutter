@@ -14,7 +14,6 @@ class OnboardingFlowService {
   }
 
   static const String _welcomePrefix = 'onboarding_welcome_seen';
-  static const String _bonusPrefix = 'onboarding_bonus_seen';
   static const String _permissionsPrefix = 'onboarding_permissions_seen';
   static const String _completedPrefix = 'onboarding_completed';
   static const String _idemStagePrefix = 'idempotency_onboarding_stage_v1';
@@ -29,12 +28,10 @@ class OnboardingFlowService {
     switch (step) {
       case OnboardingStep.welcome:
         return 1;
-      case OnboardingStep.bonus:
-        return 2;
       case OnboardingStep.permission:
-        return 3;
+        return 2;
       case OnboardingStep.completed:
-        return 4;
+        return 3;
     }
   }
 
@@ -53,13 +50,14 @@ class OnboardingFlowService {
     switch (stage) {
       case OnboardingStageContract.welcome:
         return OnboardingStep.welcome;
-      case OnboardingStageContract.bonus:
-        return OnboardingStep.bonus;
       case OnboardingStageContract.permission:
       case 'permissions':
         return OnboardingStep.permission;
       case OnboardingStageContract.completed:
         return OnboardingStep.completed;
+      // Bonus program removed: treat legacy server stage as permission.
+      case 'bonus':
+        return OnboardingStep.permission;
       default:
         return null;
     }
@@ -94,9 +92,6 @@ class OnboardingFlowService {
     final welcomeSeen = prefs.getBool(_k(_welcomePrefix, firebaseUid)) ?? false;
     if (!welcomeSeen) return OnboardingStep.welcome;
 
-    final bonusSeen = prefs.getBool(_k(_bonusPrefix, firebaseUid)) ?? false;
-    if (!bonusSeen && !bonusAlreadyClaimed) return OnboardingStep.bonus;
-
     final permissionsSeen =
         prefs.getBool(_k(_permissionsPrefix, firebaseUid)) ?? false;
     if (!permissionsSeen) return OnboardingStep.permission;
@@ -120,20 +115,6 @@ class OnboardingFlowService {
     );
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_k(_welcomePrefix, firebaseUid), true);
-  }
-
-  static Future<void> markBonusSeen(
-    String firebaseUid, {
-    String? sessionId,
-  }) async {
-    await _advanceOnServer(
-      firebaseUid: firebaseUid,
-      stage: OnboardingStageContract.bonus,
-      event: 'bonus_seen',
-      sessionId: sessionId,
-    );
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_k(_bonusPrefix, firebaseUid), true);
   }
 
   static Future<void> markPermissionsSeen(
@@ -167,7 +148,6 @@ class OnboardingFlowService {
   static Future<void> clearLocalFlags(String firebaseUid) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_k(_welcomePrefix, firebaseUid));
-    await prefs.remove(_k(_bonusPrefix, firebaseUid));
     await prefs.remove(_k(_permissionsPrefix, firebaseUid));
     await prefs.remove(_k(_completedPrefix, firebaseUid));
   }

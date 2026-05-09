@@ -16,6 +16,9 @@ class CreatorDashboard extends Equatable {
   final CreatorTasksResponse tasks;
   final int coins;
   final CreatorProfileSummary creatorProfile;
+  /// Seconds in “online” (available) state this task day; from GET /creator/dashboard.
+  final int onlineTodaySeconds;
+  final String? onlineTodayResetsAt;
 
   const CreatorDashboard({
     required this.earnings,
@@ -23,6 +26,8 @@ class CreatorDashboard extends Equatable {
     required this.tasks,
     required this.coins,
     required this.creatorProfile,
+    this.onlineTodaySeconds = 0,
+    this.onlineTodayResetsAt,
   });
 
   factory CreatorDashboard.fromJson(Map<String, dynamic> json) {
@@ -41,11 +46,21 @@ class CreatorDashboard extends Equatable {
       tasks: CreatorTasksResponse.fromJson(tasksJson),
       coins: (json['coins'] as num?)?.toInt() ?? 0,
       creatorProfile: CreatorProfileSummary.fromJson(profileJson),
+      onlineTodaySeconds: (json['onlineTodaySeconds'] as num?)?.toInt() ?? 0,
+      onlineTodayResetsAt: json['onlineTodayResetsAt'] as String?,
     );
   }
 
   @override
-  List<Object?> get props => [earnings, todayEarnings, tasks, coins, creatorProfile];
+  List<Object?> get props => [
+        earnings,
+        todayEarnings,
+        tasks,
+        coins,
+        creatorProfile,
+        onlineTodaySeconds,
+        onlineTodayResetsAt,
+      ];
 }
 
 /// Today's earnings summary for the current daily period.

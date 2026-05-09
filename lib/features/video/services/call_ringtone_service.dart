@@ -64,6 +64,39 @@ class CallRingtoneService {
     stop();
     _activeMode = _CallToneMode.incoming;
 
+    // Immediate feedback so the user hears something right away.
+    _playAlert();
+
+    // Start with bundled asset ringtone (fast, offline).
+    try {
+      _incomingPlayer ??= AudioPlayer();
+      await _incomingPlayer!.setLoopMode(LoopMode.one);
+      await _incomingPlayer!.setAsset(_incomingRingtoneAssetPath);
+      await _incomingPlayer!.play();
+      debugPrint('🔔 [CALL TONE] Started (incoming bundled ringtone)');
+    } catch (error) {
+      debugPrint(
+        '⚠️ [CALL TONE] Asset ringtone failed, will try URL/fallback: $error',
+      );
+    }
+
+    // Best-effort upgrade to remote URL ringtone (do not block ring start).
+    unawaited(() async {
+      if (_activeMode != _CallToneMode.incoming) return;
+      try {
+        _incomingPlayer ??= AudioPlayer();
+        await _incomingPlayer!.setLoopMode(LoopMode.one);
+        final ringtoneUrl = await _resolveIncomingRingtoneUrl();
+        if (_activeMode != _CallToneMode.incoming) return;
+        await _incomingPlayer!.setUrl(ringtoneUrl);
+        if (_activeMode != _CallToneMode.incoming) return;
+        await _incomingPlayer!.play();
+        debugPrint('🔔 [CALL TONE] Upgraded to incoming custom ringtone URL');
+      } catch (_) {
+        // Keep bundled ringtone if playing; otherwise fallback timer below.
+      }
+    }());
+
     try {
       _incomingPlayer ??= AudioPlayer();
       await _incomingPlayer!.setLoopMode(LoopMode.one);

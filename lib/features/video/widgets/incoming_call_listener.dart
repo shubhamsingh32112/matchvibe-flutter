@@ -356,10 +356,14 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
     final incomingCall = _incomingCall;
 
     if (incomingCall != null && !_handledCallIds.contains(incomingCall.id)) {
-      // Call is still ringing — show top-sheet style UI that keeps app header visible.
+      // Call is still ringing — show a centered modal dialog (dim background).
       return Stack(
         children: [
           widget.child,
+          const ModalBarrier(
+            dismissible: false,
+            color: Color.fromRGBO(0, 0, 0, 0.45),
+          ),
           IncomingCallWidget(
             incomingCall: incomingCall,
             fallbackImageUrl: _incomingFallbackImageByCallId[incomingCall.id],

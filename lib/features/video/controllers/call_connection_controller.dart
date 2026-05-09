@@ -163,16 +163,17 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     // Prevent the confusing UX where the call connects then immediately
     // force-ends because the user has 0 coins.
     final preFlightAuth = _ref.read(authProvider);
-    final userCoins = preFlightAuth.user?.coins ?? 0;
-    if (userCoins <= 0) {
+    final user = preFlightAuth.user;
+    final spendable = user?.spendableCallCoins ?? 0;
+    if (spendable <= 0) {
       debugPrint('⚠️ [CALL CTRL] startUserCall blocked — 0 coins');
-      state = const CallConnectionState(
-        phase: CallConnectionPhase.failed,
-        error: 'You need coins to make a video call. Please add coins first.',
-        failureReason: CallFailureReason.unknown,
-        isOutgoing: true,
+      _ref.read(coinPurchasePopupProvider.notifier).state = CoinPopupIntent(
+        reason: 'preflight_no_coins',
+        dedupeKey: 'preflight-no-coins-$creatorFirebaseUid',
+        remoteDisplayName: creatorName,
+        remotePhotoUrl: creatorImageUrl,
+        remoteFirebaseUid: creatorFirebaseUid,
       );
-      CallNavigationService.navigateToCallScreen();
       return;
     }
 
@@ -274,11 +275,12 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
 
       // 5. getOrCreate (creates call + rings creator)
       final callService = _ref.read(callServiceProvider);
-      final call = await callService.initiateCall(
-        creatorFirebaseUid: creatorFirebaseUid,
-        currentUserFirebaseUid: firebaseUser.uid,
+      final call = await callService.initiateCallToMember(
+        memberFirebaseUid: creatorFirebaseUid,
+        initiatorFirebaseUid: firebaseUser.uid,
         creatorMongoId: creatorMongoId,
         streamVideo: streamVideo,
+        initiatedByRole: 'user',
       );
 
       // Store billing metadata
@@ -305,6 +307,151 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       // Actual UI transition → connected happens in _listenForConnected.
     } catch (e) {
       debugPrint('❌ [CALL CTRL] startUserCall error: $e');
+      CallRingtoneService.stop();
+      await _cleanupCall();
+      if (mounted) {
+        state = CallConnectionState(
+          phase: CallConnectionPhase.failed,
+          error: UserMessageMapper.forCallFailure(e),
+          failureReason: CallFailureReason.sfuFailure,
+          isOutgoing: true,
+        );
+        CallNavigationService.navigateToCallScreen();
+      }
+    }
+  }
+
+  /// Creator taps **Call** inside a chat with a regular user.
+  ///
+  /// Creator initiates the Stream call, but the **user pays** (coins deducted).
+  Future<void> startCreatorCallToUser({
+    required String userFirebaseUid,
+    required String creatorMongoId,
+    String? userImageUrl,
+    String? userName,
+  }) async {
+    // Allow retry from failed state
+    if (state.phase != CallConnectionPhase.idle &&
+        state.phase != CallConnectionPhase.failed) {
+      debugPrint(
+        '⚠️ [CALL CTRL] startCreatorCallToUser ignored — phase: ${state.phase}',
+      );
+      return;
+    }
+
+    final authState = _ref.read(authProvider);
+    final firebaseUser = authState.firebaseUser;
+    final currentRole = authState.user?.role;
+    if (firebaseUser == null) {
+      state = const CallConnectionState(
+        phase: CallConnectionPhase.failed,
+        error: 'User not authenticated',
+        failureReason: CallFailureReason.unknown,
+        isOutgoing: true,
+      );
+      CallNavigationService.navigateToCallScreen();
+      return;
+    }
+    if (currentRole != 'creator' && currentRole != 'admin') {
+      state = const CallConnectionState(
+        phase: CallConnectionPhase.failed,
+        error: 'Only creators can start this call.',
+        failureReason: CallFailureReason.unknown,
+        isOutgoing: true,
+      );
+      CallNavigationService.navigateToCallScreen();
+      return;
+    }
+
+    // Reset billing state from any previous call
+    _ref.read(callBillingProvider.notifier).reset();
+    _wasConnected = false;
+    _creatorAccepted = false;
+
+    CallRingtoneService.startOutgoingTone();
+    state = CallConnectionState(
+      phase: CallConnectionPhase.preparing,
+      isOutgoing: true,
+      remoteImageFallbackUrl: userImageUrl,
+      outgoingCreatorName: userName, // reuse label slot for display
+    );
+
+    try {
+      final hasPerms = await PermissionService.ensurePermissions(video: true);
+      if (!hasPerms) {
+        CallRingtoneService.stop();
+        state = const CallConnectionState(
+          phase: CallConnectionPhase.failed,
+          error:
+              'Camera and microphone permissions are required for video calls',
+          failureReason: CallFailureReason.permissionDenied,
+          isOutgoing: true,
+        );
+        CallNavigationService.navigateToCallScreen();
+        return;
+      }
+
+      final streamVideo = _ref.read(streamVideoProvider);
+      if (streamVideo == null) {
+        CallRingtoneService.stop();
+        state = const CallConnectionState(
+          phase: CallConnectionPhase.failed,
+          error: 'Video service not available. Please try again later.',
+          failureReason: CallFailureReason.unknown,
+          isOutgoing: true,
+        );
+        CallNavigationService.navigateToCallScreen();
+        return;
+      }
+
+      // Best-effort billing socket reconnect (non-blocking)
+      final socketService = _ref.read(socketServiceProvider);
+      if (!socketService.isConnected) {
+        unawaited(() async {
+          final token = await firebaseUser.getIdToken();
+          if (token != null) {
+            await socketService.ensureConnected(token);
+          }
+        }());
+      }
+
+      final callService = _ref.read(callServiceProvider);
+      final caller = _ref.read(authProvider).user;
+      final callerImage = caller?.avatar; // creators: this is the creator photo URL
+      final callerName = (caller?.name?.trim().isNotEmpty == true)
+          ? caller!.name!.trim()
+          : (caller?.username?.trim().isNotEmpty == true)
+              ? caller!.username!.trim()
+              : null;
+      final call = await callService.initiateCallToMember(
+        memberFirebaseUid: userFirebaseUid,
+        initiatorFirebaseUid: firebaseUser.uid,
+        creatorMongoId: creatorMongoId,
+        streamVideo: streamVideo,
+        initiatedByRole: 'creator',
+        initiatorImageUrl: callerImage,
+        initiatorDisplayName: callerName,
+      );
+
+      // Billing metadata
+      _activeCallId = call.id;
+      _activeCreatorFirebaseUid = firebaseUser.uid;
+      _activeCreatorMongoId = creatorMongoId;
+      _activeUserFirebaseUid = userFirebaseUid; // payer
+
+      state = CallConnectionState(
+        phase: CallConnectionPhase.joining,
+        call: call,
+        isOutgoing: true,
+        remoteImageFallbackUrl: userImageUrl,
+        outgoingCreatorName: state.outgoingCreatorName,
+      );
+      _startWatchdog();
+      _listenForConnected(call);
+
+      callService.joinCall(call);
+    } catch (e) {
+      debugPrint('❌ [CALL CTRL] startCreatorCallToUser error: $e');
       CallRingtoneService.stop();
       await _cleanupCall();
       if (mounted) {
@@ -900,9 +1047,19 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     if (wasConnected && isRegularUser && mounted) {
       Future.delayed(const Duration(milliseconds: 500), () {
         if (mounted) {
+          final uid = _ref.read(authProvider).firebaseUser?.uid;
+          final creatorName = _extractRemoteCreatorName(call);
+          final photo = resolveRemoteImageUrl(
+            call: call,
+            currentUserId: uid,
+            fallbackImageUrl: null,
+          );
           _ref.read(coinPurchasePopupProvider.notifier).state = CoinPopupIntent(
                 reason: 'post_call',
                 dedupeKey: 'coin-post-call-$endedCallId',
+                remoteDisplayName: creatorName,
+                remotePhotoUrl: photo,
+                remoteFirebaseUid: endedCreatorFirebaseUid,
               );
         }
       });

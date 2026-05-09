@@ -125,7 +125,7 @@ class ChatService {
   /// {
   ///   "freeRemaining": 2,
   ///   "costPerMessage": 0 or 5,
-  ///   "freeTotal": 3,
+  ///   "freeTotal": <server>,
   ///   "userCoins": 25
   /// }
   /// ```
