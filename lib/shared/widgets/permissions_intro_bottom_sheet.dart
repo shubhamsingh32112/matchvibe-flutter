@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'brand_app_chrome.dart';
 import 'ui_primitives.dart';
@@ -17,6 +19,17 @@ class PermissionsIntroBottomSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    final viewHeight = mq.size.height;
+    final padBottom = mq.padding.bottom;
+    final shortViewport = viewHeight < 600;
+    final sectionGap = shortViewport ? 10.0 : 14.0;
+    final tileGap = shortViewport ? 8.0 : 10.0;
+    final scrollBottomPad =
+        padBottom > 0 ? padBottom : (shortViewport ? 8.0 : 12.0);
+    final maxSheetHeight =
+        math.max(260.0, (viewHeight - padBottom) * 0.82);
+
     return _OnPresentedOnce(
       onPresented: onPresented,
       child: ClipRRect(
@@ -25,7 +38,7 @@ class PermissionsIntroBottomSheet extends StatelessWidget {
           color: Theme.of(context).colorScheme.surface,
           child: ConstrainedBox(
             constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(context).size.height * 0.82,
+              maxHeight: maxSheetHeight,
               minWidth: 280,
             ),
             child: Column(
@@ -33,7 +46,7 @@ class PermissionsIntroBottomSheet extends StatelessWidget {
                 const BrandSheetHeader(title: 'Permissions Required'),
                 Expanded(
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                    padding: EdgeInsets.fromLTRB(16, 16, 16, scrollBottomPad),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -47,25 +60,27 @@ class PermissionsIntroBottomSheet extends StatelessWidget {
                                 height: 1.4,
                               ),
                         ),
-                        const SizedBox(height: 14),
+                        SizedBox(height: sectionGap),
                         const _PermissionTile(
                           icon: Icons.videocam_rounded,
                           title: 'Camera',
                           subtitle: 'Required to start and receive video calls.',
                         ),
-                        const SizedBox(height: 10),
+                        SizedBox(height: tileGap),
                         const _PermissionTile(
                           icon: Icons.mic_rounded,
                           title: 'Microphone',
-                          subtitle: 'Required so both users can hear each other.',
+                          subtitle:
+                              'Required so both users can hear each other.',
                         ),
-                        const SizedBox(height: 10),
+                        SizedBox(height: tileGap),
                         const _PermissionTile(
                           icon: Icons.notifications_active_rounded,
                           title: 'Notifications',
-                          subtitle: 'Required for important call and chat alerts.',
+                          subtitle:
+                              'Required for important call and chat alerts.',
                         ),
-                        const SizedBox(height: 14),
+                        SizedBox(height: sectionGap),
                         Text(
                           'You can update these permissions anytime from your '
                           'device settings.',
@@ -75,7 +90,7 @@ class PermissionsIntroBottomSheet extends StatelessWidget {
                                     .onSurfaceVariant,
                               ),
                         ),
-                        const SizedBox(height: 18),
+                        SizedBox(height: shortViewport ? 12 : 18),
                         PrimaryButton(label: 'Agree', onPressed: onAgree),
                         if (onNotNow != null) ...[
                           const SizedBox(height: 8),
@@ -86,7 +101,6 @@ class PermissionsIntroBottomSheet extends StatelessWidget {
                             ),
                           ),
                         ],
-                        SizedBox(height: MediaQuery.of(context).padding.bottom),
                       ],
                     ),
                   ),
@@ -163,17 +177,17 @@ class _PermissionTile extends StatelessWidget {
                 Text(
                   title,
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    color: scheme.onSurface,
-                    fontWeight: FontWeight.w700,
-                  ),
+                        color: scheme.onSurface,
+                        fontWeight: FontWeight.w700,
+                      ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   subtitle,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                    height: 1.35,
-                  ),
+                        color: scheme.onSurfaceVariant,
+                        height: 1.35,
+                      ),
                 ),
               ],
             ),
@@ -183,3 +197,4 @@ class _PermissionTile extends StatelessWidget {
     );
   }
 }
+

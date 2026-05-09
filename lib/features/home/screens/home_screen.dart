@@ -38,6 +38,7 @@ import '../../../shared/widgets/app_modal_dialog.dart';
 import '../../../shared/widgets/permissions_intro_bottom_sheet.dart';
 import '../../../core/services/modal_coordinator_service.dart';
 import '../../../core/services/promo_popup_service.dart';
+import '../../../core/services/free_call_popup_service.dart';
 import '../../../shared/widgets/promo_image_popup.dart';
 import '../../onboarding/models/onboarding_step.dart';
 import '../../onboarding/services/onboarding_flow_service.dart';
@@ -176,6 +177,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   static const String _promoAssetPath = 'lib/assets/promo_first_call_on_us.png';
+  static const String _freeCallPopupAssetPath = 'lib/assets/free-call-popup.jpeg';
 
   Future<void> _maybeShowLoginPromoOnce() async {
     if (!mounted) return;
@@ -184,6 +186,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final user = authState.user;
     if (uid == null || user == null) return;
     if (user.role != 'user') return;
+    if (user.welcomeFreeCallEligible) return;
 
     final shown = await PromoPopupService.hasShown(uid);
     if (shown) return;
@@ -619,6 +622,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
+  /// Shown immediately after welcome dismisses (same modal [present] future), before permissions.
+  Future<void> _showFreeCallPopupAfterWelcomeIfEligible(
+    BuildContext navContext,
+  ) async {
+    if (!mounted || !navContext.mounted) return;
+    final authState = ref.read(authProvider);
+    final uid = authState.firebaseUser?.uid;
+    final user = authState.user;
+    if (uid == null || user == null || user.role != 'user') return;
+    if (!user.welcomeFreeCallEligible) return;
+    if (await FreeCallPopupService.hasShown(uid)) return;
+    if (!mounted || !navContext.mounted) return;
+    await showAppModalDialog<void>(
+      context: navContext,
+      barrierDismissible: true,
+      barrierColor: Colors.transparent,
+      builder: (_) => const PromoImagePopup(assetPath: _freeCallPopupAssetPath),
+    );
+    if (!mounted || !navContext.mounted) return;
+    await FreeCallPopupService.markShown(uid);
+  }
+
   void _showWelcomeDialog({AppModalPriority priority = AppModalPriority.critical}) {
     if (!mounted) return;
     final id = ref
@@ -648,87 +673,99 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             id: id,
             priority: priority,
             dedupeKey: 'onboarding-welcome',
-            present: (ctx, _) {
+            present: (ctx, _) async {
               Timer? watchdog;
-              return showAppModalDialog<void>(
-                context: ctx,
-                barrierDismissible: false,
-                builder: (dialogContext) => WelcomeBottomSheet(
-                  onPresented: () async {
-                    final uid = ref.read(authProvider).firebaseUser?.uid;
-                    if (uid == null) return;
-                    await OnboardingPopupStateService.markShown(
-                      uid: uid,
-                      step: OnboardingStep.welcome,
-                    );
-                    debugPrint('[ONBOARDING_POPUP] popup_rendered uid=$uid step=welcome');
-                    _startOnboardingWatchdog(
-                      sheetContext: dialogContext,
-                      firebaseUid: uid,
-                      step: OnboardingStep.welcome,
-                    );
-                    watchdog = _onboardingPopupWatchdog;
-                  },
-                onAgree: () async {
-                  final firebaseUid = ref.read(authProvider).firebaseUser?.uid;
-                  if (firebaseUid != null) {
-                    try {
-                      OnboardingFlowService.setLocalStageOverride(
-                        firebaseUid: firebaseUid,
-                        step: OnboardingStep.permission,
+              try {
+                await showAppModalDialog<void>(
+                  context: ctx,
+                  barrierDismissible: false,
+                  builder: (dialogContext) => WelcomeBottomSheet(
+                    onPresented: () async {
+                      final uid = ref.read(authProvider).firebaseUser?.uid;
+                      if (uid == null) return;
+                      await OnboardingPopupStateService.markShown(
+                        uid: uid,
+                        step: OnboardingStep.welcome,
                       );
-                      await OnboardingFlowService.markWelcomeSeen(
-                        firebaseUid,
-                        sessionId: _onboardingSessionId,
+                      if (!dialogContext.mounted) return;
+                      debugPrint(
+                        '[ONBOARDING_POPUP] popup_rendered uid=$uid step=welcome',
                       );
-                      await _markWelcomeAsSeenWithRetry();
-                    } catch (_) {
-                      OnboardingFlowService.clearLocalStageOverride(firebaseUid);
-                      if (dialogContext.mounted) {
-                        AppToast.showError(
-                          dialogContext,
-                          'Please check internet and try again.',
-                        );
+                      _startOnboardingWatchdog(
+                        sheetContext: dialogContext,
+                        firebaseUid: uid,
+                        step: OnboardingStep.welcome,
+                      );
+                      watchdog = _onboardingPopupWatchdog;
+                    },
+                    onAgree: () async {
+                      final firebaseUid = ref.read(authProvider).firebaseUser?.uid;
+                      if (firebaseUid != null) {
+                        try {
+                          OnboardingFlowService.setLocalStageOverride(
+                            firebaseUid: firebaseUid,
+                            step: OnboardingStep.permission,
+                          );
+                          await OnboardingFlowService.markWelcomeSeen(
+                            firebaseUid,
+                            sessionId: _onboardingSessionId,
+                          );
+                          await _markWelcomeAsSeenWithRetry();
+                        } catch (_) {
+                          OnboardingFlowService.clearLocalStageOverride(
+                            firebaseUid,
+                          );
+                          if (dialogContext.mounted) {
+                            AppToast.showError(
+                              dialogContext,
+                              'Please check internet and try again.',
+                            );
+                          }
+                          return;
+                        }
                       }
-                      return;
-                    }
-                  }
-                  if (dialogContext.mounted) {
-                    Navigator.of(dialogContext).pop();
-                  }
-                },
-                onNotNow: () async {
-                  final firebaseUid = ref.read(authProvider).firebaseUser?.uid;
-                  if (firebaseUid != null) {
-                    try {
-                      OnboardingFlowService.setLocalStageOverride(
-                        firebaseUid: firebaseUid,
-                        step: OnboardingStep.permission,
-                      );
-                      await OnboardingFlowService.markWelcomeSeen(
-                        firebaseUid,
-                        sessionId: _onboardingSessionId,
-                      );
-                      await WelcomeService.markWelcomeAsSeen(firebaseUid);
-                    } catch (_) {
-                      OnboardingFlowService.clearLocalStageOverride(firebaseUid);
                       if (dialogContext.mounted) {
-                        AppToast.showError(
-                          dialogContext,
-                          'Please check internet and try again.',
-                        );
+                        Navigator.of(dialogContext).pop();
                       }
-                      return;
-                    }
-                  }
-                  if (dialogContext.mounted) {
-                    Navigator.of(dialogContext).pop();
-                  }
-                },
-              ),
-              ).whenComplete(() {
+                    },
+                    onNotNow: () async {
+                      final firebaseUid = ref.read(authProvider).firebaseUser?.uid;
+                      if (firebaseUid != null) {
+                        try {
+                          OnboardingFlowService.setLocalStageOverride(
+                            firebaseUid: firebaseUid,
+                            step: OnboardingStep.permission,
+                          );
+                          await OnboardingFlowService.markWelcomeSeen(
+                            firebaseUid,
+                            sessionId: _onboardingSessionId,
+                          );
+                          await WelcomeService.markWelcomeAsSeen(firebaseUid);
+                        } catch (_) {
+                          OnboardingFlowService.clearLocalStageOverride(
+                            firebaseUid,
+                          );
+                          if (dialogContext.mounted) {
+                            AppToast.showError(
+                              dialogContext,
+                              'Please check internet and try again.',
+                            );
+                          }
+                          return;
+                        }
+                      }
+                      if (dialogContext.mounted) {
+                        Navigator.of(dialogContext).pop();
+                      }
+                    },
+                  ),
+                );
+              } finally {
                 watchdog?.cancel();
-              });
+              }
+              if (mounted && ctx.mounted) {
+                await _showFreeCallPopupAfterWelcomeIfEligible(ctx);
+              }
             },
             onCompleted: (_) async {
               _welcomeDialogActive = false;

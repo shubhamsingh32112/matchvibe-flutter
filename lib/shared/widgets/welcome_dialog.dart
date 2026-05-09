@@ -170,6 +170,24 @@ class _WelcomeBottomSheetContentState
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final mq = MediaQuery.of(context);
+    final shortViewport = mq.size.height < 640;
+    final edgePad = shortViewport ? 16.0 : 24.0;
+    final logoSize = shortViewport ? 48.0 : 60.0;
+    final titleStyle = theme.textTheme.headlineSmall?.copyWith(
+      color: Colors.white,
+      fontWeight: FontWeight.bold,
+    );
+    final subtitleStyle = theme.textTheme.bodyLarge?.copyWith(
+      color: Colors.white,
+      height: 1.4,
+    );
+    final agreeStyle = theme.textTheme.bodySmall?.copyWith(
+      color: Colors.white,
+      height: 1.4,
+    );
+
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -186,119 +204,115 @@ class _WelcomeBottomSheetContentState
         borderRadius: BorderRadius.circular(20),
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            // Allow scroll on small screens while keeping dialog reasonably sized.
-            maxHeight: MediaQuery.of(context).size.height * 0.82,
+            maxHeight: mq.size.height * 0.82,
             minWidth: 280,
           ),
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24.0),
+            padding: EdgeInsets.all(edgePad),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Logo
-                Container(
-                  width: 60,
-                  height: 60,
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Center(
-                    child: Text(
-                      'M',
-                      style: TextStyle(
-                        fontSize: 36,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFFFF6B35),
+                SafeArea(
+                  bottom: false,
+                  minimum: EdgeInsets.zero,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: logoSize,
+                        height: logoSize,
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Center(
+                          child: Text(
+                            'M',
+                            style: theme.textTheme.headlineMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: const Color(0xFFFF6B35),
+                              fontSize: logoSize * 0.58,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
+                      SizedBox(height: shortViewport ? 12 : 16),
+                      Text(
+                        'Welcome to Match Vibe',
+                        style: titleStyle,
+                      ),
+                      SizedBox(height: shortViewport ? 6 : 8),
+                      Text(
+                        'We aim to create a safe and respectful environment for everyone.',
+                        style: subtitleStyle,
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 16),
+                SizedBox(height: shortViewport ? 18 : 24),
 
-                // Title
-                const Text(
-                  'Welcome to Match Vibe',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 8),
-
-                // Subtitle
-                const Text(
-                  'We aim to create a safe and respectful environment for everyone.',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.white,
-                    height: 1.4,
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                // Guidelines
                 _buildGuideline(
+                  context,
                   icon: Icons.handshake,
                   title: 'Stay respectful',
-                  description: 'Treat others the way you\'d like to be treated.',
+                  description:
+                      'Treat others the way you\'d like to be treated.',
                 ),
-                const SizedBox(height: 16),
+                SizedBox(height: shortViewport ? 12 : 16),
                 _buildGuideline(
+                  context,
                   icon: Icons.shield,
                   title: 'Protect yourself',
-                  description: 'Be cautious about sharing personal information.',
+                  description:
+                      'Be cautious about sharing personal information.',
                 ),
-                const SizedBox(height: 16),
+                SizedBox(height: shortViewport ? 12 : 16),
                 _buildGuideline(
+                  context,
                   icon: Icons.campaign,
                   title: 'Take action',
                   description: 'Always report inappropriate behaviour.',
                 ),
-                const SizedBox(height: 24),
+                SizedBox(height: shortViewport ? 18 : 24),
 
-                // Agreement text
                 RichText(
-                  text: const TextSpan(
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.white,
-                      height: 1.4,
-                    ),
+                  text: TextSpan(
+                    style: agreeStyle,
                     children: [
-                      TextSpan(
+                      const TextSpan(
                         text:
-                            'By using Match Vibe, you\'re agreeing to adhere to our values as well as our ',
+                            'By using Match Vibe, you\'re agreeing to adhere to '
+                            'our values as well as our ',
                       ),
                       TextSpan(
                         text: 'guidelines',
-                        style: TextStyle(
+                        style: agreeStyle?.copyWith(
                           fontWeight: FontWeight.bold,
                           decoration: TextDecoration.underline,
                         ),
                       ),
-                      TextSpan(text: '.'),
+                      const TextSpan(text: '.'),
                     ],
                   ),
                 ),
-                const SizedBox(height: 24),
+                SizedBox(height: shortViewport ? 18 : 24),
 
-                // I agree button
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: _isProcessing ? null : _handleAgree,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFE8B4CB), // Light pink/purple
+                      backgroundColor: const Color(0xFFE8B4CB),
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      padding: EdgeInsets.symmetric(
+                        vertical: shortViewport ? 14 : 16,
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
                       elevation: 0,
                       disabledBackgroundColor:
-                          const Color(0xFFE8B4CB).withOpacity(0.6),
+                          const Color(0xFFE8B4CB).withValues(alpha: 0.6),
                     ),
                     child: _isProcessing
                         ? const SizedBox(
@@ -306,15 +320,14 @@ class _WelcomeBottomSheetContentState
                             height: 20,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                Colors.white,
-                              ),
+                              valueColor:
+                                  AlwaysStoppedAnimation<Color>(Colors.white),
                             ),
                           )
-                        : const Text(
+                        : Text(
                             'I agree',
-                            style: TextStyle(
-                              fontSize: 18,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: Colors.white,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -325,9 +338,12 @@ class _WelcomeBottomSheetContentState
                   Center(
                     child: TextButton(
                       onPressed: _isProcessing ? null : _handleNotNow,
-                      child: const Text(
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                      ),
+                      child: Text(
                         'Not now',
-                        style: TextStyle(
+                        style: theme.textTheme.labelLarge?.copyWith(
                           color: Colors.white,
                           fontWeight: FontWeight.w600,
                         ),
@@ -335,8 +351,9 @@ class _WelcomeBottomSheetContentState
                     ),
                   ),
                 ],
-                // Bottom padding for safe area (esp. gesture nav).
-                SizedBox(height: MediaQuery.of(context).padding.bottom),
+                SizedBox(
+                  height: mq.padding.bottom + (shortViewport ? 8 : 0),
+                ),
               ],
             ),
           ),
@@ -345,22 +362,28 @@ class _WelcomeBottomSheetContentState
     );
   }
 
-  Widget _buildGuideline({
+  Widget _buildGuideline(
+    BuildContext context, {
     required IconData icon,
     required String title,
     required String description,
   }) {
+    final theme = Theme.of(context);
+    final shortViewport = MediaQuery.sizeOf(context).height < 640;
+    final bubble = shortViewport ? 36.0 : 40.0;
+    final glyph = shortViewport ? 22.0 : 24.0;
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          width: 40,
-          height: 40,
+          width: bubble,
+          height: bubble,
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.2),
+            color: Colors.white.withValues(alpha: 0.2),
             shape: BoxShape.circle,
           ),
-          child: Icon(icon, color: Colors.white, size: 24),
+          child: Icon(icon, color: Colors.white, size: glyph),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -369,17 +392,15 @@ class _WelcomeBottomSheetContentState
             children: [
               Text(
                 title,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
+                style: theme.textTheme.titleMedium?.copyWith(
                   color: Colors.white,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
               const SizedBox(height: 4),
               Text(
                 description,
-                style: const TextStyle(
-                  fontSize: 14,
+                style: theme.textTheme.bodyMedium?.copyWith(
                   color: Colors.white,
                   height: 1.3,
                 ),
