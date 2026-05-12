@@ -77,9 +77,9 @@ class ImageRenderMetricsReporter {
   static const Duration _flushInterval = Duration(seconds: 30);
   static const int _maxLatencyMs = 60000;
 
-  /// Sample rate table — keep in sync with backend `variant` regex
-  /// (`/^[a-z][a-z0-9-]{0,31}$/`). cache-* tags are rare-but-critical, so
-  /// they are always shipped (weight 1).
+  /// Sample rate table — keep in sync with backend `VARIANT_RE` in
+  /// `image-render-metrics.controller.ts` (`/^[a-z][a-zA-Z0-9]{0,31}$/` —
+  /// camelCase only, no hyphens). Memory/cache tags are always shipped.
   static const Map<String, double> _sampleRates = {
     'avatarXs': 0.05,
     'avatarSm': 0.05,
@@ -90,12 +90,12 @@ class ImageRenderMetricsReporter {
     'galleryThumb': 0.25,
     'galleryMd': 0.25,
     'galleryXl': 0.25,
-    // Memory / cache telemetry — always ship.
-    'cache-bytes-mb': 1.0,
-    'cache-pressure-1': 1.0,
-    'cache-pressure-2': 1.0,
-    'cache-pressure-3': 1.0,
-    'cache-restored': 1.0,
+    // Memory / cache telemetry — always ship (must match backend variant rules).
+    'cacheBytesMb': 1.0,
+    'cachePressure1': 1.0,
+    'cachePressure2': 1.0,
+    'cachePressure3': 1.0,
+    'cacheRestored': 1.0,
   };
   static const double _defaultRate = 0.10;
 

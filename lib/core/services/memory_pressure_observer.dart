@@ -117,15 +117,15 @@ class MemoryPressureObserver with WidgetsBindingObserver {
       case 1:
         cache.maximumSizeBytes =
             (cache.maximumSizeBytes ~/ 2).clamp(_minMaxBytes, _defaultMaxBytes);
-        _emitStepTelemetry('cache-pressure-1', cache.currentSizeBytes);
+        _emitStepTelemetry('cachePressure1', cache.currentSizeBytes);
         break;
       case 2:
         cache.clear();
-        _emitStepTelemetry('cache-pressure-2', cache.currentSizeBytes);
+        _emitStepTelemetry('cachePressure2', cache.currentSizeBytes);
         break;
       case 3:
         cache.clearLiveImages();
-        _emitStepTelemetry('cache-pressure-3', cache.currentSizeBytes);
+        _emitStepTelemetry('cachePressure3', cache.currentSizeBytes);
         break;
     }
 
@@ -144,7 +144,7 @@ class MemoryPressureObserver with WidgetsBindingObserver {
     _step = 0;
     _stashedMaxBytes = null;
     _lastPressureAt = null;
-    _emitStepTelemetry('cache-restored', cache.currentSizeBytes);
+    _emitStepTelemetry('cacheRestored', cache.currentSizeBytes);
   }
 
   void _scheduleStats() {
@@ -158,10 +158,10 @@ class MemoryPressureObserver with WidgetsBindingObserver {
     if (bytes < 0) return;
     final megabytes = (bytes / (1 << 20)).round().clamp(0, 60000);
     // We piggy-back on the render-latency endpoint by treating MB as the
-    // numeric channel and using a dedicated short variant tag. The backend
-    // accepts any short tag matching /^[a-z][a-z0-9-]{0,31}$/.
+    // numeric channel and using a dedicated variant tag (camelCase — see
+    // backend image-render-metrics VARIANT_RE).
     ImageRenderMetricsReporter.instance.record(
-      variant: 'cache-bytes-mb',
+      variant: 'cacheBytesMb',
       latencyMs: megabytes,
       decoded: true,
     );

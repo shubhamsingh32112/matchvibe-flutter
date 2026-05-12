@@ -182,6 +182,18 @@ class UserMessageMapper {
               _isSafeUserFacingMessage(msg)) {
             apiMsg = msg.trim();
           }
+          if (apiMsg == null) {
+            final codeField = data['code'];
+            if (codeField is String && codeField.trim().isNotEmpty) {
+              final mapped = _userMessageForApiErrorCode(
+                codeField.trim(),
+                Map<Object?, Object?>.from(data),
+              );
+              if (mapped != null) {
+                apiMsg = mapped;
+              }
+            }
+          }
         }
         if (apiMsg != null) return apiMsg;
         if (code == 503) {
@@ -209,6 +221,43 @@ class UserMessageMapper {
         return networkFallback;
       case DioExceptionType.badCertificate:
         return 'Secure connection failed. Please try again later.';
+    }
+  }
+
+  /// Maps backend `code` fields when `error` text is missing or redacted as unsafe.
+  static String? _userMessageForApiErrorCode(
+    String code,
+    Map<Object?, Object?> body,
+  ) {
+    switch (code) {
+      case 'UPLOAD_SESSION_INVALID':
+        return 'Upload session expired or was already used. Please pick the photo again.';
+      case 'UPLOAD_NOT_FOUND':
+        return 'The image did not finish uploading. Please try again.';
+      case 'UNSUPPORTED_MIME_TYPE':
+        return 'That image format is not supported. Try JPEG or PNG.';
+      case 'CLOUDFLARE_IMAGES_ERROR':
+        return 'Our image service had a problem. Please try again in a moment.';
+      case 'CLOUDFLARE_IMAGES_UNAVAILABLE':
+      case 'IMAGES_DISABLED':
+        return 'Image uploads are temporarily unavailable. Please try again later.';
+      case 'UPLOAD_QUOTA_EXCEEDED':
+        final ra = body['retryAfterSeconds'];
+        if (ra is num && ra.toInt() > 0) {
+          return 'Upload limit reached. Please try again in about ${ra.toInt()} seconds.';
+        }
+        return 'Upload limit reached. Please try again in a little while.';
+      case 'INVALID_PURPOSE':
+      case 'INVALID_SIZE':
+        return 'Invalid upload request. Please update the app and try again.';
+      case 'FILE_TOO_LARGE':
+        return 'That file is too large. Try a smaller image.';
+      case 'TOO_MANY_SAMPLES':
+        return 'Too much data in one request. Please try again.';
+      case 'INVALID_SAMPLES':
+        return 'Invalid request. Please try again.';
+      default:
+        return null;
     }
   }
 
