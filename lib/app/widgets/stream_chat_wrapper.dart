@@ -27,21 +27,13 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
   bool _isConnecting = false;
   bool _socketInitialized = false; // ⚠️ Guard: prevent re-init on every rebuild
 
-  bool _isNetworkLike(String? value) {
-    if (value == null || value.isEmpty) return false;
-    return value.startsWith('http://') ||
-        value.startsWith('https://') ||
-        value.startsWith('data:');
-  }
-
   Future<void> _connectToStreamChat(AuthState authState) async {
     // Extract variables at method level so they're accessible to both try-catch blocks
     final firebaseUser = authState.firebaseUser!;
     final user = authState.user!;
-    final isCreatorRole = user.role == 'creator' || user.role == 'admin';
-    final creatorSafeAvatar = isCreatorRole
-        ? (_isNetworkLike(user.avatar) ? user.avatar : null)
-        : user.avatar;
+    // Post Phase E: only the Cloudflare-Images avatarAsset is the source of
+    // truth. Stream Chat / Video expect a single CDN URL — pick `md`.
+    final creatorSafeAvatar = user.avatarAsset?.avatarUrls.md;
 
     // Calculate display name once (used by both Stream Chat and Stream Video)
     final displayName =

@@ -1,5 +1,6 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import '../../../core/images/image_cache_managers.dart';
+import '../../../shared/widgets/app_network_image.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -378,14 +379,15 @@ class _HeaderModelPhoto extends StatelessWidget {
   Widget build(BuildContext context) {
     final url = remoteUrl?.trim();
     if (url != null && url.isNotEmpty) {
-      return CachedNetworkImage(
+      return AppNetworkImage(
         imageUrl: url,
+        width: 140,
+        height: 160,
         fit: BoxFit.cover,
-        fadeInDuration: Duration.zero,
-        placeholder: (_, __) =>
-            Image.asset(CallEndedAssets.girl, fit: BoxFit.cover),
-        errorWidget: (_, __, ___) =>
-            Image.asset(CallEndedAssets.girl, fit: BoxFit.cover),
+        cacheManager: avatarCacheManager,
+        errorFallback: Image.asset(CallEndedAssets.girl, fit: BoxFit.cover),
+        placeholder: Image.asset(CallEndedAssets.girl, fit: BoxFit.cover),
+        variantTag: 'avatarMd',
       );
     }
     return Image.asset(CallEndedAssets.girl, fit: BoxFit.cover);

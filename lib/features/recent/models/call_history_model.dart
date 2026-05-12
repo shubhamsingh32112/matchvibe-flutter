@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
 
+import '../../../core/images/image_asset_view.dart';
+
 class CallHistoryModel extends Equatable {
   final String id;
   final String callId;
@@ -7,7 +9,14 @@ class CallHistoryModel extends Equatable {
   final String otherUserId;
   final String? otherCreatorId; // Creator._id (only when other party is a creator)
   final String otherName;
+
+  /// @deprecated Legacy avatar URL string. Prefer [otherAvatarAsset].
   final String? otherAvatar;
+
+  /// Cloudflare avatar payload for the counterparty. Used by the recents list
+  /// via [AppAvatar].
+  final AvatarAssetView? otherAvatarAsset;
+
   final String otherFirebaseUid;
   final String ownerRole; // 'user' or 'creator'
   final String? direction; // 'incoming' | 'outgoing' (relative to owner)
@@ -24,6 +33,7 @@ class CallHistoryModel extends Equatable {
     this.otherCreatorId,
     required this.otherName,
     this.otherAvatar,
+    this.otherAvatarAsset,
     required this.otherFirebaseUid,
     required this.ownerRole,
     this.direction,
@@ -44,7 +54,12 @@ class CallHistoryModel extends Equatable {
       otherUserId: json['otherUserId'] as String? ?? '',
       otherCreatorId: json['otherCreatorId'] as String?,
       otherName: json['otherName'] as String? ?? 'Unknown',
-      otherAvatar: json['otherAvatar'] as String?,
+      otherAvatar: json['otherAvatar'] is String
+          ? json['otherAvatar'] as String?
+          : null,
+      otherAvatarAsset: AvatarAssetView.fromJson(
+        json['otherAvatarAsset'] as Map<String, dynamic>?,
+      ),
       otherFirebaseUid: json['otherFirebaseUid'] as String? ?? '',
       ownerRole: json['ownerRole'] as String? ?? 'user',
       direction: json['direction'] as String?,

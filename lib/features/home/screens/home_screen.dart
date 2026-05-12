@@ -16,6 +16,7 @@ import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 import '../../../shared/widgets/brand_app_chrome.dart';
+import '../../../core/services/image_precache_service.dart';
 import '../../../shared/models/creator_model.dart';
 import '../../../shared/models/profile_model.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -1332,6 +1333,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           ),
         ),
       );
+    }
+
+    final creatorTiles = items.whereType<CreatorModel>().toList(growable: false);
+    if (creatorTiles.isNotEmpty) {
+      ImagePrecacheService.precacheFeedTiles(context, creatorTiles);
     }
 
     return RefreshIndicator(

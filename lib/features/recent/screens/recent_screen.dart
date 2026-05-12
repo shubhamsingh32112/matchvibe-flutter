@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import '../../../core/services/image_precache_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/user_message_mapper.dart';
+import '../../../shared/widgets/app_avatar.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../../shared/widgets/skeleton_list.dart';
@@ -65,6 +67,9 @@ class _RecentScreenState extends ConsumerState<RecentScreen> {
           ),
         ),
         data: (calls) {
+          if (calls.isNotEmpty) {
+            ImagePrecacheService.precacheRecentCalls(context, calls);
+          }
           if (calls.isEmpty) {
             return Center(
               child: Column(
@@ -132,14 +137,13 @@ class _CallHistoryTile extends ConsumerWidget {
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      leading: CircleAvatar(
-        radius: 24,
+      leading: AppAvatar(
+        size: 48,
+        avatarAsset: call.otherAvatarAsset,
+        imageUrlOverride:
+            call.otherAvatarAsset == null ? call.otherAvatar : null,
         backgroundColor: scheme.primaryContainer,
-        backgroundImage:
-            call.otherAvatar != null ? NetworkImage(call.otherAvatar!) : null,
-        child: call.otherAvatar == null
-            ? Icon(Icons.person, color: scheme.onPrimaryContainer)
-            : null,
+        fallbackText: call.otherName.isNotEmpty ? call.otherName[0] : 'U',
       ),
       title: Text(
         call.otherName,

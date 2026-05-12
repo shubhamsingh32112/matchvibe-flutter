@@ -8,10 +8,15 @@ import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:dio/dio.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/images/image_asset_view.dart';
+import '../../../core/images/image_cache_managers.dart';
 import '../../../core/utils/user_message_mapper.dart';
+import '../../../shared/widgets/app_network_image.dart';
 import '../../../shared/widgets/app_toast.dart';
-import '../../../core/services/avatar_upload_service.dart';
+import '../../../core/services/image_presets_service.dart';
+import '../../../core/services/image_upload_service.dart';
 import '../../../shared/models/creator_model.dart';
+import '../../../shared/providers/image_service_degraded_provider.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 import '../../../shared/widgets/brand_app_chrome.dart';
@@ -67,6 +72,18 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   List<CreatorGalleryImage> _creatorGalleryImages = const [];
   Uint8List? _pendingGalleryPreviewBytes;
 
+  /// Auto-retry guard: per-draft-slot in-flight flag so a fast back-to-back
+  /// degraded→healthy oscillation cannot start two concurrent retries for
+  /// the same upload.
+  final Set<String> _retryingSlots = <String>{};
+
+  /// Cooldown: ms since epoch of the last retry attempt for each slot.
+  final Map<String, int> _lastRetryAtMs = <String, int>{};
+  static const int _retryCooldownMs = 5000;
+
+  /// Handle for the degraded-mode listener so we can clean it up on dispose.
+  ProviderSubscription<ImageServiceDegradedState>? _degradedSub;
+
   @override
   void initState() {
     super.initState();
@@ -91,33 +108,39 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         _loadCreatorGalleryImages();
       }
 
-      // If the stored avatar is a URL, distinguish preset URL vs gallery URL.
-      final storedAvatar = user.avatar;
-      if (storedAvatar != null &&
-          (storedAvatar.startsWith('http://') ||
-              storedAvatar.startsWith('https://'))) {
-        if (AvatarUploadService.isPresetAvatarUrl(storedAvatar)) {
-          _usingGalleryImage = false;
-          final extractedName =
-              AvatarUploadService.extractPresetAvatarName(storedAvatar);
-          if (extractedName != null && availableAvatars.contains(extractedName)) {
-            _selectedAvatar = extractedName;
-          } else {
-            _selectedAvatar =
-                availableAvatars.isNotEmpty ? availableAvatars[0] : null;
+      // Cloudflare-first pre-selection: if the user's avatarAsset.imageId
+      // matches one of the preset imageIds, pre-select that preset name.
+      // Otherwise treat as a gallery-uploaded image. Legacy URL parsing is
+      // intentionally removed (0 production users + clean refactor).
+      _selectedAvatar =
+          availableAvatars.isNotEmpty ? availableAvatars[0] : null;
+      _usingGalleryImage = false;
+      final currentImageId = user.avatarAsset?.imageId;
+      if (currentImageId != null && currentImageId.isNotEmpty) {
+        ImagePresetsService.instance.load().then((presets) {
+          if (!mounted) return;
+          final gender = user.gender ?? 'male';
+          final list = gender == 'female' ? presets.female : presets.male;
+          PresetAvatarEntry? matched;
+          for (final entry in list) {
+            if (entry.imageId == currentImageId) {
+              matched = entry;
+              break;
+            }
           }
-        } else {
-          _usingGalleryImage = true;
-          _selectedAvatar =
-              availableAvatars.isNotEmpty ? availableAvatars[0] : null;
-        }
-      } else if (storedAvatar != null &&
-          availableAvatars.contains(storedAvatar)) {
-        _selectedAvatar = storedAvatar;
-      } else {
-        _selectedAvatar =
-            availableAvatars.isNotEmpty ? availableAvatars[0] : null;
+          if (matched != null) {
+            setState(() {
+              _selectedAvatar = matched!.fileName;
+              _usingGalleryImage = false;
+            });
+          } else {
+            setState(() {
+              _usingGalleryImage = true;
+            });
+          }
+        }).catchError((_) {});
       }
+      // Phase E: legacy `user.avatar` string was removed. No fallback path.
     }
 
     // Initialize PageController with selected avatar index
@@ -133,6 +156,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
   @override
   void dispose() {
+    _degradedSub?.close();
+    _degradedSub = null;
     _usernameController.dispose();
     _nameController.dispose();
     _aboutController.dispose();
@@ -144,7 +169,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   List<String> _getAvailableAvatars() {
     final user = ref.read(authProvider).user;
     final gender = user?.gender ?? 'male';
-    return AvatarUploadService.getAvailablePresetAvatarNames(gender);
+    return ImagePresetsService.getAvailablePresetAvatarNames(gender);
   }
 
   // ── Gallery Permission & Picker ────────────────────────────────────
@@ -282,14 +307,6 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     }
   }
 
-  String _contentTypeForFileName(String fileName) {
-    final name = fileName.toLowerCase();
-    if (name.endsWith('.png')) return 'image/png';
-    if (name.endsWith('.webp')) return 'image/webp';
-    if (name.endsWith('.jpg') || name.endsWith('.jpeg')) return 'image/jpeg';
-    return 'image/jpeg';
-  }
-
   Future<void> _addCreatorGalleryImage() async {
     if (_isGalleryLoading || _creatorGalleryImages.length >= CreatorGalleryService.maxImages) {
       return;
@@ -316,7 +333,6 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       final images = await _creatorGalleryService.uploadGalleryImage(
         imageBytes: bytes,
         fileName: pickedFile.name,
-        contentType: _contentTypeForFileName(pickedFile.name),
       );
       if (!mounted) return;
       setState(() {
@@ -411,43 +427,43 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       final isCreator = user?.role == 'creator' || user?.role == 'admin';
       final authState = ref.read(authProvider);
 
-      String? avatarValue;
-      String? creatorPhotoValue;
+      // Cloudflare Images: either an upload session (fresh upload) or
+      // a preset imageId (pre-seeded). Legacy `avatar`/`photo` URL strings
+      // are no longer accepted by the backend Cloudflare path.
+      String? avatarUploadSessionId;
+      String? avatarPresetImageId;
+      // Creators currently don't use presets; only uploads.
+      String? creatorAvatarUploadSessionId;
 
-      // Handle avatar/photo upload for both users and creators
       if (_avatarChanged) {
-        final firebaseUid = authState.firebaseUser?.uid;
-        if (firebaseUid != null) {
-          if (_usingGalleryImage && _galleryImageBytes != null) {
-            // ── Upload gallery image ─────────────────────────────
-            debugPrint(
-                '🖼️  [EDIT PROFILE] Uploading gallery image to Firebase Storage...');
-            final uploadedUrl = await AvatarUploadService.uploadGalleryImage(
-              firebaseUid: firebaseUid,
-              imageBytes: _galleryImageBytes!,
-              fileName: _galleryImageName ?? 'gallery.png',
-            );
-            debugPrint('✅ [EDIT PROFILE] Gallery avatar uploaded: $uploadedUrl');
-            if (isCreator) {
-              creatorPhotoValue = uploadedUrl;
-            } else {
-              avatarValue = uploadedUrl;
-            }
-          } else if (_selectedAvatar != null) {
-            // ── Resolve preset avatar URL from Firebase Storage ──
-            debugPrint(
-                '🖼️  [EDIT PROFILE] Resolving preset avatar URL...');
-            final presetUrl = await AvatarUploadService.getPresetAvatarUrl(
-              avatarName: _selectedAvatar!,
-              gender: user?.gender ?? 'male',
-            );
-            debugPrint('✅ [EDIT PROFILE] Preset avatar resolved: $presetUrl');
-            if (isCreator) {
-              creatorPhotoValue = presetUrl;
-            } else {
-              avatarValue = presetUrl;
-            }
+        if (_usingGalleryImage && _galleryImageBytes != null) {
+          debugPrint('🖼️  [EDIT PROFILE] Uploading avatar to Cloudflare Images...');
+          final result = await ImageUploadService.uploadAvatar(
+            bytes: _galleryImageBytes!,
+            purpose: isCreator
+                ? ImageUploadPurpose.creatorAvatar
+                : ImageUploadPurpose.userAvatar,
+            fileName: _galleryImageName,
+            draftSlot: isCreator ? 'creator-avatar' : 'user-avatar',
+          );
+          debugPrint(
+              '✅ [EDIT PROFILE] Avatar uploaded: imageId=${result.imageId} session=${result.sessionId}');
+          if (isCreator) {
+            creatorAvatarUploadSessionId = result.sessionId;
+          } else {
+            avatarUploadSessionId = result.sessionId;
           }
+        } else if (_selectedAvatar != null && !isCreator) {
+          debugPrint('🖼️  [EDIT PROFILE] Resolving preset Cloudflare imageId...');
+          final presets = await ImagePresetsService.instance.load();
+          final match = presets.findByFileName(
+            _selectedAvatar!,
+            user?.gender ?? 'male',
+          );
+          avatarPresetImageId =
+              match?.imageId ?? presets.defaultImageId;
+          debugPrint(
+              '✅ [EDIT PROFILE] Preset resolved: ${avatarPresetImageId ?? '(none)'}');
         }
       }
 
@@ -456,7 +472,12 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         '/user/profile',
         data: {
           'username': username,
-          if (!isCreator && avatarValue != null) 'avatar': avatarValue,
+          if (!isCreator && avatarUploadSessionId != null)
+            'avatarUploadSessionId': avatarUploadSessionId,
+          if (!isCreator &&
+              avatarUploadSessionId == null &&
+              avatarPresetImageId != null)
+            'avatarPresetImageId': avatarPresetImageId,
           'categories': _selectedCategories.toList(),
         },
       );
@@ -491,7 +512,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
           'name': name,
           'about': about,
           if (age != null) 'age': age,
-          if (creatorPhotoValue != null) 'photo': creatorPhotoValue,
+          if (creatorAvatarUploadSessionId != null)
+            'avatarUploadSessionId': creatorAvatarUploadSessionId,
           'categories': _selectedCategories.toList(),
         };
         
@@ -499,7 +521,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         debugPrint('   Name: $name (length: ${name.length})');
         debugPrint('   About: $about (length: ${about.length})');
         debugPrint('   Age: $age');
-        debugPrint('   Photo: ${creatorPhotoValue != null ? "present" : "not provided"}');
+        debugPrint(
+            '   Avatar upload session: ${creatorAvatarUploadSessionId != null ? "present" : "not provided"}');
         debugPrint('   Categories: ${_selectedCategories.toList()}');
         debugPrint('   Request data: $requestData');
         
@@ -547,8 +570,64 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
   // ── Build ─────────────────────────────────────────────────────────
 
+  /// Refinement 6: single-listener invariant. listenManual gives exactly one
+  /// listener for the widget lifetime, so build-time re-registration is
+  /// impossible.
+  void _installDegradedListener() {
+    _degradedSub ??= ref.listenManual<ImageServiceDegradedState>(
+      imageServiceDegradedProvider,
+      (previous, next) {
+        final wasDegraded = previous?.isDegraded ?? false;
+        final isHealthyNow = !next.isDegraded;
+        if (wasDegraded && isHealthyNow) {
+          _retryPendingUploads();
+        }
+      },
+    );
+  }
+
+  Future<void> _retryPendingUploads() async {
+    if (!mounted) return;
+    final slots = ['user-avatar', 'creator-avatar'];
+    for (final slot in slots) {
+      final draft = UploadDraftRegistry.instance.peek(slot);
+      if (draft == null) continue;
+
+      if (_retryingSlots.contains(slot)) continue;
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final lastAt = _lastRetryAtMs[slot] ?? 0;
+      if (now - lastAt < _retryCooldownMs) continue;
+      _lastRetryAtMs[slot] = now;
+      _retryingSlots.add(slot);
+
+      try {
+        final purpose = slot == 'creator-avatar'
+            ? ImageUploadPurpose.creatorAvatar
+            : ImageUploadPurpose.userAvatar;
+        await ImageUploadService.uploadAvatar(
+          bytes: draft.bytes,
+          purpose: purpose,
+          draftSlot: slot,
+        );
+        if (mounted) {
+          AppToast.showSuccess(
+            context,
+            'Pending avatar upload completed',
+          );
+        }
+      } catch (e) {
+        debugPrint('⚠️  [EDIT PROFILE] Auto-retry for $slot failed: $e');
+        // Retry will fire again on the next healthy transition.
+      } finally {
+        _retryingSlots.remove(slot);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    _installDegradedListener();
     final authState = ref.watch(authProvider);
     final user = authState.user;
     final availableAvatars = _getAvailableAvatars();
@@ -621,7 +700,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                                         width: 130,
                                         height: 130,
                                       )
-                                    : _buildCurrentAvatarUrl(user?.avatar),
+                                    : _buildCurrentAvatarFromAsset(user?.avatarAsset),
                               ),
                             ),
                             // Small "change" button
@@ -734,28 +813,31 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                                           : null,
                                     ),
                                     child: ClipOval(
-                                      child: FutureBuilder<String>(
-                                        future: AvatarUploadService.getPresetAvatarUrl(
+                                      child: FutureBuilder<String?>(
+                                        future: ImagePresetsService.instance
+                                            .getPresetAvatarUrl(
                                           avatarName: avatar,
                                           gender: user?.gender ?? 'male',
                                         ),
                                         builder: (context, snapshot) {
                                           if (snapshot.hasData &&
-                                              snapshot.data != null) {
-                                            return Image.network(
-                                              snapshot.data!,
+                                              snapshot.data != null &&
+                                              snapshot.data!.isNotEmpty) {
+                                            return AppNetworkImage(
+                                              imageUrl: snapshot.data,
+                                              width: 160,
+                                              height: 160,
                                               fit: BoxFit.cover,
-                                              errorBuilder:
-                                                  (context, error, stackTrace) {
-                                                return Container(
-                                                  color: scheme.surfaceContainerHigh,
-                                                  child: Icon(
-                                                    Icons.person,
-                                                    color: scheme.onSurfaceVariant,
-                                                    size: 40,
-                                                  ),
-                                                );
-                                              },
+                                              cacheManager: avatarCacheManager,
+                                              variantTag: 'avatarMd',
+                                              errorFallback: Container(
+                                                color: scheme.surfaceContainerHigh,
+                                                child: Icon(
+                                                  Icons.person,
+                                                  color: scheme.onSurfaceVariant,
+                                                  size: 40,
+                                                ),
+                                              ),
                                             );
                                           }
                                           return Container(
@@ -843,7 +925,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                                         width: 130,
                                         height: 130,
                                       )
-                                    : _buildCurrentAvatarUrl(user?.avatar),
+                                    : _buildCurrentAvatarFromAsset(user?.avatarAsset),
                               ),
                             ),
                             // Small "change" button
@@ -956,28 +1038,31 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                                           : null,
                                     ),
                                     child: ClipOval(
-                                      child: FutureBuilder<String>(
-                                        future: AvatarUploadService.getPresetAvatarUrl(
+                                      child: FutureBuilder<String?>(
+                                        future: ImagePresetsService.instance
+                                            .getPresetAvatarUrl(
                                           avatarName: avatar,
                                           gender: user?.gender ?? 'male',
                                         ),
                                         builder: (context, snapshot) {
                                           if (snapshot.hasData &&
-                                              snapshot.data != null) {
-                                            return Image.network(
-                                              snapshot.data!,
+                                              snapshot.data != null &&
+                                              snapshot.data!.isNotEmpty) {
+                                            return AppNetworkImage(
+                                              imageUrl: snapshot.data,
+                                              width: 160,
+                                              height: 160,
                                               fit: BoxFit.cover,
-                                              errorBuilder:
-                                                  (context, error, stackTrace) {
-                                                return Container(
-                                                  color: scheme.surfaceContainerHigh,
-                                                  child: Icon(
-                                                    Icons.person,
-                                                    color: scheme.onSurfaceVariant,
-                                                    size: 40,
-                                                  ),
-                                                );
-                                              },
+                                              cacheManager: avatarCacheManager,
+                                              variantTag: 'avatarMd',
+                                              errorFallback: Container(
+                                                color: scheme.surfaceContainerHigh,
+                                                child: Icon(
+                                                  Icons.person,
+                                                  color: scheme.onSurfaceVariant,
+                                                  size: 40,
+                                                ),
+                                              ),
                                             );
                                           }
                                           return Container(
@@ -1172,10 +1257,15 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                                   Positioned.fill(
                                     child: ClipRRect(
                                       borderRadius: BorderRadius.circular(12),
-                                      child: Image.network(
-                                        image.url,
+                                      child: AppNetworkImage(
+                                        imageUrl: image.previewUrl,
+                                        width: 96,
+                                        height: 120,
                                         fit: BoxFit.cover,
-                                        errorBuilder: (_, __, ___) => Container(
+                                        cacheManager: galleryCacheManager,
+                                        blurhash: image.asset?.blurhash,
+                                        variantTag: 'galleryThumb',
+                                        errorFallback: Container(
                                           color: scheme.surfaceContainerHigh,
                                           child: Icon(
                                             Icons.broken_image_outlined,
@@ -1437,19 +1527,19 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
   // ── Widget helpers ─────────────────────────────────────────────────
 
-  /// Show the current gallery-uploaded avatar from a URL.
-  Widget _buildCurrentAvatarUrl(String? url) {
-    if (url != null && url.startsWith('http')) {
-      return Image.network(
-        url,
-        fit: BoxFit.cover,
+  /// Show the current gallery-uploaded avatar from the canonical avatar
+  /// asset (Cloudflare `md` variant). Returns the fallback when missing.
+  Widget _buildCurrentAvatarFromAsset(AvatarAssetView? asset) {
+    final url = asset?.avatarUrls.md;
+    if (url != null && url.isNotEmpty) {
+      return AppNetworkImage(
+        imageUrl: url,
         width: 130,
         height: 130,
-        errorBuilder: (_, __, ___) => _fallbackAvatar(),
-        loadingBuilder: (_, child, progress) {
-          if (progress == null) return child;
-          return _fallbackAvatar();
-        },
+        fit: BoxFit.cover,
+        cacheManager: avatarCacheManager,
+        errorFallback: _fallbackAvatar(),
+        variantTag: 'avatarMd',
       );
     }
     return _fallbackAvatar();

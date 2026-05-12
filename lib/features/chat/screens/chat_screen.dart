@@ -7,6 +7,9 @@ import '../../../core/services/push_notification_service.dart';
 import '../../../core/services/in_app_feedback_service.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/utils/user_message_mapper.dart';
+import '../../../core/images/image_cache_managers.dart';
+import '../../../shared/widgets/app_avatar.dart';
+import '../../../shared/widgets/app_network_image.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../services/chat_service.dart';
 import '../utils/chat_utils.dart';
@@ -61,17 +64,13 @@ class _CreatorImageAttachmentBuilder extends StreamAttachmentWidgetBuilder {
                     child: InteractiveViewer(
                       minScale: 1,
                       maxScale: 4,
-                      child: Image.network(
-                        imageUrl,
+                      child: AppNetworkImage(
+                        imageUrl: imageUrl,
+                        width: MediaQuery.of(context).size.width,
+                        height: MediaQuery.of(context).size.height,
                         fit: BoxFit.contain,
-                        cacheWidth:
-                            (MediaQuery.of(context).size.width *
-                                    MediaQuery.of(context).devicePixelRatio)
-                                .round(),
-                        cacheHeight:
-                            (MediaQuery.of(context).size.height *
-                                    MediaQuery.of(context).devicePixelRatio)
-                                .round(),
+                        cacheManager: galleryCacheManager,
+                        variantTag: 'galleryXl',
                       ),
                     ),
                   ),
@@ -89,22 +88,14 @@ class _CreatorImageAttachmentBuilder extends StreamAttachmentWidgetBuilder {
           ),
         );
       },
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(
-          maxWidth: 280,
-          minWidth: 220,
-          maxHeight: 360,
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(14),
-          child: Image.network(
-            imageUrl,
-            fit: BoxFit.cover,
-            cacheWidth: (280 * MediaQuery.of(context).devicePixelRatio).round(),
-            cacheHeight: (360 * MediaQuery.of(context).devicePixelRatio)
-                .round(),
-          ),
-        ),
+      child: AppNetworkImage(
+        imageUrl: imageUrl,
+        width: 280,
+        height: 360,
+        fit: BoxFit.cover,
+        borderRadius: BorderRadius.circular(14),
+        cacheManager: galleryCacheManager,
+        variantTag: 'galleryMd',
       ),
     );
 
@@ -1235,36 +1226,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           appBar: AppBar(
             title: Row(
               children: [
-                CircleAvatar(
-                  radius: 18,
+                AppAvatar(
+                  size: 36,
+                  imageUrlOverride: _otherUserImage,
                   backgroundColor: colorScheme.primaryContainer,
-                  child: ClipOval(
-                    child: SizedBox(
-                      width: 36,
-                      height: 36,
-                      child: _otherUserImage != null
-                          ? Image.network(
-                              _otherUserImage!,
-                              fit: BoxFit.cover,
-                              cacheWidth:
-                                  (36 * MediaQuery.of(context).devicePixelRatio)
-                                      .round(),
-                              cacheHeight:
-                                  (36 * MediaQuery.of(context).devicePixelRatio)
-                                      .round(),
-                              errorBuilder: (_, __, ___) => Icon(
-                                Icons.person,
-                                size: 20,
-                                color: colorScheme.onPrimaryContainer,
-                              ),
-                            )
-                          : Icon(
-                              Icons.person,
-                              size: 20,
-                              color: colorScheme.onPrimaryContainer,
-                            ),
-                    ),
-                  ),
+                  fallbackText: _otherUserName?.isNotEmpty == true
+                      ? _otherUserName![0]
+                      : 'U',
                 ),
                 const SizedBox(width: 10),
                 Expanded(

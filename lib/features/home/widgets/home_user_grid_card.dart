@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_spacing.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/images/image_cache_managers.dart';
+import '../../../core/services/image_precache_service.dart';
 import '../../../shared/models/creator_model.dart';
 import '../../../shared/models/profile_model.dart';
 import '../../../shared/styles/app_brand_styles.dart';
+import '../../../shared/widgets/app_avatar.dart';
+import '../../../shared/widgets/app_network_image.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../chat/services/chat_service.dart';
@@ -15,7 +18,6 @@ import '../providers/home_provider.dart';
 import '../../video/controllers/call_connection_controller.dart';
 import 'call_button_variant.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/services/avatar_upload_service.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/providers/coin_purchase_popup_provider.dart';
 import '../../../shared/widgets/app_toast.dart';
@@ -66,7 +68,7 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
           reason: 'preflight_low_coins_grid',
           dedupeKey: 'low-coins-grid-${c.id}',
           remoteDisplayName: c.name,
-          remotePhotoUrl: c.displayPhoto,
+          remotePhotoUrl: c.feedTileUrl,
           remoteFirebaseUid: fb,
         );
       }
@@ -83,7 +85,7 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
           .startUserCall(
             creatorFirebaseUid: creatorFirebaseUid,
             creatorMongoId: widget.creator!.id,
-            creatorImageUrl: widget.creator!.displayPhoto,
+            creatorImageUrl: widget.creator!.feedTileUrl,
             creatorName: widget.creator!.name,
             creatorAge: _creatorAge(),
             creatorCountry: _creatorCountry(),
@@ -103,6 +105,7 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
     final modalCallVariant = u?.welcomeFreeCallEligible == true
         ? CallButtonVariant.welcomeFree
         : CallButtonVariant.normal;
+    ImagePrecacheService.precacheCreatorGallery(context, widget.creator!);
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (pageContext) => _CreatorProfilePage(
@@ -631,23 +634,47 @@ class _CreatorProfilePage extends ConsumerStatefulWidget {
 }
 
 class _CreatorProfilePageState extends ConsumerState<_CreatorProfilePage> {
-  static List<({String thumbUrl, String fullUrl})> _galleryItems(CreatorModel c) {
+  static List<({
+    String thumbUrl,
+    String fullUrl,
+    String? blurhash,
+    String? heroTag,
+  })> _galleryItems(CreatorModel c) {
     final sorted = List<CreatorGalleryImage>.from(c.galleryImages)
       ..sort((a, b) => a.position.compareTo(b.position));
-    final out = <({String thumbUrl, String fullUrl})>[];
+    final out = <({
+      String thumbUrl,
+      String fullUrl,
+      String? blurhash,
+      String? heroTag,
+    })>[];
     for (final e in sorted) {
-      final full = e.url.trim();
-      if (full.isEmpty) continue;
-      final t = e.thumbnailUrl?.trim();
-      out.add((thumbUrl: (t != null && t.isNotEmpty) ? t : full, fullUrl: full));
+      final viewer = e.viewerUrl?.trim();
+      if (viewer == null || viewer.isEmpty) continue;
+      final thumb = e.previewUrl?.trim();
+      out.add((
+        thumbUrl: (thumb != null && thumb.isNotEmpty) ? thumb : viewer,
+        fullUrl: viewer,
+        blurhash: e.asset?.blurhash,
+        heroTag: e.asset != null ? 'gallery-${e.asset!.imageId}' : null,
+      ));
     }
     return out;
   }
 
-  void _openGalleryImage(BuildContext context, String fullUrl) {
+  void _openGalleryImage(
+    BuildContext context,
+    String fullUrl, {
+    String? blurhash,
+    String? heroTag,
+  }) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (ctx) => _CreatorGalleryImageViewer(url: fullUrl),
+        builder: (ctx) => _CreatorGalleryImageViewer(
+          url: fullUrl,
+          blurhash: blurhash,
+          heroTag: heroTag,
+        ),
       ),
     );
   }
@@ -660,8 +687,7 @@ class _CreatorProfilePageState extends ConsumerState<_CreatorProfilePage> {
       data: (d) => widget.creator.copyWith(
         about: d.about,
         galleryImages: d.galleryImages,
-        photo: d.photo,
-        thumbnailPhoto: d.thumbnailPhoto,
+        avatar: d.avatar,
       ),
       orElse: () => widget.creator,
     );
@@ -669,11 +695,7 @@ class _CreatorProfilePageState extends ConsumerState<_CreatorProfilePage> {
     final galleryItems = _galleryItems(merged);
     final galleryLoading =
         detailAsync.isLoading && widget.creator.galleryImages.isEmpty;
-    final dpr = MediaQuery.of(context).devicePixelRatio;
-    final avatarMemW = (100 * dpr).round();
-    final avatarMemH = avatarMemW;
-    final gridMemW = (140 * dpr).round();
-    final gridMemH = (180 * dpr).round();
+    // memCacheWidth/Height now computed inside AppNetworkImage / AppAvatar.
 
     return Scaffold(
       appBar: buildBrandAppBar(context, title: merged.name),
@@ -694,33 +716,13 @@ class _CreatorProfilePageState extends ConsumerState<_CreatorProfilePage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Center(
-                      child: ClipOval(
-                        child: SizedBox(
-                          width: 100,
-                          height: 100,
-                          child: CachedNetworkImage(
-                            imageUrl: merged.displayPhoto,
-                            fit: BoxFit.cover,
-                            memCacheWidth: avatarMemW,
-                            memCacheHeight: avatarMemH,
-                            placeholder: (_, __) => ColoredBox(
-                              color: scheme.surfaceContainerHigh,
-                              child: Center(
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: scheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                            errorWidget: (_, __, ___) => ColoredBox(
-                              color: scheme.surfaceContainerHigh,
-                              child: Icon(
-                                Icons.broken_image_outlined,
-                                color: scheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                        ),
+                      child: AppAvatar(
+                        avatarAsset: merged.avatar,
+                        size: 100,
+                        heroTag: 'creator-avatar-${merged.id}',
+                        fallbackText: merged.name.isNotEmpty
+                            ? merged.name[0]
+                            : 'C',
                       ),
                     ),
                     const SizedBox(height: AppSpacing.sm),
@@ -854,33 +856,23 @@ class _CreatorProfilePageState extends ConsumerState<_CreatorProfilePage> {
                           return Material(
                             color: Colors.transparent,
                             child: InkWell(
-                              onTap: () =>
-                                  _openGalleryImage(context, item.fullUrl),
+                              onTap: () => _openGalleryImage(
+                                context,
+                                item.fullUrl,
+                                blurhash: item.blurhash,
+                                heroTag: item.heroTag,
+                              ),
                               borderRadius: BorderRadius.circular(14),
-                              child: ClipRRect(
+                              child: AppNetworkImage(
+                                imageUrl: item.thumbUrl,
+                                width: 140,
+                                height: 180,
+                                fit: BoxFit.cover,
                                 borderRadius: BorderRadius.circular(14),
-                                child: CachedNetworkImage(
-                                  imageUrl: item.thumbUrl,
-                                  fit: BoxFit.cover,
-                                  memCacheWidth: gridMemW,
-                                  memCacheHeight: gridMemH,
-                                  placeholder: (_, __) => ColoredBox(
-                                    color: scheme.surfaceContainerHigh,
-                                    child: Center(
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: scheme.onSurfaceVariant,
-                                      ),
-                                    ),
-                                  ),
-                                  errorWidget: (_, __, ___) => ColoredBox(
-                                    color: scheme.surfaceContainerHigh,
-                                    child: Icon(
-                                      Icons.broken_image_outlined,
-                                      color: scheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                                ),
+                                cacheManager: galleryCacheManager,
+                                blurhash: item.blurhash,
+                                heroTag: item.heroTag,
+                                variantTag: 'galleryThumb',
                               ),
                             ),
                           );
@@ -971,13 +963,22 @@ class _CreatorProfilePageState extends ConsumerState<_CreatorProfilePage> {
 }
 
 /// Full-screen gallery image with pinch-zoom.
+/// Uses the `galleryXl` variant (1600x1600 contain), NOT true original —
+/// keeps memory + bandwidth bounded.
 class _CreatorGalleryImageViewer extends StatelessWidget {
   final String url;
+  final String? blurhash;
+  final String? heroTag;
 
-  const _CreatorGalleryImageViewer({required this.url});
+  const _CreatorGalleryImageViewer({
+    required this.url,
+    this.blurhash,
+    this.heroTag,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -989,29 +990,16 @@ class _CreatorGalleryImageViewer extends StatelessWidget {
         child: InteractiveViewer(
           minScale: 0.5,
           maxScale: 4,
-          child: CachedNetworkImage(
+          child: AppNetworkImage(
             imageUrl: url,
+            width: size.width,
+            height: size.height,
             fit: BoxFit.contain,
-            memCacheWidth:
-                (MediaQuery.of(context).size.width *
-                        MediaQuery.of(context).devicePixelRatio)
-                    .round(),
-            memCacheHeight:
-                (MediaQuery.of(context).size.height *
-                        MediaQuery.of(context).devicePixelRatio)
-                    .round(),
-            placeholder: (_, __) => const SizedBox(
-              height: 120,
-              width: 120,
-              child: Center(
-                child: CircularProgressIndicator(color: Colors.white70),
-              ),
-            ),
-            errorWidget: (_, __, ___) => const Icon(
-              Icons.broken_image_outlined,
-              color: Colors.white54,
-              size: 64,
-            ),
+            blurhash: blurhash,
+            heroTag: heroTag,
+            cacheManager: galleryCacheManager,
+            errorIcon: Icons.broken_image_outlined,
+            variantTag: 'galleryXl',
           ),
         ),
       ),
@@ -1027,115 +1015,41 @@ class _CardImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dpr = MediaQuery.of(context).devicePixelRatio;
     final width = MediaQuery.of(context).size.width;
-    final tileWidthPx = math.max(120, (width / 2 * dpr).round());
-    final tileHeightPx = math.max(180, (tileWidthPx * 1.4).round());
+    final tileWidth = math.max(120.0, width / 2);
+    final tileHeight = math.max(180.0, tileWidth * 1.4);
+
     final c = creator;
     if (c != null) {
-      final creatorPhoto = c.displayPhoto;
-      // Creators must use Firebase/network image only.
-      if (creatorPhoto.isNotEmpty &&
-          (creatorPhoto.startsWith('http://') ||
-              creatorPhoto.startsWith('https://') ||
-              creatorPhoto.startsWith('data:'))) {
-        return CachedNetworkImage(
-          imageUrl: creatorPhoto,
-          fit: BoxFit.cover,
-          memCacheWidth: tileWidthPx,
-          memCacheHeight: tileHeightPx,
-          errorWidget: (context, _, __) {
-            final scheme = Theme.of(context).colorScheme;
-            return DecoratedBox(
-              decoration: BoxDecoration(color: scheme.surfaceContainerHigh),
-            );
-          },
-        );
-      }
-      final scheme = Theme.of(context).colorScheme;
-      return DecoratedBox(
-        decoration: BoxDecoration(color: scheme.surfaceContainerHigh),
-      );
-    }
-
-    final avatarStr = user?.avatar;
-    if (avatarStr == null || avatarStr.isEmpty) {
-      // Fallback to a semantic surface tone (no hardcoded colors).
-      final scheme = Theme.of(context).colorScheme;
-      return DecoratedBox(
-        decoration: BoxDecoration(color: scheme.surfaceContainerHigh),
-      );
-    }
-
-    if (avatarStr.startsWith('http://') ||
-        avatarStr.startsWith('https://') ||
-        avatarStr.startsWith('data:')) {
-      return Image.network(
-        avatarStr,
+      return AppNetworkImage(
+        imageUrl: c.feedTileUrl,
+        width: tileWidth,
+        height: tileHeight,
         fit: BoxFit.cover,
-        cacheWidth: tileWidthPx,
-        cacheHeight: tileHeightPx,
-        errorBuilder: (context, error, stackTrace) {
-          final scheme = Theme.of(context).colorScheme;
-          return DecoratedBox(
-            decoration: BoxDecoration(color: scheme.surfaceContainerHigh),
-          );
-        },
+        blurhash: c.avatarBlurhash,
+        cacheManager: feedCacheManager,
+        heroTag: 'creator-feed-${c.id}',
+        variantTag: 'feedTile',
       );
     }
 
-    // Treat as a preset avatar key and resolve via Firebase Storage.
-    final gender = user?.gender ?? 'male';
-    final safeGender = gender == 'female' ? 'female' : 'male';
-    return FutureBuilder<String>(
-      future: _resolvePresetAvatarUrl(avatarStr, safeGender),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting &&
-            !snapshot.hasData) {
-          final scheme = Theme.of(context).colorScheme;
-          return DecoratedBox(
-            decoration: BoxDecoration(color: scheme.surfaceContainerHigh),
-          );
-        }
-        final resolvedUrl = snapshot.data;
-        if (resolvedUrl == null || resolvedUrl.isEmpty) {
-          final scheme = Theme.of(context).colorScheme;
-          return DecoratedBox(
-            decoration: BoxDecoration(color: scheme.surfaceContainerHigh),
-          );
-        }
-        return Image.network(
-          resolvedUrl,
-          fit: BoxFit.cover,
-          cacheWidth: tileWidthPx,
-          cacheHeight: tileHeightPx,
-          errorBuilder: (context, error, stackTrace) {
-            final scheme = Theme.of(context).colorScheme;
-            return DecoratedBox(
-              decoration: BoxDecoration(color: scheme.surfaceContainerHigh),
-            );
-          },
-        );
-      },
+    final u = user;
+    if (u == null) {
+      final scheme = Theme.of(context).colorScheme;
+      return DecoratedBox(
+        decoration: BoxDecoration(color: scheme.surfaceContainerHigh),
+      );
+    }
+
+    return AppAvatar(
+      avatarAsset: u.avatarAsset,
+      size: math.min(tileWidth, tileHeight),
+      isCircular: false,
+      borderRadius: BorderRadius.zero,
+      fallbackText: u.username?.isNotEmpty == true
+          ? u.username![0]
+          : 'U',
     );
   }
 
-  Future<String> _resolvePresetAvatarUrl(String avatar, String gender) async {
-    try {
-      return await AvatarUploadService.getPresetAvatarUrl(
-        avatarName: avatar,
-        gender: gender,
-      );
-    } catch (_) {
-      final defaultAvatar = AvatarUploadService.getDefaultAvatarName(gender);
-      try {
-        return await AvatarUploadService.getPresetAvatarUrl(
-          avatarName: defaultAvatar,
-          gender: gender,
-        );
-      } catch (_) {
-        return '';
-      }
-    }
-  }
 }

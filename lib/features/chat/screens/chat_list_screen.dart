@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stream_chat_flutter/stream_chat_flutter.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/services/image_precache_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/user_message_mapper.dart';
+import '../../../shared/widgets/app_avatar.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../../shared/models/profile_model.dart';
@@ -239,24 +241,13 @@ class _RecentChatsChannelList extends StatelessWidget {
                     otherUserName,
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
-                  leading: otherUserImage != null
-                      ? CircleAvatar(
-                          backgroundImage: NetworkImage(otherUserImage),
-                          radius: 20,
-                        )
-                      : CircleAvatar(
-                          radius: 20,
-                          backgroundColor: Theme.of(context)
-                              .colorScheme
-                              .primaryContainer,
-                          child: Icon(
-                            Icons.person,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onPrimaryContainer,
-                            size: 20,
-                          ),
-                        ),
+                  leading: AppAvatar(
+                    size: 40,
+                    imageUrlOverride: otherUserImage,
+                    fallbackText: otherUserName.isNotEmpty
+                        ? otherUserName[0]
+                        : 'U',
+                  ),
                 );
               }
             : null,
@@ -378,6 +369,9 @@ class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
 
     return onlineUsersAsync.when(
       data: (users) {
+        if (users.isNotEmpty) {
+          ImagePrecacheService.precacheChatAvatars(context, users);
+        }
         if (users.isEmpty) {
           return Center(
             child: Column(
@@ -417,20 +411,13 @@ class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
               final isLoading = _loadingUserIds.contains(user.id);
 
               return ListTile(
-                leading: CircleAvatar(
-                  radius: 24,
+                leading: AppAvatar(
+                  size: 48,
+                  avatarAsset: user.avatarAsset,
                   backgroundColor: scheme.primaryContainer,
-                  backgroundImage: user.avatar != null &&
-                          (user.avatar!.startsWith('http') ||
-                              user.avatar!.startsWith('data:'))
-                      ? NetworkImage(user.avatar!)
-                      : null,
-                  child: user.avatar == null ||
-                          (!user.avatar!.startsWith('http') &&
-                              !user.avatar!.startsWith('data:'))
-                      ? Icon(Icons.person,
-                          color: scheme.onPrimaryContainer, size: 24)
-                      : null,
+                  fallbackText: user.username?.isNotEmpty == true
+                      ? user.username![0]
+                      : 'U',
                 ),
                 title: Text(
                   user.username ?? 'User',

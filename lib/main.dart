@@ -13,15 +13,31 @@ import 'package:flutter/foundation.dart';
 import 'app/router/app_router.dart';
 import 'app/widgets/app_lifecycle_wrapper.dart';
 import 'app/widgets/stream_chat_wrapper.dart';
+import 'core/api/api_client.dart';
+import 'core/services/memory_pressure_observer.dart';
 import 'core/services/push_notification_service.dart';
 import 'core/theme/app_theme.dart';
 import 'features/chat/providers/stream_chat_provider.dart';
 import 'features/video/services/security_service.dart';
 import 'features/video/widgets/incoming_call_listener.dart';
 import 'features/video/widgets/outgoing_call_overlay.dart';
+import 'shared/providers/image_service_degraded_provider.dart';
+import 'shared/widgets/image_service_degraded_banner.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Bump default 100MB image cache to 150MB so feed grid + gallery + call
+  // backgrounds don't churn against each other on mid-range devices.
+  // Also lift the default 1000-image count cap a bit so a long scroll session
+  // doesn't evict warm avatars while the gallery hydrates.
+  // Plan §7.3 + §11.3 + §16: monitor low-mem Android closely once shipped.
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 150 << 20;
+  PaintingBinding.instance.imageCache.maximumSize = 1500;
+
+  // Register the memory-pressure ladder + 30s cache-size telemetry. Runs for
+  // the full lifetime of the process — no dispose needed.
+  MemoryPressureObserver.instance.register();
 
   // Load environment file based on build mode
   // Detect build mode: kReleaseMode is true in release builds, false in debug/profile
@@ -198,13 +214,39 @@ class MyApp extends StatelessWidget {
 }
 
 /// Helper widget to build StreamChat inside MaterialApp (where Localizations is available)
-class _StreamChatBuilder extends ConsumerWidget {
+class _StreamChatBuilder extends ConsumerStatefulWidget {
   final Widget? child;
 
   const _StreamChatBuilder({this.child});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_StreamChatBuilder> createState() => _StreamChatBuilderState();
+}
+
+class _StreamChatBuilderState extends ConsumerState<_StreamChatBuilder> {
+  @override
+  void initState() {
+    super.initState();
+    // Wire the Dio interceptor's degraded-mode hook to the Riverpod
+    // provider once the widget tree (and its ProviderScope) is alive.
+    ApiClient.setImageServiceDegradedCallback((degraded) {
+      final notifier = ref.read(imageServiceDegradedProvider.notifier);
+      if (degraded) {
+        notifier.markDegraded();
+      } else {
+        notifier.markHealthy();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    ApiClient.setImageServiceDegradedCallback(null);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final streamClient = ref.watch(streamChatNotifierProvider);
 
     // CRITICAL: Always wrap with StreamChat widget
@@ -213,7 +255,12 @@ class _StreamChatBuilder extends ConsumerWidget {
     // AND it's inside MaterialApp so Localizations is available
     return StreamChat(
       client: streamClient!,
-      child: child ?? const SizedBox.shrink(),
+      child: Column(
+        children: [
+          const ImageServiceDegradedBanner(),
+          Expanded(child: widget.child ?? const SizedBox.shrink()),
+        ],
+      ),
     );
   }
 }

@@ -57,10 +57,17 @@ dependencies:
   intl: ^0.20.2
   equatable: ^2.0.5
   cached_network_image: ^3.4.1
+  flutter_cache_manager: ^3.4.1
   package_info_plus: ^9.0.1
   permission_handler: ^12.0.1
   image_picker: ^1.1.2
   flutter_dotenv: ^5.1.0
+
+  # Cloudflare-Images pipeline (image_compress for EXIF stripping + HEIC->JPEG;
+  # blurhash placeholders; connectivity awareness in AppNetworkImage).
+  flutter_image_compress: ^2.3.0
+  flutter_blurhash: ^0.8.2
+  connectivity_plus: ^7.0.0
   
   # Phone Input (kept for backward compatibility if phone login is re-enabled)
   intl_phone_field: ^3.2.0

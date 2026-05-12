@@ -1,12 +1,18 @@
 import 'package:equatable/equatable.dart';
 
+import '../../core/images/image_asset_view.dart';
+
 class UserModel extends Equatable {
   final String id;
   final String? email;
   final String? phone;
   final String? gender; // 'male', 'female', or 'other'
   final String? username;
-  final String? avatar; // e.g., 'a1.png' or 'fa1.png'
+
+  /// Cloudflare Images avatar payload (variants + blurhash + dims).
+  /// Source of truth for all avatar rendering via [AppAvatar].
+  /// Legacy preset / Firebase URL string fields were removed in Phase E.
+  final AvatarAssetView? avatarAsset;
   final List<String>? categories;
   final int usernameChangeCount;
   final int coins;
@@ -45,7 +51,7 @@ class UserModel extends Equatable {
     this.phone,
     this.gender,
     this.username,
-    this.avatar,
+    this.avatarAsset,
     this.categories,
     this.usernameChangeCount = 0,
     required this.coins,
@@ -82,7 +88,9 @@ class UserModel extends Equatable {
       phone: json['phone'] as String?,
       gender: json['gender'] as String?,
       username: json['username'] as String?,
-      avatar: json['avatar'] as String?,
+      avatarAsset: AvatarAssetView.fromJson(
+        json['avatarAsset'] as Map<String, dynamic>?,
+      ),
       categories: json['categories'] != null
           ? List<String>.from(json['categories'] as List)
           : null,
@@ -145,7 +153,7 @@ class UserModel extends Equatable {
       'phone': phone,
       'gender': gender,
       'username': username,
-      'avatar': avatar,
+      if (avatarAsset != null) 'avatarAsset': {'imageId': avatarAsset!.imageId},
       'categories': categories,
       'usernameChangeCount': usernameChangeCount,
       'coins': coins,
@@ -187,7 +195,7 @@ class UserModel extends Equatable {
     String? phone,
     String? gender,
     String? username,
-    String? avatar,
+    AvatarAssetView? avatarAsset,
     List<String>? categories,
     int? usernameChangeCount,
     int? coins,
@@ -221,7 +229,7 @@ class UserModel extends Equatable {
       phone: phone ?? this.phone,
       gender: gender ?? this.gender,
       username: username ?? this.username,
-      avatar: avatar ?? this.avatar,
+      avatarAsset: avatarAsset ?? this.avatarAsset,
       categories: categories ?? this.categories,
       usernameChangeCount: usernameChangeCount ?? this.usernameChangeCount,
       coins: coins ?? this.coins,
@@ -271,7 +279,7 @@ class UserModel extends Equatable {
         phone,
         gender,
         username,
-        avatar,
+        avatarAsset,
         categories,
         usernameChangeCount,
         coins,

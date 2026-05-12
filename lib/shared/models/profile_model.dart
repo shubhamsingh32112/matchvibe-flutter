@@ -1,11 +1,17 @@
 import 'package:equatable/equatable.dart';
 
+import '../../core/images/image_asset_view.dart';
+
 /// Model for displaying user profiles in the home feed
 /// Used when creators view users
 class UserProfileModel extends Equatable {
   final String id;
   final String? username;
-  final String? avatar;
+
+  /// Cloudflare avatar payload (variants + blurhash). Source of truth for
+  /// avatar rendering — legacy string fields were removed in Phase E.
+  final AvatarAssetView? avatarAsset;
+
   final String? gender;
   final List<String> categories;
   final String? firebaseUid; // Firebase UID for video calls
@@ -15,7 +21,7 @@ class UserProfileModel extends Equatable {
   const UserProfileModel({
     required this.id,
     this.username,
-    this.avatar,
+    this.avatarAsset,
     this.gender,
     this.categories = const [],
     this.firebaseUid,
@@ -27,7 +33,9 @@ class UserProfileModel extends Equatable {
     return UserProfileModel(
       id: json['id'] as String,
       username: json['username'] as String?,
-      avatar: json['avatar'] as String?,
+      avatarAsset: AvatarAssetView.fromJson(
+        json['avatarAsset'] as Map<String, dynamic>?,
+      ),
       gender: json['gender'] as String?,
       categories: json['categories'] != null
           ? List<String>.from(json['categories'] as List)
@@ -44,7 +52,7 @@ class UserProfileModel extends Equatable {
     return {
       'id': id,
       'username': username,
-      'avatar': avatar,
+      if (avatarAsset != null) 'avatarAsset': {'imageId': avatarAsset!.imageId},
       'gender': gender,
       'categories': categories,
       'firebaseUid': firebaseUid,
@@ -57,7 +65,7 @@ class UserProfileModel extends Equatable {
   List<Object?> get props => [
         id,
         username,
-        avatar,
+        avatarAsset,
         gender,
         categories,
         firebaseUid,

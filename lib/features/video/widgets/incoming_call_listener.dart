@@ -387,11 +387,21 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
     }
 
     String? photoFromCreatorMaps(Map<String, dynamic> creator) {
+      // Prefer the Cloudflare avatar's callPhoto variant if present, fall
+      // back to the legacy `photo` URL for transitional payloads.
+      final avatarMap = creator['avatar'];
+      if (avatarMap is Map) {
+        final urls = avatarMap['avatarUrls'];
+        if (urls is Map) {
+          final callPhoto = urls['callPhoto']?.toString().trim();
+          if (callPhoto != null && callPhoto.isNotEmpty) return callPhoto;
+          final md = urls['md']?.toString().trim();
+          if (md != null && md.isNotEmpty) return md;
+        }
+      }
       final photoRaw = creator['photo'];
       final photo = photoRaw != null ? photoRaw.toString().trim() : null;
       if (photo != null && photo.isNotEmpty) return photo;
-      final thumb = creator['thumbnailPhoto']?.toString().trim();
-      if (thumb != null && thumb.isNotEmpty) return thumb;
       return null;
     }
 
@@ -423,7 +433,7 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
               un.isNotEmpty &&
               c.name.toLowerCase() == un.toLowerCase();
           if (idMatched || nameMatched) {
-            final p = c.displayPhoto.trim();
+            final p = (c.feedTileUrl ?? '').trim();
             if (p.isNotEmpty) {
               debugPrint(
                 '✅ [INCOMING CALL] Creator avatar from cached feed: $p',

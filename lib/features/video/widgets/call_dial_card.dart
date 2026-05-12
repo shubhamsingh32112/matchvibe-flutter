@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import '../../../core/images/image_cache_managers.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/styles/app_brand_styles.dart';
+import '../../../shared/widgets/app_network_image.dart';
 
 /// Purple accent for dial-card pill and indeterminate progress (reference UI).
 abstract final class CallDialCardColors {
@@ -229,20 +231,21 @@ class CallDialProfilePhoto extends StatelessWidget {
             ),
           ],
         ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(radius - 1),
-          child: imageUrl != null && imageUrl!.isNotEmpty
-              ? Image.network(
-                  imageUrl!,
-                  fit: BoxFit.cover,
-                  width: size,
-                  height: size,
-                  cacheWidth: size.round(),
-                  cacheHeight: size.round(),
-                  errorBuilder: (_, _, _) => _placeholder(size),
-                )
-              : _placeholder(size),
-        ),
+        child: imageUrl != null && imageUrl!.isNotEmpty
+            ? AppNetworkImage(
+                imageUrl: imageUrl,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                borderRadius: BorderRadius.circular(radius - 1),
+                cacheManager: avatarCacheManager,
+                errorFallback: _placeholder(size),
+                variantTag: 'callPhoto',
+              )
+            : ClipRRect(
+                borderRadius: BorderRadius.circular(radius - 1),
+                child: _placeholder(size),
+              ),
       ),
     );
   }

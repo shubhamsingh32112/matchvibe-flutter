@@ -456,8 +456,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
             phone: creatorData['phone'] as String?,
             gender: creatorData['gender'] as String?,
             username: creatorData['username'] as String?,
-            avatar:
-                creatorData['photo'] as String?, // Use creator photo as avatar
+            // Phase E: legacy `photo` field was removed — Cloudflare
+            // `avatarAsset` is parsed by `UserModel.fromJson` (not used here).
             categories: creatorData['categories'] != null
                 ? List<String>.from(creatorData['categories'] as List)
                 : null,
@@ -1457,8 +1457,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
             phone: responseData['phone'] as String?,
             gender: responseData['gender'] as String?,
             username: responseData['username'] as String?,
-            avatar:
-                responseData['photo'] as String?, // Use creator photo as avatar
+            // Phase E: legacy `photo` field was removed.
             categories: responseData['categories'] != null
                 ? List<String>.from(responseData['categories'] as List)
                 : null,

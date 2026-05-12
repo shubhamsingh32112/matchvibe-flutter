@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/creator_model.dart';
 import '../models/profile_model.dart';
-import 'avatar_widget.dart';
+import 'app_avatar.dart';
 
 class ProfileCard extends StatelessWidget {
   final CreatorModel? creator;
@@ -60,11 +60,12 @@ class ProfileCard extends StatelessWidget {
                       width: 2,
                     ),
                   ),
-                  child: ClipOval(
-                    child: AvatarWidget(
-                      creator: creator,
-                      size: 60,
-                    ),
+                  child: AppAvatar(
+                    avatarAsset: creator.avatar,
+                    size: 60,
+                    fallbackText: creator.name.isNotEmpty
+                        ? creator.name[0]
+                        : 'C',
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -208,11 +209,12 @@ class ProfileCard extends StatelessWidget {
                       width: 2,
                     ),
                   ),
-                  child: ClipOval(
-                    child: AvatarWidget(
-                      userProfile: user,
-                      size: 60,
-                    ),
+                  child: AppAvatar(
+                    avatarAsset: user.avatarAsset,
+                    size: 60,
+                    fallbackText: user.username?.isNotEmpty == true
+                        ? user.username![0]
+                        : 'U',
                   ),
                 ),
                 const SizedBox(width: 12),

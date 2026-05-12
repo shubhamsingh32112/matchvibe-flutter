@@ -7,7 +7,7 @@ import '../../../app/widgets/main_layout.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/models/user_model.dart';
 import '../../../shared/widgets/app_toast.dart';
-import '../../../shared/widgets/avatar_widget.dart';
+import '../../../shared/widgets/app_avatar.dart';
 import '../../../shared/widgets/gem_icon.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/styles/app_brand_styles.dart';
@@ -432,7 +432,13 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                   gradient: AppBrandGradients.avatarRing,
                   border: Border.all(color: Colors.white, width: 2),
                 ),
-                child: ClipOval(child: AvatarWidget(user: user, size: 64)),
+                child: AppAvatar(
+                  avatarAsset: user?.avatarAsset,
+                  size: 64,
+                  fallbackText: user?.username?.isNotEmpty == true
+                      ? user!.username![0]
+                      : 'U',
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(

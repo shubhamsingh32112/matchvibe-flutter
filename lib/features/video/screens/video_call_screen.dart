@@ -14,8 +14,10 @@ import '../utils/call_remote_participant_display.dart';
 import '../utils/call_overlay_rules.dart';
 import '../widgets/call_dial_card.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../../core/images/image_cache_managers.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/app_network_image.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/providers/coin_purchase_popup_provider.dart';
 
@@ -37,6 +39,12 @@ class VideoCallScreen extends ConsumerStatefulWidget {
 }
 
 class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
+  /// Cache budget while a video call is active. Memory pressure during a
+  /// call kills the renderer first, so we voluntarily shed image cache.
+  static const int _callCacheBudgetBytes = 80 << 20;
+
+  int? _stashedImageCacheBytes;
+
   Widget _buildTransitionView() {
     return const Scaffold(
       backgroundColor: Colors.black,
@@ -54,10 +62,26 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
     // Keep the screen on for the entire duration of the call screen
     WakelockPlus.enable();
     debugPrint('🔆 [WAKELOCK] Screen wake lock ENABLED (call screen opened)');
+
+    // Shrink the image cache budget for the lifetime of this screen so the
+    // video renderer has more headroom on mid-range devices.
+    final cache = PaintingBinding.instance.imageCache;
+    _stashedImageCacheBytes = cache.maximumSizeBytes;
+    if (cache.maximumSizeBytes > _callCacheBudgetBytes) {
+      cache.maximumSizeBytes = _callCacheBudgetBytes;
+    }
   }
 
   @override
   void dispose() {
+    // Restore the image cache budget BEFORE other dispose work.
+    final cache = PaintingBinding.instance.imageCache;
+    final stashed = _stashedImageCacheBytes;
+    if (stashed != null) {
+      cache.maximumSizeBytes = stashed;
+      _stashedImageCacheBytes = null;
+    }
+
     // Release the wake lock when leaving the call screen
     WakelockPlus.disable();
     debugPrint('🔅 [WAKELOCK] Screen wake lock DISABLED (call screen closed)');
@@ -677,19 +701,14 @@ class _VideoCallScreenContentState
             children: [
             if (remoteImageUrl != null)
               Positioned.fill(
-                child: Image.network(
-                  remoteImageUrl,
+                child: AppNetworkImage(
+                  imageUrl: remoteImageUrl,
+                  width: MediaQuery.of(context).size.width,
+                  height: MediaQuery.of(context).size.height,
                   fit: BoxFit.cover,
-                  cacheWidth:
-                      (MediaQuery.of(context).size.width *
-                              MediaQuery.of(context).devicePixelRatio)
-                          .round(),
-                  cacheHeight:
-                      (MediaQuery.of(context).size.height *
-                              MediaQuery.of(context).devicePixelRatio)
-                          .round(),
-                  errorBuilder: (context, error, stackTrace) =>
-                      Container(color: Colors.black),
+                  cacheManager: avatarCacheManager,
+                  errorFallback: const ColoredBox(color: Colors.black),
+                  variantTag: 'callBg',
                 ),
               )
             else

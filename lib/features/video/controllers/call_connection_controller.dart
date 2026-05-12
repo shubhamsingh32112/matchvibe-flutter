@@ -417,7 +417,8 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
 
       final callService = _ref.read(callServiceProvider);
       final caller = _ref.read(authProvider).user;
-      final callerImage = caller?.avatar; // creators: this is the creator photo URL
+      // Post Phase E: avatar is exclusively the canonical Cloudflare asset.
+      final callerImage = caller?.avatarAsset?.avatarUrls.md;
       final callerName = (caller?.name?.trim().isNotEmpty == true)
           ? caller!.name!.trim()
           : (caller?.username?.trim().isNotEmpty == true)

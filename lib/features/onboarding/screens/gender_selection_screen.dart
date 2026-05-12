@@ -5,7 +5,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/widgets/app_toast.dart';
-import '../../../core/services/avatar_upload_service.dart';
+import '../../../core/services/image_presets_service.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../auth/providers/auth_provider.dart';
 
@@ -38,7 +38,7 @@ class _GenderSelectionScreenState extends ConsumerState<GenderSelectionScreen> {
   }
 
   String _defaultAvatarForGender(String gender) {
-    return AvatarUploadService.getDefaultAvatarName(gender);
+    return ImagePresetsService.getDefaultAvatarName(gender);
   }
 
   Future<void> _saveProfile() async {
@@ -87,22 +87,31 @@ class _GenderSelectionScreenState extends ConsumerState<GenderSelectionScreen> {
       debugPrint('   Gender: $_selectedGender');
       debugPrint('   Avatar: $_selectedAvatar');
 
-      // 1. Resolve preset avatar URL from Firebase Storage
-      debugPrint('🖼️  [ONBOARDING] Resolving preset avatar URL...');
-      final avatarUrl = await AvatarUploadService.getPresetAvatarUrl(
-        avatarName: _selectedAvatar!,
-        gender: _selectedGender!,
+      // 1. Resolve preset Cloudflare imageId for the backend to bind to.
+      debugPrint('🖼️  [ONBOARDING] Resolving preset Cloudflare imageId...');
+      final presets = await ImagePresetsService.instance.load();
+      final entry = presets.findByFileName(
+        _selectedAvatar!,
+        _selectedGender!,
       );
-      debugPrint('✅ [ONBOARDING] Preset avatar URL resolved: $avatarUrl');
+      if (entry == null) {
+        throw Exception(
+          'Preset avatar not provisioned in Cloudflare: $_selectedAvatar ($_selectedGender)',
+        );
+      }
+      debugPrint(
+        '✅ [ONBOARDING] Preset imageId resolved: ${entry.imageId}',
+      );
 
-      // 2. Save everything to backend in a single call
+      // 2. Save everything to backend in a single call; the backend
+      // binds avatarPresetImageId → user.avatar IImageAsset.
       final response = await _apiClient.put(
         '/user/profile',
         data: {
           'gender': _selectedGender,
           'username': name,
           'age': age,
-          'avatar': avatarUrl,
+          'avatarPresetImageId': entry.imageId,
         },
       );
 

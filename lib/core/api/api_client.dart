@@ -4,6 +4,12 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
 import '../constants/app_constants.dart';
+import '../../shared/providers/image_service_degraded_provider.dart';
+
+/// Callback installed by the Riverpod-aware root widget so the Dio
+/// interceptor can flip the [imageServiceDegradedProvider] without a
+/// circular import on `flutter_riverpod`.
+typedef ImageServiceDegradedCallback = void Function(bool degraded);
 
 class ApiClient {
   late final Dio _dio;
@@ -12,6 +18,18 @@ class ApiClient {
 
   /// In-memory copy of [AppConstants.keyAuthToken] to avoid SharedPreferences on every request.
   static String? _cachedAuthToken;
+
+  /// Hook the Dio interceptor can call when an `X-Image-Service-Degraded`
+  /// header is observed or a "health-revealing" 2xx is observed. The hook
+  /// is invoked with `true` on a degraded signal and `false` when a known
+  /// upload/commit endpoint succeeds.
+  static ImageServiceDegradedCallback? _imageDegradedCallback;
+
+  static void setImageServiceDegradedCallback(
+    ImageServiceDegradedCallback? cb,
+  ) {
+    _imageDegradedCallback = cb;
+  }
 
   /// Call when the persisted auth token changes (login, refresh, logout).
   static void setAuthTokenMemory(String? token) {
@@ -116,6 +134,11 @@ class ApiClient {
               debugPrint('   📦 Response data: ${response.data}');
             }
           }
+          _handleImageServiceHealthSignal(
+            path: response.requestOptions.path,
+            headers: response.headers.map,
+            isSuccess: true,
+          );
           return handler.next(response);
         },
         onError: (error, handler) async {
@@ -136,6 +159,11 @@ class ApiClient {
               debugPrint('   📦 Error data: ${error.response?.data}');
               debugPrint('   📋 Response headers: ${error.response?.headers}');
             }
+            _handleImageServiceHealthSignal(
+              path: error.requestOptions.path,
+              headers: error.response!.headers.map,
+              isSuccess: false,
+            );
           }
           
           // 🔥 Firebase ID token expired: refresh and retry once
@@ -445,6 +473,26 @@ class ApiClient {
     if (Platform.isMacOS) return 'macOS';
     if (Platform.isLinux) return 'Linux';
     return 'Unknown';
+  }
+
+  static void _handleImageServiceHealthSignal({
+    required String path,
+    required Map<String, List<String>> headers,
+    required bool isSuccess,
+  }) {
+    final cb = _imageDegradedCallback;
+    if (cb == null) return;
+    final degradedHeader = headers['x-image-service-degraded'] ??
+        headers['X-Image-Service-Degraded'];
+    final isDegraded =
+        degradedHeader != null && degradedHeader.contains('1');
+    if (isDegraded) {
+      cb(true);
+      return;
+    }
+    if (isSuccess && isImageHealthRevealingPath(path)) {
+      cb(false);
+    }
   }
 
   static String _latencyCategory(String path) {
