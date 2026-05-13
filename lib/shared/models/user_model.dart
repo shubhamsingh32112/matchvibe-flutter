@@ -89,8 +89,11 @@ class UserModel extends Equatable {
       gender: json['gender'] as String?,
       username: json['username'] as String?,
       avatarAsset: AvatarAssetView.fromJson(
-        json['avatarAsset'] as Map<String, dynamic>?,
-      ),
+            json['avatarAsset'] as Map<String, dynamic>?,
+          ) ??
+          AvatarAssetView.fromJson(
+            json['avatar'] as Map<String, dynamic>?,
+          ),
       categories: json['categories'] != null
           ? List<String>.from(json['categories'] as List)
           : null,

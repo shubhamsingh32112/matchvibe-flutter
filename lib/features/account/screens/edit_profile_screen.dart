@@ -24,6 +24,22 @@ import '../../auth/providers/auth_provider.dart';
 import '../../creator/services/creator_gallery_service.dart';
 import '../../home/providers/home_provider.dart';
 
+/// Local gallery pick kept visible until the committed CDN thumb decodes.
+class _GalleryLocalPreview {
+  _GalleryLocalPreview({
+    required this.localId,
+    required this.bytes,
+    required this.fileName,
+  });
+
+  final String localId;
+  final Uint8List bytes;
+  final String fileName;
+  bool uploading = false;
+  bool failed = false;
+  String? committedGalleryId;
+}
+
 class EditProfileScreen extends ConsumerStatefulWidget {
   const EditProfileScreen({super.key});
 
@@ -67,10 +83,15 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
   /// Whether the user is using a gallery image instead of a preset avatar.
   bool _usingGalleryImage = false;
-  bool _isGalleryLoading = false;
+  /// True until preset-vs-custom avatar classification finishes on first open.
+  bool _avatarPresetCheckPending = false;
+  bool _isGalleryFetching = false;
+  bool _isGalleryUploading = false;
   String? _galleryActionImageId;
+  /// Canonical creator avatar from `GET /creator/profile` (preferred over auth).
+  AvatarAssetView? _creatorProfileAvatar;
   List<CreatorGalleryImage> _creatorGalleryImages = const [];
-  Uint8List? _pendingGalleryPreviewBytes;
+  final List<_GalleryLocalPreview> _localGalleryPreviews = <_GalleryLocalPreview>[];
 
   /// Auto-retry guard: per-draft-slot in-flight flag so a fast back-to-back
   /// degraded→healthy oscillation cannot start two concurrent retries for
@@ -83,6 +104,49 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
   /// Handle for the degraded-mode listener so we can clean it up on dispose.
   ProviderSubscription<ImageServiceDegradedState>? _degradedSub;
+
+  AvatarAssetView? get _displayAvatar =>
+      _creatorProfileAvatar ?? ref.read(authProvider).user?.avatarAsset;
+
+  void _resolveAvatarPresetMode({AvatarAssetView? avatar, String? gender}) {
+    final currentImageId = avatar?.imageId;
+    if (currentImageId == null || currentImageId.isEmpty) {
+      if (mounted) {
+        setState(() => _avatarPresetCheckPending = false);
+      }
+      return;
+    }
+
+    setState(() => _avatarPresetCheckPending = true);
+    ImagePresetsService.instance.load().then((presets) {
+      if (!mounted || _galleryImageBytes != null) return;
+      final g = gender ?? 'male';
+      final list = g == 'female' ? presets.female : presets.male;
+      PresetAvatarEntry? matched;
+      for (final entry in list) {
+        if (entry.imageId == currentImageId) {
+          matched = entry;
+          break;
+        }
+      }
+      setState(() {
+        _avatarPresetCheckPending = false;
+        if (matched != null) {
+          _selectedAvatar = matched.fileName;
+          _usingGalleryImage = false;
+        } else {
+          _usingGalleryImage = true;
+        }
+      });
+    }).catchError((_) {
+      if (mounted) {
+        setState(() {
+          _avatarPresetCheckPending = false;
+          _usingGalleryImage = true;
+        });
+      }
+    });
+  }
 
   @override
   void initState() {
@@ -105,40 +169,25 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         if (user.age != null) {
           _ageController.text = user.age.toString();
         }
-        _loadCreatorGalleryImages();
+        _loadCreatorProfile();
       }
 
       // Cloudflare-first pre-selection: if the user's avatarAsset.imageId
       // matches one of the preset imageIds, pre-select that preset name.
-      // Otherwise treat as a gallery-uploaded image. Legacy URL parsing is
-      // intentionally removed (0 production users + clean refactor).
+      // Otherwise treat as a gallery-uploaded image. Assume custom until the
+      // async preset check proves otherwise (avoids preset-carousel flash).
       _selectedAvatar =
           availableAvatars.isNotEmpty ? availableAvatars[0] : null;
-      _usingGalleryImage = false;
       final currentImageId = user.avatarAsset?.imageId;
       if (currentImageId != null && currentImageId.isNotEmpty) {
-        ImagePresetsService.instance.load().then((presets) {
-          if (!mounted) return;
-          final gender = user.gender ?? 'male';
-          final list = gender == 'female' ? presets.female : presets.male;
-          PresetAvatarEntry? matched;
-          for (final entry in list) {
-            if (entry.imageId == currentImageId) {
-              matched = entry;
-              break;
-            }
-          }
-          if (matched != null) {
-            setState(() {
-              _selectedAvatar = matched!.fileName;
-              _usingGalleryImage = false;
-            });
-          } else {
-            setState(() {
-              _usingGalleryImage = true;
-            });
-          }
-        }).catchError((_) {});
+        _usingGalleryImage = true;
+        _resolveAvatarPresetMode(
+          avatar: user.avatarAsset,
+          gender: user.gender,
+        );
+      } else {
+        _usingGalleryImage = false;
+        _avatarPresetCheckPending = false;
       }
       // Phase E: legacy `user.avatar` string was removed. No fallback path.
     }
@@ -283,14 +332,24 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     );
   }
 
-  Future<void> _loadCreatorGalleryImages() async {
-    setState(() => _isGalleryLoading = true);
+  Future<void> _loadCreatorProfile() async {
+    setState(() => _isGalleryFetching = true);
     try {
-      final images = await _creatorGalleryService.getMyGalleryImages();
+      final snapshot = await _creatorGalleryService.getMyCreatorProfile();
       if (!mounted) return;
       setState(() {
-        _creatorGalleryImages = images;
+        _creatorProfileAvatar = snapshot.avatar;
+        _creatorGalleryImages = snapshot.galleryImages;
       });
+      final profileAvatarId = snapshot.avatar?.imageId;
+      if (profileAvatarId != null &&
+          profileAvatarId.isNotEmpty &&
+          _galleryImageBytes == null) {
+        _resolveAvatarPresetMode(
+          avatar: snapshot.avatar,
+          gender: ref.read(authProvider).user?.gender,
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       AppToast.showError(
@@ -302,59 +361,123 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       );
     } finally {
       if (mounted) {
-        setState(() => _isGalleryLoading = false);
+        setState(() => _isGalleryFetching = false);
       }
     }
   }
 
+  int get _gallerySlotCount =>
+      _creatorGalleryImages.length +
+      _localGalleryPreviews.where((p) => p.committedGalleryId == null).length;
+
+  Uint8List? _localBytesForGalleryId(String galleryId) {
+    for (final preview in _localGalleryPreviews) {
+      if (preview.committedGalleryId == galleryId) {
+        return preview.bytes;
+      }
+    }
+    return null;
+  }
+
   Future<void> _addCreatorGalleryImage() async {
-    if (_isGalleryLoading || _creatorGalleryImages.length >= CreatorGalleryService.maxImages) {
+    if (_isGalleryUploading ||
+        _gallerySlotCount >= CreatorGalleryService.maxImages) {
       return;
     }
 
     final hasPermission = await _requestGalleryPermission();
     if (!hasPermission) return;
 
+    final remainingSlots =
+        CreatorGalleryService.maxImages - _gallerySlotCount;
+
     try {
-      final XFile? pickedFile = await _picker.pickImage(
-        source: ImageSource.gallery,
+      final pickedFiles = await _picker.pickMultiImage(
+        limit: remainingSlots,
         maxWidth: 1600,
         maxHeight: 1600,
         imageQuality: 85,
       );
-      if (pickedFile == null) return;
+      if (pickedFiles.isEmpty) return;
 
-      final bytes = await pickedFile.readAsBytes();
+      final newPreviews = <_GalleryLocalPreview>[];
+      for (var i = 0; i < pickedFiles.length; i++) {
+        final file = pickedFiles[i];
+        final bytes = await file.readAsBytes();
+        final name = file.name.trim().isNotEmpty
+            ? file.name
+            : 'gallery_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
+        final preview = _GalleryLocalPreview(
+          localId: 'local_${DateTime.now().microsecondsSinceEpoch}_$i',
+          bytes: bytes,
+          fileName: name,
+        );
+        newPreviews.add(preview);
+        if (!mounted) return;
+        setState(() {
+          _localGalleryPreviews.add(preview);
+        });
+      }
+
       if (!mounted) return;
-      setState(() {
-        _pendingGalleryPreviewBytes = bytes;
-        _isGalleryLoading = true;
-      });
-      final images = await _creatorGalleryService.uploadGalleryImage(
-        imageBytes: bytes,
-        fileName: pickedFile.name,
-      );
-      if (!mounted) return;
-      setState(() {
-        _creatorGalleryImages = images;
-        _pendingGalleryPreviewBytes = null;
-      });
-      ref.read(creatorsProvider.notifier).refreshFeed();
+      setState(() => _isGalleryUploading = true);
+
+      var gallery = _creatorGalleryImages;
+      for (final preview in newPreviews) {
+        if (!mounted) return;
+        setState(() => preview.uploading = true);
+        try {
+          final beforeIds = gallery.map((image) => image.id).toSet();
+          gallery = await _creatorGalleryService.uploadGalleryImage(
+            imageBytes: preview.bytes,
+            fileName: preview.fileName,
+          );
+          if (!mounted) return;
+          CreatorGalleryImage? committed;
+          for (final image in gallery) {
+            if (!beforeIds.contains(image.id)) {
+              committed = image;
+              break;
+            }
+          }
+          setState(() {
+            _creatorGalleryImages = gallery;
+            preview.uploading = false;
+            preview.failed = committed == null;
+            preview.committedGalleryId = committed?.id;
+          });
+        } catch (e) {
+          if (!mounted) return;
+          preview.uploading = false;
+          preview.failed = true;
+          AppToast.showError(
+            context,
+            UserMessageMapper.userMessageFor(
+              e,
+              fallback: 'Couldn\'t upload image. Please try again.',
+            ),
+          );
+        }
+      }
+
+      final isCreatorRole =
+          ref.read(authProvider).user?.role == 'creator' ||
+          ref.read(authProvider).user?.role == 'admin';
+      if (!isCreatorRole) {
+        ref.read(creatorsProvider.notifier).refreshFeed();
+      }
     } catch (e) {
       if (!mounted) return;
       AppToast.showError(
         context,
         UserMessageMapper.userMessageFor(
           e,
-          fallback: 'Couldn\'t upload image. Please try again.',
+          fallback: 'Couldn\'t pick images. Please try again.',
         ),
       );
     } finally {
       if (mounted) {
-        setState(() {
-          _isGalleryLoading = false;
-          _pendingGalleryPreviewBytes = null;
-        });
+        setState(() => _isGalleryUploading = false);
       }
     }
   }
@@ -367,8 +490,15 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       if (!mounted) return;
       setState(() {
         _creatorGalleryImages = images;
+        _localGalleryPreviews
+            .removeWhere((preview) => preview.committedGalleryId == imageId);
       });
-      ref.read(creatorsProvider.notifier).refreshFeed();
+      final isCreatorRole =
+          ref.read(authProvider).user?.role == 'creator' ||
+          ref.read(authProvider).user?.role == 'admin';
+      if (!isCreatorRole) {
+        ref.read(creatorsProvider.notifier).refreshFeed();
+      }
     } catch (e) {
       if (!mounted) return;
       AppToast.showError(
@@ -539,8 +669,13 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       debugPrint('✅ [EDIT PROFILE] Profile saved successfully');
 
       await ref.read(authProvider.notifier).refreshUser();
-      await ref.read(creatorsProvider.notifier).refreshFeed();
-      await ref.read(usersProvider.notifier).refreshFeed();
+      final savedAsCreator =
+          currentUser?.role == 'creator' || currentUser?.role == 'admin';
+      if (savedAsCreator) {
+        await ref.read(usersProvider.notifier).refreshFeed();
+      } else {
+        await ref.read(creatorsProvider.notifier).refreshFeed();
+      }
 
       if (mounted) {
         AppToast.showSuccess(context, 'Profile updated successfully');
@@ -672,7 +807,19 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                     const SizedBox(height: 24),
 
                     // ── Gallery preview (if a gallery image is selected) ──
-                    if (_usingGalleryImage) ...[
+                    if (_avatarPresetCheckPending && _galleryImageBytes == null) ...[
+                      Center(
+                        child: SizedBox(
+                          width: 130,
+                          height: 130,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: scheme.primary,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                    ] else if (_usingGalleryImage) ...[
                       Center(
                         child: Stack(
                           alignment: Alignment.bottomRight,
@@ -700,7 +847,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                                         width: 130,
                                         height: 130,
                                       )
-                                    : _buildCurrentAvatarFromAsset(user?.avatarAsset),
+                                    : _buildCurrentAvatarFromAsset(_displayAvatar),
                               ),
                             ),
                             // Small "change" button
@@ -897,7 +1044,19 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                     const SizedBox(height: 24),
 
                     // ── Gallery preview (if a gallery image is selected) ──
-                    if (_usingGalleryImage) ...[
+                    if (_avatarPresetCheckPending && _galleryImageBytes == null) ...[
+                      Center(
+                        child: SizedBox(
+                          width: 130,
+                          height: 130,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: scheme.primary,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                    ] else if (_usingGalleryImage) ...[
                       Center(
                         child: Stack(
                           alignment: Alignment.bottomRight,
@@ -925,7 +1084,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                                         width: 130,
                                         height: 130,
                                       )
-                                    : _buildCurrentAvatarFromAsset(user?.avatarAsset),
+                                    : _buildCurrentAvatarFromAsset(_displayAvatar),
                               ),
                             ),
                             // Small "change" button
@@ -1236,7 +1395,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                             ),
                       ),
                       const SizedBox(height: 12),
-                      if (_isGalleryLoading && _pendingGalleryPreviewBytes == null)
+                      if (_isGalleryFetching &&
+                          _creatorGalleryImages.isEmpty &&
+                          _localGalleryPreviews.isEmpty)
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 12),
                           child: Center(child: CircularProgressIndicator()),
@@ -1249,6 +1410,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                             final isDeleting = _galleryActionImageId == image.id;
                             final canRemove = _creatorGalleryImages.length >
                                 1; // must keep ≥1 (matches save + backend)
+                            final localBytes = _localBytesForGalleryId(image.id);
                             return SizedBox(
                               width: 96,
                               height: 120,
@@ -1257,21 +1419,10 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                                   Positioned.fill(
                                     child: ClipRRect(
                                       borderRadius: BorderRadius.circular(12),
-                                      child: AppNetworkImage(
-                                        imageUrl: image.previewUrl,
-                                        width: 96,
-                                        height: 120,
-                                        fit: BoxFit.cover,
-                                        cacheManager: galleryCacheManager,
+                                      child: _GalleryThumbTile(
+                                        localBytes: localBytes,
+                                        networkUrl: image.previewUrl,
                                         blurhash: image.asset?.blurhash,
-                                        variantTag: 'galleryThumb',
-                                        errorFallback: Container(
-                                          color: scheme.surfaceContainerHigh,
-                                          child: Icon(
-                                            Icons.broken_image_outlined,
-                                            color: scheme.onSurfaceVariant,
-                                          ),
-                                        ),
                                       ),
                                     ),
                                   ),
@@ -1311,8 +1462,10 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                               ),
                             );
                           }),
-                          if (_pendingGalleryPreviewBytes != null)
-                            SizedBox(
+                          ..._localGalleryPreviews
+                              .where((preview) => preview.committedGalleryId == null)
+                              .map(
+                            (preview) => SizedBox(
                               width: 96,
                               height: 120,
                               child: Stack(
@@ -1321,32 +1474,57 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                                     child: ClipRRect(
                                       borderRadius: BorderRadius.circular(12),
                                       child: Image.memory(
-                                        _pendingGalleryPreviewBytes!,
+                                        preview.bytes,
                                         fit: BoxFit.cover,
                                       ),
                                     ),
                                   ),
-                                  Positioned.fill(
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(12),
-                                      child: ColoredBox(
-                                        color: scheme.shadow.withValues(alpha: 0.35),
-                                        child: const Center(
-                                          child: SizedBox(
-                                            width: 28,
-                                            height: 28,
-                                            child: CircularProgressIndicator(strokeWidth: 2),
-                                          ),
+                                  if (preview.uploading)
+                                    Positioned(
+                                      right: 6,
+                                      bottom: 6,
+                                      child: Container(
+                                        width: 22,
+                                        height: 22,
+                                        padding: const EdgeInsets.all(3),
+                                        decoration: BoxDecoration(
+                                          color: scheme.surface
+                                              .withValues(alpha: 0.92),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: scheme.primary,
                                         ),
                                       ),
                                     ),
-                                  ),
+                                  if (preview.failed)
+                                    Positioned(
+                                      right: 6,
+                                      bottom: 6,
+                                      child: Container(
+                                        width: 22,
+                                        height: 22,
+                                        decoration: BoxDecoration(
+                                          color: scheme.errorContainer,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Icon(
+                                          Icons.error_outline,
+                                          size: 14,
+                                          color: scheme.onErrorContainer,
+                                        ),
+                                      ),
+                                    ),
                                 ],
                               ),
                             ),
-                          if (_creatorGalleryImages.length < CreatorGalleryService.maxImages)
+                          ),
+                          if (_gallerySlotCount < CreatorGalleryService.maxImages)
                             InkWell(
-                              onTap: _isGalleryLoading ? null : _addCreatorGalleryImage,
+                              onTap: _isGalleryUploading
+                                  ? null
+                                  : _addCreatorGalleryImage,
                               borderRadius: BorderRadius.circular(12),
                               child: Container(
                                 width: 96,
@@ -1368,6 +1546,16 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
+                                    if (CreatorGalleryService.maxImages -
+                                            _gallerySlotCount >
+                                        1)
+                                      Text(
+                                        'up to ${CreatorGalleryService.maxImages - _gallerySlotCount}',
+                                        style: TextStyle(
+                                          color: scheme.onSurfaceVariant,
+                                          fontSize: 10,
+                                        ),
+                                      ),
                                   ],
                                 ),
                               ),
@@ -1376,7 +1564,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Upload at least 1 and up to 6 pictures.',
+                        'Upload at least 1 and up to 6 pictures. You can select multiple at once.',
                         style: TextStyle(
                           color: scheme.onSurfaceVariant,
                           fontSize: 12,
@@ -1531,18 +1719,47 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   /// asset (Cloudflare `md` variant). Returns the fallback when missing.
   Widget _buildCurrentAvatarFromAsset(AvatarAssetView? asset) {
     final url = asset?.avatarUrls.md;
+    final memory = _galleryImageBytes;
+    final memoryWidget = memory != null && memory.isNotEmpty
+        ? Image.memory(memory, fit: BoxFit.cover, width: 130, height: 130)
+        : null;
+
     if (url != null && url.isNotEmpty) {
+      if (memoryWidget != null) {
+        return SizedBox(
+          width: 130,
+          height: 130,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              memoryWidget,
+              AppNetworkImage(
+                imageUrl: url,
+                width: 130,
+                height: 130,
+                fit: BoxFit.cover,
+                cacheManager: avatarCacheManager,
+                blurhash: asset?.blurhash,
+                placeholder: const SizedBox.shrink(),
+                errorFallback: memoryWidget,
+                variantTag: 'avatarMd',
+              ),
+            ],
+          ),
+        );
+      }
       return AppNetworkImage(
         imageUrl: url,
         width: 130,
         height: 130,
         fit: BoxFit.cover,
         cacheManager: avatarCacheManager,
+        blurhash: asset?.blurhash,
         errorFallback: _fallbackAvatar(),
         variantTag: 'avatarMd',
       );
     }
-    return _fallbackAvatar();
+    return memoryWidget ?? _fallbackAvatar();
   }
 
   Widget _fallbackAvatar() {
@@ -1554,6 +1771,83 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         Icons.person,
         color: Theme.of(context).colorScheme.onSurfaceVariant,
         size: 48,
+      ),
+    );
+  }
+}
+
+class _GalleryThumbTile extends StatelessWidget {
+  const _GalleryThumbTile({
+    required this.localBytes,
+    required this.networkUrl,
+    this.blurhash,
+  });
+
+  final Uint8List? localBytes;
+  final String? networkUrl;
+  final String? blurhash;
+
+  @override
+  Widget build(BuildContext context) {
+    final url = networkUrl?.trim();
+    final hasMemory = localBytes != null && localBytes!.isNotEmpty;
+    final memoryWidget = hasMemory
+        ? Image.memory(
+            localBytes!,
+            fit: BoxFit.cover,
+            width: 96,
+            height: 120,
+          )
+        : null;
+
+    if (hasMemory && (url == null || url.isEmpty)) {
+      return memoryWidget!;
+    }
+
+    if (url == null || url.isEmpty) {
+      return ColoredBox(
+        color: Theme.of(context).colorScheme.surfaceContainerHigh,
+        child: Center(
+          child: Icon(
+            Icons.image_outlined,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            size: 28,
+          ),
+        ),
+      );
+    }
+
+    if (!hasMemory) {
+      return AppNetworkImage(
+        imageUrl: url,
+        width: 96,
+        height: 120,
+        fit: BoxFit.cover,
+        cacheManager: galleryCacheManager,
+        blurhash: blurhash,
+        variantTag: 'galleryThumb',
+      );
+    }
+
+    return SizedBox(
+      width: 96,
+      height: 120,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          memoryWidget!,
+          AppNetworkImage(
+            imageUrl: url,
+            width: 96,
+            height: 120,
+            fit: BoxFit.cover,
+            cacheManager: galleryCacheManager,
+            blurhash: blurhash,
+            placeholder: const SizedBox.shrink(),
+            errorFallback: memoryWidget,
+            variantTag: 'galleryThumb',
+          ),
+        ],
       ),
     );
   }

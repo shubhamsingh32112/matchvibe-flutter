@@ -1,8 +1,20 @@
 import 'dart:typed_data';
 
 import '../../../core/api/api_client.dart';
+import '../../../core/images/image_asset_view.dart';
 import '../../../core/services/image_upload_service.dart';
 import '../../../shared/models/creator_model.dart';
+
+/// Avatar + gallery from a single `GET /creator/profile` response.
+class CreatorProfileSnapshot {
+  const CreatorProfileSnapshot({
+    this.avatar,
+    this.galleryImages = const [],
+  });
+
+  final AvatarAssetView? avatar;
+  final List<CreatorGalleryImage> galleryImages;
+}
 
 /// Gallery upload pipeline (Cloudflare Images direct-upload).
 ///
@@ -20,14 +32,45 @@ class CreatorGalleryService {
 
   static const int maxImages = 6;
 
-  Future<List<CreatorGalleryImage>> getMyGalleryImages() async {
+  Future<CreatorProfileSnapshot> getMyCreatorProfile() async {
     final response = await _apiClient.get('/creator/profile');
-    final creatorData = response.data['data']?['creator'] as Map<String, dynamic>?;
-    final images = (creatorData?['gallery'] ?? creatorData?['galleryImages']) as List?;
-    if (images == null) return const [];
-    return images
-        .map((item) => CreatorGalleryImage.fromJson(item as Map<String, dynamic>))
-        .toList();
+    final creatorData =
+        response.data['data']?['creator'] as Map<String, dynamic>?;
+    if (creatorData == null) {
+      return const CreatorProfileSnapshot();
+    }
+
+    final avatar = AvatarAssetView.fromJson(
+          creatorData['avatar'] as Map<String, dynamic>?,
+        ) ??
+        AvatarAssetView.fromJson(
+          creatorData['avatarAsset'] as Map<String, dynamic>?,
+        );
+
+    final rawGallery =
+        (creatorData['gallery'] ?? creatorData['galleryImages']) as List?;
+    final galleryImages = rawGallery == null
+        ? const <CreatorGalleryImage>[]
+        : rawGallery
+            .map((item) {
+              if (item is! Map) return null;
+              return CreatorGalleryImage.fromJson(
+                Map<String, dynamic>.from(item),
+              );
+            })
+            .whereType<CreatorGalleryImage>()
+            .where((image) => image.id.isNotEmpty)
+            .toList();
+
+    return CreatorProfileSnapshot(
+      avatar: avatar,
+      galleryImages: galleryImages,
+    );
+  }
+
+  Future<List<CreatorGalleryImage>> getMyGalleryImages() async {
+    final snapshot = await getMyCreatorProfile();
+    return snapshot.galleryImages;
   }
 
   Future<List<CreatorGalleryImage>> uploadGalleryImage({
@@ -49,23 +92,40 @@ class CreatorGalleryService {
     );
 
     final body = commitResponse.data;
-    final dataMap = body is Map<String, dynamic> ? body['data'] as Map<String, dynamic>? : null;
+    final dataMap =
+        body is Map<String, dynamic> ? body['data'] as Map<String, dynamic>? : null;
     final committed = (dataMap?['gallery'] ?? dataMap?['galleryImages']) as List?;
     return committed == null
         ? const []
         : committed
-            .map((item) => CreatorGalleryImage.fromJson(item as Map<String, dynamic>))
+            .map((item) {
+              if (item is! Map) return null;
+              return CreatorGalleryImage.fromJson(
+                Map<String, dynamic>.from(item),
+              );
+            })
+            .whereType<CreatorGalleryImage>()
+            .where((image) => image.id.isNotEmpty)
             .toList();
   }
 
   Future<List<CreatorGalleryImage>> deleteGalleryImage(String imageId) async {
-    final response = await _apiClient.delete('/creator/profile/gallery/$imageId');
+    final response =
+        await _apiClient.delete('/creator/profile/gallery/$imageId');
     final body = response.data;
-    final dataMap = body is Map<String, dynamic> ? body['data'] as Map<String, dynamic>? : null;
+    final dataMap =
+        body is Map<String, dynamic> ? body['data'] as Map<String, dynamic>? : null;
     final images = (dataMap?['gallery'] ?? dataMap?['galleryImages']) as List?;
     if (images == null) return const [];
     return images
-        .map((item) => CreatorGalleryImage.fromJson(item as Map<String, dynamic>))
+        .map((item) {
+          if (item is! Map) return null;
+          return CreatorGalleryImage.fromJson(
+            Map<String, dynamic>.from(item),
+          );
+        })
+        .whereType<CreatorGalleryImage>()
+        .where((image) => image.id.isNotEmpty)
         .toList();
   }
 }

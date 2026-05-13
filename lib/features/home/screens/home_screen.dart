@@ -445,6 +445,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       ref
           .read(modalCoordinatorProvider.notifier)
           .setOnboardingInProgress(false);
+      // Feed may not have loaded while onboarding modals were up — refresh now.
+      unawaited(ref.read(creatorsProvider.notifier).refreshFeed());
       return;
     }
     ref.read(modalCoordinatorProvider.notifier).setOnboardingInProgress(true);
@@ -1315,8 +1317,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               'You are now a creator. Home has been updated.',
             );
           }
-          await ref.read(creatorsProvider.notifier).refreshFeed();
-          await ref.read(usersProvider.notifier).refreshFeed();
+          final adminView = ref.read(adminViewModeProvider);
+          final creatorLikeView =
+              afterRole == 'creator' ||
+              (afterRole == 'admin' && adminView == AdminViewMode.creator);
+          if (creatorLikeView) {
+            await ref.read(usersProvider.notifier).refreshFeed();
+          } else {
+            await ref.read(creatorsProvider.notifier).refreshFeed();
+          }
           await Future.delayed(const Duration(milliseconds: 500));
         },
         child: SingleChildScrollView(
@@ -1353,8 +1362,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             'You are now a creator. Home has been updated.',
           );
         }
-        await ref.read(creatorsProvider.notifier).refreshFeed();
-        await ref.read(usersProvider.notifier).refreshFeed();
+        final adminView = ref.read(adminViewModeProvider);
+        final creatorLikeView =
+            afterRole == 'creator' ||
+            (afterRole == 'admin' && adminView == AdminViewMode.creator);
+        if (creatorLikeView) {
+          await ref.read(usersProvider.notifier).refreshFeed();
+        } else {
+          await ref.read(creatorsProvider.notifier).refreshFeed();
+        }
         // Wait a bit for the refresh to complete
         await Future.delayed(const Duration(milliseconds: 500));
       },
@@ -1424,11 +1440,12 @@ class _CreatorTasksViewState extends ConsumerState<_CreatorTasksView> {
     final balance = ref.watch(dashboardCoinsProvider);
     final scheme = Theme.of(context).colorScheme;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: AppSpacing.md),
-        // Balance Card (shows current balance, not total earned)
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: AppSpacing.md),
+          // Balance Card (shows current balance, not total earned)
         // Note: We use earningsAsync for stats (calls, minutes) but balance from auth state for instant updates
         earningsAsync.when(
           data: (earnings) => AppCard(
@@ -1626,7 +1643,8 @@ class _CreatorTasksViewState extends ConsumerState<_CreatorTasksView> {
             ),
           ),
         ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -2343,24 +2361,34 @@ class _TaskProgressButton extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    '$completedTasks / $totalTasks tasks completed',
-                    style: TextStyle(
-                      color: scheme.onSurfaceVariant,
-                      fontSize: 12,
+                  Expanded(
+                    child: Text(
+                      '$completedTasks / $totalTasks tasks completed',
+                      style: TextStyle(
+                        color: scheme.onSurfaceVariant,
+                        fontSize: 12,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  if (nextTaskText != null)
-                    Text(
-                      nextTaskText,
-                      style: TextStyle(
-                        color: scheme.primary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
+                  if (nextTaskText != null) ...[
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        nextTaskText,
+                        style: TextStyle(
+                          color: scheme.primary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.end,
                       ),
                     ),
+                  ],
                 ],
               ),
             ],

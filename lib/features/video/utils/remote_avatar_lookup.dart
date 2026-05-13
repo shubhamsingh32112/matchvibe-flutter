@@ -70,12 +70,7 @@ Future<String?> lookupAvatarFromUserList({
 
       if (!idMatched && !usernameMatched) continue;
 
-      final avatar = _asString(row['avatar']) ??
-          _asString(row['photo']) ??
-          _asString(row['image']) ??
-          _asString(row['imageUrl']) ??
-          _asString(row['photoUrl']) ??
-          _asString(row['photoURL']);
+      final avatar = _resolveAvatarUrl(row);
 
       if (avatar != null && avatar.trim().isNotEmpty) {
         final resolved = avatar.trim();
@@ -95,6 +90,29 @@ Future<String?> lookupAvatarFromUserList({
 
   _avatarLookupCache[cacheKey] = null;
   return null;
+}
+
+/// Resolves a display URL from list-row payloads: Cloudflare `avatar` /
+/// `avatarAsset` objects (preferred) or legacy flat URL strings.
+String? _resolveAvatarUrl(Map<String, dynamic> row) {
+  for (final key in ['avatar', 'avatarAsset']) {
+    final nested = row[key];
+    if (nested is Map) {
+      final urls = nested['avatarUrls'];
+      if (urls is Map) {
+        for (final variant in ['callPhoto', 'md', 'sm', 'xs']) {
+          final url = _asString(urls[variant]);
+          if (url != null) return url;
+        }
+      }
+    }
+  }
+  return _asString(row['avatar']) ??
+      _asString(row['photo']) ??
+      _asString(row['image']) ??
+      _asString(row['imageUrl']) ??
+      _asString(row['photoUrl']) ??
+      _asString(row['photoURL']);
 }
 
 String? _asString(dynamic value) {

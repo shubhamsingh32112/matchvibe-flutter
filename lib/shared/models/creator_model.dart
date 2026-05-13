@@ -19,26 +19,35 @@ class CreatorGalleryImage extends Equatable {
   });
 
   factory CreatorGalleryImage.fromJson(Map<String, dynamic> json) {
+    final id = json['id']?.toString() ?? '';
+    if (id.isEmpty) {
+      throw const FormatException('CreatorGalleryImage: missing id');
+    }
+
     final createdRaw = json['createdAt'];
     DateTime? createdAt;
     if (createdRaw is String) {
       createdAt = DateTime.tryParse(createdRaw);
     }
 
-    final ImageAssetView? asset = ImageAssetView.fromJson(
-      json['image'] as Map<String, dynamic>?,
-    );
+    final imageMap = json['image'] ?? json['asset'];
+    final ImageAssetView? asset = imageMap is Map<String, dynamic>
+        ? ImageAssetView.fromJson(imageMap)
+        : imageMap is Map
+            ? ImageAssetView.fromJson(Map<String, dynamic>.from(imageMap))
+            : null;
 
     return CreatorGalleryImage(
-      id: json['id'] as String,
+      id: id,
       position: (json['position'] as num?)?.toInt() ?? 0,
       createdAt: createdAt,
       asset: asset,
     );
   }
 
-  /// Preview URL for grids/thumbs. Returns null only on broken/legacy rows.
-  String? get previewUrl => asset?.galleryUrls.thumb;
+  /// Preview URL for grids/thumbs. Falls back to `md` when thumb is missing.
+  String? get previewUrl =>
+      asset?.galleryUrls.thumb ?? asset?.galleryUrls.md;
 
   /// Largest URL safe to expose on mobile.
   String? get viewerUrl => asset?.galleryUrls.xl;

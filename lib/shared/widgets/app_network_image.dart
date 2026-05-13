@@ -45,6 +45,8 @@ class AppNetworkImage extends StatefulWidget {
     this.heroTag,
     this.semanticLabel,
     this.variantTag,
+    this.memoryPlaceholder,
+    this.onImageDecoded,
   });
 
   /// Pre-resolved variant URL. May be null/empty → renders the fallback.
@@ -80,6 +82,12 @@ class AppNetworkImage extends StatefulWidget {
   /// Cloudflare variant tag for render-latency telemetry (e.g. "avatarMd").
   /// When null, render telemetry is skipped for this instance.
   final String? variantTag;
+
+  /// Local bytes shown under the network placeholder until the remote image decodes.
+  final Uint8List? memoryPlaceholder;
+
+  /// Called once when the remote image has decoded and is ready to paint.
+  final VoidCallback? onImageDecoded;
 
   @override
   State<AppNetworkImage> createState() => _AppNetworkImageState();
@@ -119,6 +127,7 @@ class _AppNetworkImageState extends State<AppNetworkImage> {
     if (_reported) return;
     _reported = true;
     _renderClock.stop();
+    widget.onImageDecoded?.call();
     final variant = widget.variantTag;
     if (variant == null || variant.isEmpty) return;
     final elapsedMs = _renderClock.elapsedMilliseconds;
@@ -179,7 +188,18 @@ class _AppNetworkImageState extends State<AppNetworkImage> {
       fadeOutDuration: Duration.zero,
       placeholderFadeInDuration: Duration.zero,
       placeholder: (context, _) => _buildPlaceholder(context),
-      errorWidget: (context, _, _) => _buildError(context, clipRadius),
+      errorWidget: (context, _, error) {
+        if (kDebugMode) {
+          final tag = widget.variantTag;
+          final shortUrl = url.length > 96 ? '${url.substring(0, 96)}…' : url;
+          debugPrint(
+            '[AppNetworkImage] load failed'
+            '${tag != null && tag.isNotEmpty ? ' variant=$tag' : ''}'
+            ' url=$shortUrl error=$error',
+          );
+        }
+        return _buildError(context, clipRadius);
+      },
       imageBuilder: (context, imageProvider) {
         // CachedNetworkImage calls this exactly when the bytes are decoded
         // and ready to paint. We latch on the first hit only.
@@ -223,6 +243,22 @@ class _AppNetworkImageState extends State<AppNetworkImage> {
   Widget _buildPlaceholder(BuildContext context) {
     if (widget.placeholder != null) return widget.placeholder!;
     final radius = widget.borderRadius;
+    final memory = widget.memoryPlaceholder;
+    if (memory != null && memory.isNotEmpty) {
+      final memImage = Image.memory(
+        memory,
+        width: widget.width,
+        height: widget.height,
+        fit: widget.fit,
+      );
+      return SizedBox(
+        width: widget.width,
+        height: widget.height,
+        child: radius == null
+            ? memImage
+            : ClipRRect(borderRadius: radius, child: memImage),
+      );
+    }
     if (widget.blurhash != null && widget.blurhash!.trim().isNotEmpty) {
       try {
         final blur = BlurHash(

@@ -10,6 +10,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/images/image_asset_view.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../chat/services/chat_service.dart';
 import '../../../core/services/availability_socket_service.dart';
@@ -456,8 +457,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
             phone: creatorData['phone'] as String?,
             gender: creatorData['gender'] as String?,
             username: creatorData['username'] as String?,
-            // Phase E: legacy `photo` field was removed — Cloudflare
-            // `avatarAsset` is parsed by `UserModel.fromJson` (not used here).
+            avatarAsset: AvatarAssetView.fromJson(
+              creatorData['avatarAsset'] as Map<String, dynamic>?,
+            ),
             categories: creatorData['categories'] != null
                 ? List<String>.from(creatorData['categories'] as List)
                 : null,
@@ -1457,7 +1459,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
             phone: responseData['phone'] as String?,
             gender: responseData['gender'] as String?,
             username: responseData['username'] as String?,
-            // Phase E: legacy `photo` field was removed.
+            avatarAsset: AvatarAssetView.fromJson(
+              responseData['avatarAsset'] as Map<String, dynamic>?,
+            ),
             categories: responseData['categories'] != null
                 ? List<String>.from(responseData['categories'] as List)
                 : null,
