@@ -415,20 +415,49 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                     if (rootContext.mounted) {
                                       setState(() => _phoneSending = true);
                                     }
-                                    await ref
-                                        .read(authProvider.notifier)
-                                        .setPendingReferralCode(
-                                          refCode.isEmpty
-                                              ? null
-                                              : refCode.toUpperCase(),
-                                        );
-                                    final result = await ref
-                                        .read(authProvider.notifier)
-                                        .signInWithPhone(phone);
+                                    try {
+                                      await ref
+                                          .read(authProvider.notifier)
+                                          .setPendingReferralCode(
+                                            refCode.isEmpty
+                                                ? null
+                                                : refCode.toUpperCase(),
+                                          );
+                                      final result = await ref
+                                          .read(authProvider.notifier)
+                                          .signInWithPhone(phone);
 
-                                    if (!sheetContext.mounted) return;
-                                    if (!result.success) {
-                                      setModalState(() => isSending = false);
+                                      if (!sheetContext.mounted) return;
+
+                                      if (!result.success &&
+                                          result.error != null &&
+                                          result.error!.isNotEmpty) {
+                                        AppToast.showError(
+                                          sheetContext,
+                                          result.error!,
+                                        );
+                                      }
+
+                                      if (result.status ==
+                                              PhoneAuthStartStatus
+                                                  .alreadyAuthenticated ||
+                                          result.status ==
+                                              PhoneAuthStartStatus
+                                                  .autoVerified ||
+                                          (result.status ==
+                                                  PhoneAuthStartStatus
+                                                      .syncingBackend &&
+                                              result.success)) {
+                                        if (rootContext.mounted &&
+                                            Navigator.of(rootContext)
+                                                .canPop()) {
+                                          Navigator.of(rootContext).pop();
+                                        }
+                                      }
+                                    } finally {
+                                      if (sheetContext.mounted) {
+                                        setModalState(() => isSending = false);
+                                      }
                                       if (rootContext.mounted) {
                                         setState(() => _phoneSending = false);
                                       }
@@ -803,7 +832,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
           next.phoneNumber != null &&
           !next.isLoading &&
           mounted &&
-          previous?.verificationId != next.verificationId) {
+          (_phoneSending ||
+              previous?.verificationId != next.verificationId)) {
         setState(() => _phoneSending = false);
         debugPrint('✅ [UI] OTP sent, navigating to OTP screen...');
         Future.delayed(const Duration(milliseconds: 100), () {

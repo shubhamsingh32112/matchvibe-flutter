@@ -217,20 +217,25 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
     _focusNodes[0].requestFocus();
 
     try {
-      await ref.read(authProvider.notifier).signInWithPhone(widget.phoneNumber);
-      
+      final result = await ref
+          .read(authProvider.notifier)
+          .signInWithPhone(widget.phoneNumber);
+
+      if (!mounted) return;
+
       final authState = ref.read(authProvider);
-      if (authState.error != null && mounted) {
+      if (!result.success && result.error != null && result.error!.isNotEmpty) {
+        AppToast.showError(context, result.error!);
+      } else if (authState.error != null) {
         AppToast.showError(
           context,
           ErrorHandler.getHumanReadableError(authState.error!),
         );
-      } else if (authState.verificationId != null && mounted) {
-        // Update verification ID if we got a new one
+      } else if (authState.verificationId != null) {
         setState(() {
           _currentVerificationId = authState.verificationId!;
         });
-        
+
         AppToast.showSuccess(context, 'Verification code resent successfully');
         _startResendCountdown();
       }

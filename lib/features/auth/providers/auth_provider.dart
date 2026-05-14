@@ -78,6 +78,7 @@ class AuthState {
 
 enum PhoneAuthStartStatus {
   codeSent,
+  autoVerified,
   blocked,
   syncingBackend,
   alreadyAuthenticated,
@@ -100,7 +101,7 @@ class PhoneAuthStartResult {
 
 class AuthNotifier extends StateNotifier<AuthState> {
   FirebaseAuth? _auth;
-  final ApiClient _apiClient = ApiClient();
+  ApiClient get _apiClient => ApiClient();
   bool _isInitializing = false;
 
   // Referral: optional code to apply on first signup (cleared after sync)
@@ -118,6 +119,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     seconds: 30,
   ); // Minimum time between requests
   static const Duration _tooManyRequestsCooldown = Duration(minutes: 5);
+  static const Duration _phoneVerificationUserTimeout = Duration(seconds: 30);
 
   // 🔥 FIX: Test phone numbers (for Firebase test authentication)
   // These numbers use manual OTP flow, no SMS auto-retrieval
@@ -134,6 +136,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   AuthNotifier() : super(AuthState()) {
     _initialize();
+  }
+
+  @visibleForTesting
+  AuthNotifier.testInitial(AuthState initial) : super(initial) {
+    _isInitializing = true;
   }
 
   Future<void> _initialize() async {
@@ -1041,41 +1048,73 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final startResult = Completer<PhoneAuthStartResult>();
 
       await _auth!.verifyPhoneNumber(
-        phoneNumber: phoneNumber,
-        verificationCompleted: (PhoneAuthCredential credential) async {
-          debugPrint('───────────────────────────────────────────────────────');
-          debugPrint('✅ [PHONE AUTH] Auto-verification completed');
-          debugPrint('───────────────────────────────────────────────────────');
+          phoneNumber: phoneNumber,
+          verificationCompleted: (PhoneAuthCredential credential) async {
+            debugPrint('───────────────────────────────────────────────────────');
+            debugPrint('✅ [PHONE AUTH] Auto-verification completed');
+            debugPrint('───────────────────────────────────────────────────────');
 
-          // 🔥 GUARD: Prevent double sign-in
-          if (_otpVerified) {
-            debugPrint(
-              '⏭️ [PHONE AUTH] OTP already verified, skipping auto-verify',
-            );
-            return;
-          }
-          if (_auth?.currentUser != null) {
-            debugPrint(
-              '⏭️ [PHONE AUTH] User already signed in, skipping auto-verify',
-            );
-            return;
-          }
-          _otpVerified = true;
+            // 🔥 GUARD: Prevent double sign-in
+            if (_otpVerified) {
+              debugPrint(
+                '⏭️ [PHONE AUTH] OTP already verified, skipping auto-verify',
+              );
+              return;
+            }
+            if (_auth?.currentUser != null) {
+              debugPrint(
+                '⏭️ [PHONE AUTH] User already signed in, skipping auto-verify',
+              );
+              if (!startResult.isCompleted) {
+                startResult.complete(
+                  const PhoneAuthStartResult(
+                    success: true,
+                    status: PhoneAuthStartStatus.alreadyAuthenticated,
+                  ),
+                );
+              }
+              _phoneVerificationInProgress = false;
+              return;
+            }
+            _otpVerified = true;
 
-          try {
-            final userCredential = await _auth!.signInWithCredential(
-              credential,
-            );
-            debugPrint('✅ [PHONE AUTH] Auto sign-in successful');
-            debugPrint('   🆔 UID: ${userCredential.user?.uid}');
-            _phoneVerificationInProgress = false;
-          } catch (e) {
-            debugPrint('❌ [PHONE AUTH] Auto sign-in error: $e');
-            _otpVerified = false; // Reset so manual OTP can still work
-            _phoneVerificationInProgress = false;
-          }
-        },
-        verificationFailed: (FirebaseAuthException e) {
+            try {
+              final userCredential = await _auth!.signInWithCredential(
+                credential,
+              );
+              debugPrint('✅ [PHONE AUTH] Auto sign-in successful');
+              debugPrint('   🆔 UID: ${userCredential.user?.uid}');
+              _phoneVerificationInProgress = false;
+              state = state.copyWith(isLoading: false, error: null);
+              if (!startResult.isCompleted) {
+                startResult.complete(
+                  const PhoneAuthStartResult(
+                    success: true,
+                    status: PhoneAuthStartStatus.autoVerified,
+                  ),
+                );
+              }
+            } catch (e) {
+              debugPrint('❌ [PHONE AUTH] Auto sign-in error: $e');
+              _otpVerified = false; // Reset so manual OTP can still work
+              _phoneVerificationInProgress = false;
+              final friendly = UserMessageMapper.userMessageFor(
+                e,
+                fallback: 'Auto verification failed. Enter the code manually.',
+              );
+              state = state.copyWith(isLoading: false, error: friendly);
+              if (!startResult.isCompleted) {
+                startResult.complete(
+                  PhoneAuthStartResult(
+                    success: false,
+                    status: PhoneAuthStartStatus.failed,
+                    error: friendly,
+                  ),
+                );
+              }
+            }
+          },
+          verificationFailed: (FirebaseAuthException e) {
           debugPrint('───────────────────────────────────────────────────────');
           debugPrint('❌ [PHONE AUTH] Verification failed');
           debugPrint('───────────────────────────────────────────────────────');
@@ -1107,7 +1146,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
             case 'captcha-check-failed':
               friendly = kDebugMode
                   ? 'Phone auth: add this APK SHA-1 in Firebase for com.matchvibe.app (upload or Play signing cert).'
-                  : 'Phone sign-in isn\'t available on this build. Please update the app or contact support.';
+                  : 'Phone sign-in isn\'t available on this build. Update the app from the Play Store or contact support@matchvibe.com.';
               break;
             default:
               friendly = UserMessageMapper.fromString(
@@ -1168,17 +1207,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
       debugPrint('✅ [PHONE AUTH] verifyPhoneNumber() call completed');
       return startResult.future.timeout(
-        const Duration(seconds: 70),
+        _phoneVerificationUserTimeout,
         onTimeout: () {
           _phoneVerificationInProgress = false;
-          state = state.copyWith(
-            isLoading: false,
-            error: 'Verification timed out. Please try requesting a new code.',
-          );
+          const message =
+              'Verification is taking too long. Check your network and try again.';
+          state = state.copyWith(isLoading: false, error: message);
           return const PhoneAuthStartResult(
             success: false,
             status: PhoneAuthStartStatus.failed,
-            error: 'Verification timed out. Please try requesting a new code.',
+            error: message,
           );
         },
       );

@@ -41,7 +41,6 @@ import '../../../core/services/modal_coordinator_service.dart';
 import '../../../core/services/promo_popup_service.dart';
 import '../../../core/services/free_call_popup_service.dart';
 import '../../../shared/widgets/promo_image_popup.dart';
-import '../../../shared/widgets/welcome_free_call_promo_popup.dart';
 import '../../onboarding/models/onboarding_step.dart';
 import '../../onboarding/services/onboarding_flow_service.dart';
 import '../../onboarding/services/onboarding_popup_state_service.dart';
@@ -138,6 +137,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       if (userBecameReady || stageChanged) {
         if (userBecameReady) {
           unawaited(_maybeShowLoginPromoOnce());
+          if (next.user?.role == 'user') {
+            unawaited(ref.read(creatorsProvider.notifier).refreshFeed());
+          }
         }
         unawaited(_checkAndShowWelcomeBackDialog());
         unawaited(_checkAndShowWelcomeDialog());
@@ -178,7 +180,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
-  static const String _promoAssetPath = 'lib/assets/promo_first_call_on_us.png';
+  static const String _promoAssetPath = 'lib/assets/free-call-popup.jpeg';
 
   Future<void> _maybeShowLoginPromoOnce() async {
     if (!mounted) return;
@@ -641,7 +643,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       context: navContext,
       barrierDismissible: true,
       barrierColor: Colors.transparent,
-      builder: (_) => const WelcomeFreeCallPromoPopup(),
+      builder: (_) => const PromoImagePopup(
+        assetPath: 'lib/assets/free-call-popup.jpeg',
+      ),
     );
     if (!mounted || !navContext.mounted) return;
     await FreeCallPopupService.markShown(uid);
@@ -1301,6 +1305,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         ),
         itemCount: 6,
         itemBuilder: (context, index) => const SkeletonCard(),
+      );
+    }
+
+    if (creatorsAsync.hasError) {
+      final errorMessage = UserMessageMapper.userMessageFor(
+        creatorsAsync.error,
+        fallback: 'Couldn\'t load creators. Pull down to retry.',
+      );
+      return RefreshIndicator(
+        onRefresh: () async {
+          await ref.read(creatorsProvider.notifier).refreshFeed();
+          await Future.delayed(const Duration(milliseconds: 500));
+        },
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: SizedBox(
+            height: MediaQuery.of(context).size.height - 200,
+            child: EmptyState(
+              icon: Icons.cloud_off_outlined,
+              title: 'Couldn\'t load creators',
+              message: errorMessage,
+              actionLabel: 'Retry',
+              onAction: () =>
+                  ref.read(creatorsProvider.notifier).refreshFeed(),
+            ),
+          ),
+        ),
       );
     }
 

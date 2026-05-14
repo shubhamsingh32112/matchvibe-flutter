@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_client.dart';
@@ -46,6 +48,20 @@ final usersFeedMetaProvider = StateProvider<FeedPaginationMeta>(
   (_) => const FeedPaginationMeta.initial(),
 );
 
+bool creatorFeedAuthReady(AuthState auth) {
+  if (auth.user == null) return false;
+  final role = auth.user!.role;
+  if (role == 'creator') return false;
+  return true;
+}
+
+@visibleForTesting
+bool creatorFeedAuthReadyForAdmin(AuthState auth, AdminViewMode? viewMode) {
+  if (auth.user == null) return false;
+  if (auth.user!.role != 'admin') return creatorFeedAuthReady(auth);
+  return viewMode == null || viewMode == AdminViewMode.user;
+}
+
 class _FeedPerfProbe {
   static void reorderDuration(Duration elapsed, int totalCreators) {
     if (kReleaseMode) return;
@@ -63,8 +79,32 @@ class CreatorFeedNotifier extends AsyncNotifier<List<CreatorModel>> {
   int _requestId = 0;
   List<CreatorModel> _items = const [];
 
+  bool _shouldFetchCreators(AuthState auth) {
+    if (auth.user == null) return false;
+    final role = auth.user!.role;
+    if (role == 'creator') return false;
+    if (role == 'admin') {
+      final viewMode = ref.read(adminViewModeProvider);
+      return creatorFeedAuthReadyForAdmin(auth, viewMode);
+    }
+    return true;
+  }
+
   @override
   Future<List<CreatorModel>> build() async {
+    final auth = ref.watch(authProvider);
+    ref.listen<AuthState>(authProvider, (previous, next) {
+      final prevUid = previous?.firebaseUser?.uid;
+      final nextUid = next.firebaseUser?.uid;
+      final userBecameReady = previous?.user == null && next.user != null;
+      if (_shouldFetchCreators(next) &&
+          (userBecameReady || prevUid != nextUid)) {
+        unawaited(refreshFeed());
+      }
+    });
+    if (!_shouldFetchCreators(auth)) {
+      return const [];
+    }
     return _loadInitial();
   }
 
@@ -118,13 +158,28 @@ class CreatorFeedNotifier extends AsyncNotifier<List<CreatorModel>> {
       throw Exception('Failed to fetch creators: status ${response.statusCode}');
     }
     final responseData = response.data;
+    if (responseData is! Map<String, dynamic>) {
+      throw Exception('Invalid creators feed response');
+    }
     if (responseData['success'] != true || responseData['data'] == null) {
-      return const _CreatorPage(items: [], page: 1, hasMore: false);
+      final serverError = responseData['error']?.toString();
+      throw Exception(
+        serverError?.isNotEmpty == true
+            ? serverError!
+            : 'Failed to fetch creators',
+      );
     }
     final creatorsData = responseData['data']['creators'] as List? ?? const [];
-    final creators = creatorsData
-        .map((json) => CreatorModel.fromJson(json as Map<String, dynamic>))
-        .toList();
+    final creators = <CreatorModel>[];
+    for (final raw in creatorsData) {
+      if (raw is! Map<String, dynamic>) continue;
+      try {
+        creators.add(CreatorModel.fromJson(raw));
+      } catch (e, st) {
+        debugPrint('⚠️ [HOME] Skipping malformed creator row: $e');
+        debugPrint('$st');
+      }
+    }
 
     final apiAvailability = <String, CreatorAvailability>{};
     for (final creator in creators) {

@@ -1,7 +1,7 @@
 # Firebase reCAPTCHA Still Showing - Complete Fix Guide
 
 ## ✅ You've Done:
-- ✅ Added SHA-1 and SHA-256 to `com.example.zztherapy`
+- ✅ Added SHA-1 and SHA-256 to `com.matchvibe.app`
 - ✅ Built APK locally after adding fingerprints
 - ✅ Using release keystore
 
@@ -38,6 +38,17 @@ Firebase changes can take **up to 24 hours** to fully propagate, especially for 
 
 ## 🛠️ Solutions
 
+### Solution 0: Play Store App Signing (REQUIRED for production)
+
+Google Play re-signs release builds with the **App signing key**. Upload-key SHA alone is not enough.
+
+1. Google Play Console → **App integrity** → **App signing key certificate**
+2. Copy **SHA-1** and **SHA-256** from that section (not only the upload certificate)
+3. Firebase Console → Project `matchvibe-d55f9` → Android app `com.matchvibe.app` → add both fingerprints
+4. Download an updated `android/app/google-services.json` and rebuild the release bundle
+
+Without Play signing fingerprints, phone OTP often fails on Play Store builds while Google Sign-In still works.
+
 ### Solution 1: Verify Fingerprints Match (CRITICAL)
 
 **Step 1: Get fingerprints from your keystore:**
@@ -48,7 +59,7 @@ keytool -list -v -keystore keystore/upload-keystore.jks -alias upload
 ```
 
 **Step 2: Compare with Firebase Console:**
-1. Go to Firebase Console → Project Settings → `com.example.zztherapy`
+1. Go to Firebase Console → Project Settings → `com.matchvibe.app`
 2. Check SHA-1 and SHA-256 listed
 3. **Do they EXACTLY match?** (including colons and case)
 
@@ -127,7 +138,7 @@ Signing with release keystore
 
 ### Check 3: Check Firebase Console
 1. Firebase Console → Project Settings
-2. App: `com.example.zztherapy` (NOT `.dev`)
+2. App: `com.matchvibe.app`
 3. SHA certificate fingerprints section
 4. Should show **both** SHA-1 and SHA-256
 

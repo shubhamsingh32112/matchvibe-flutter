@@ -1,9 +1,11 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:zztherapy/features/auth/providers/auth_provider.dart';
 import 'package:zztherapy/features/home/providers/availability_provider.dart';
 import 'package:zztherapy/features/home/providers/home_provider.dart';
 import 'package:zztherapy/shared/models/creator_model.dart';
+import 'package:zztherapy/shared/models/user_model.dart';
 
 Map<String, dynamic> _creatorJson(String id) {
   return {
@@ -33,9 +35,20 @@ Response<dynamic> _responseFor(
 }
 
 void main() {
+  final testAuthState = AuthState(
+    user: const UserModel(
+      id: 'test-user',
+      coins: 0,
+      role: 'user',
+    ),
+  );
+
   test('creators pagination loads additional pages via notifier', () async {
     final container = ProviderContainer(
       overrides: [
+        authProvider.overrideWith(
+          (ref) => AuthNotifier.testInitial(testAuthState),
+        ),
         homeApiGetProvider.overrideWith((ref) {
           return (path) async {
             if (path.contains('/creator/feed?page=1')) {
@@ -96,5 +109,33 @@ void main() {
     final nextOrder = notifier.state.orderedIds;
     expect(nextOrder, contains('fb-2'));
     expect(nextOrder.length, 3);
+  });
+
+  test('creators feed surfaces API failure as provider error', () async {
+    final container = ProviderContainer(
+      overrides: [
+        authProvider.overrideWith(
+          (ref) => AuthNotifier.testInitial(testAuthState),
+        ),
+        homeApiGetProvider.overrideWith((ref) {
+          return (path) async {
+            return _responseFor(
+              path,
+              {
+                'success': false,
+                'error': 'Forbidden',
+              },
+            );
+          };
+        }),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await expectLater(
+      container.read(creatorsProvider.future),
+      throwsA(isA<Exception>()),
+    );
+    expect(container.read(creatorsProvider).hasError, isTrue);
   });
 }

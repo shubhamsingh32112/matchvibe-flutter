@@ -173,6 +173,10 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     if (nextUid != null) {
       unawaited(OnboardingRunnerLockService.clear(nextUid));
     }
+
+    ref.invalidate(homeFeedProvider);
+    ref.invalidate(creatorsProvider);
+    ref.invalidate(usersProvider);
   }
 
   void _setupProviderListeners() {
@@ -796,6 +800,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
           '📱 [APP LIFECYCLE] App resumed — refreshing home feed + user for user',
         );
         ref.invalidate(homeFeedProvider);
+        ref.invalidate(creatorsProvider);
         unawaited(ref.read(authProvider.notifier).refreshUser());
         unawaited(_refreshPendingAppUpdate());
         // Permissions reconciliation: if permissions changed post-onboarding, report once.
