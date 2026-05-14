@@ -16,6 +16,7 @@ import '../../auth/providers/auth_provider.dart';
 import '../../home/providers/availability_provider.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/providers/coin_purchase_popup_provider.dart';
+import '../../wallet/providers/wallet_pricing_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Phase / Failure reason / State
@@ -1046,23 +1047,24 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     }
 
     if (wasConnected && isRegularUser && mounted) {
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (mounted) {
-          final uid = _ref.read(authProvider).firebaseUser?.uid;
-          final creatorName = _extractRemoteCreatorName(call);
-          final photo = resolveRemoteImageUrl(
-            call: call,
-            currentUserId: uid,
-            fallbackImageUrl: null,
-          );
-          _ref.read(coinPurchasePopupProvider.notifier).state = CoinPopupIntent(
-                reason: 'post_call',
-                dedupeKey: 'coin-post-call-$endedCallId',
-                remoteDisplayName: creatorName,
-                remotePhotoUrl: photo,
-                remoteFirebaseUid: endedCreatorFirebaseUid,
-              );
-        }
+      Future.delayed(const Duration(milliseconds: 500), () async {
+        if (!mounted) return;
+        final uid = _ref.read(authProvider).firebaseUser?.uid;
+        final creatorName = _extractRemoteCreatorName(call);
+        final photo = resolveRemoteImageUrl(
+          call: call,
+          currentUserId: uid,
+          fallbackImageUrl: null,
+        );
+        await prefetchWalletPricing(_ref, forceRefresh: true);
+        if (!mounted) return;
+        _ref.read(coinPurchasePopupProvider.notifier).state = CoinPopupIntent(
+              reason: 'post_call',
+              dedupeKey: 'coin-post-call-$endedCallId',
+              remoteDisplayName: creatorName,
+              remotePhotoUrl: photo,
+              remoteFirebaseUid: endedCreatorFirebaseUid,
+            );
       });
     }
   }

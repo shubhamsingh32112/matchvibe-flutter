@@ -38,6 +38,18 @@ class CallEndedLowCoinsModal extends ConsumerStatefulWidget {
 class _CallEndedLowCoinsModalState extends ConsumerState<CallEndedLowCoinsModal> {
   bool _busy = false;
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final pricing = ref.read(walletPricingProvider);
+      if (pricing.hasError || !pricing.hasValue) {
+        ref.invalidate(walletPricingProvider);
+      }
+    });
+  }
+
   static const _kPurpleDeep = Color(0xFF1A0D2E);
   static const _kPurpleMid = Color(0xFF2D1B4E);
   static const _kBorderPink = Color(0xFFE879F9);

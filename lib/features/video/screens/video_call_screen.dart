@@ -20,6 +20,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/app_network_image.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/providers/coin_purchase_popup_provider.dart';
+import '../../wallet/providers/wallet_pricing_provider.dart';
 
 /// Screen for active video call — **pure renderer**.
 ///
@@ -649,7 +650,6 @@ class _VideoCallScreenContentState
         final showPurchase = role != 'creator' && role != 'admin';
         if (showPurchase) {
           ref.read(callBillingProvider.notifier).reset();
-          ref.read(authProvider.notifier).refreshUser();
           final currentUid = ref.read(authProvider).firebaseUser?.uid;
           final cc = ref.read(callConnectionControllerProvider);
           final remoteUid = resolveRemoteParticipantFirebaseUid(
@@ -666,13 +666,18 @@ class _VideoCallScreenContentState
             currentUserId: currentUid,
             fallbackImageUrl: cc.remoteImageFallbackUrl,
           );
-          ref.read(coinPurchasePopupProvider.notifier).state = CoinPopupIntent(
-            reason: 'force_end_out_of_coins',
-            dedupeKey: 'coin-force-end-${next.callId ?? 'unknown'}',
-            remoteDisplayName: display.primaryName,
-            remotePhotoUrl: photo,
-            remoteFirebaseUid: remoteUid,
-          );
+          final forceEndCallId = next.callId;
+          unawaited(() async {
+            await ref.read(authProvider.notifier).refreshUser();
+            await prefetchWalletPricing(ref, forceRefresh: true);
+            ref.read(coinPurchasePopupProvider.notifier).state = CoinPopupIntent(
+              reason: 'force_end_out_of_coins',
+              dedupeKey: 'coin-force-end-${forceEndCallId ?? 'unknown'}',
+              remoteDisplayName: display.primaryName,
+              remotePhotoUrl: photo,
+              remoteFirebaseUid: remoteUid,
+            );
+          }());
         }
       }
     });
