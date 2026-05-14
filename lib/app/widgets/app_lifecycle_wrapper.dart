@@ -23,6 +23,7 @@ import '../../features/onboarding/services/onboarding_popup_state_service.dart';
 import '../../shared/services/app_update_service.dart';
 import '../../shared/providers/coin_purchase_popup_provider.dart';
 import '../../features/wallet/widgets/call_ended_low_coins_modal.dart';
+import '../../features/wallet/providers/wallet_pricing_provider.dart';
 import '../../shared/providers/app_update_popup_provider.dart';
 import '../../core/services/permission_reconciliation_service.dart';
 
@@ -212,28 +213,30 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
           );
           return;
         }
-        final id = ref
-            .read(modalCoordinatorProvider.notifier)
-            .nextRequestId('coin');
-        ref
-            .read(modalCoordinatorProvider.notifier)
-            .enqueue<void>(
-              AppModalRequest<void>(
-                id: id,
-                priority: AppModalPriority.normal,
-                dedupeKey: next.dedupeKey,
-                present: (ctx, modalRef) async {
-                  await presentCallEndedLowCoinsModal(
-                    ctx,
-                    modalRef,
-                    intent: next,
-                  );
-                },
-                onCompleted: (_) {
-                  ref.read(coinPurchasePopupProvider.notifier).state = null;
-                },
-              ),
-            );
+        unawaited(() async {
+          await prefetchWalletPricing(ref, forceRefresh: true);
+          if (!mounted) return;
+          final id = ref
+              .read(modalCoordinatorProvider.notifier)
+              .nextRequestId('coin');
+          ref.read(modalCoordinatorProvider.notifier).enqueue<void>(
+                AppModalRequest<void>(
+                  id: id,
+                  priority: AppModalPriority.normal,
+                  dedupeKey: next.dedupeKey,
+                  present: (ctx, modalRef) async {
+                    await presentCallEndedLowCoinsModal(
+                      ctx,
+                      modalRef,
+                      intent: next,
+                    );
+                  },
+                  onCompleted: (_) {
+                    ref.read(coinPurchasePopupProvider.notifier).state = null;
+                  },
+                ),
+              );
+        }());
       },
     );
 
@@ -266,6 +269,9 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
         unawaited(_retryDeferredUpdateAcks());
         if (!next.createdNow) {
           unawaited(_refreshPendingAppUpdate());
+        }
+        if (user.role == 'user') {
+          warmWalletPricingCache(ref);
         }
       }
     });

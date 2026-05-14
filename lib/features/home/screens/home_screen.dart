@@ -41,6 +41,7 @@ import '../../../core/services/modal_coordinator_service.dart';
 import '../../../core/services/promo_popup_service.dart';
 import '../../../core/services/free_call_popup_service.dart';
 import '../../../shared/widgets/promo_image_popup.dart';
+import '../../../shared/widgets/welcome_free_call_promo_popup.dart';
 import '../../onboarding/models/onboarding_step.dart';
 import '../../onboarding/services/onboarding_flow_service.dart';
 import '../../onboarding/services/onboarding_popup_state_service.dart';
@@ -178,7 +179,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   static const String _promoAssetPath = 'lib/assets/promo_first_call_on_us.png';
-  static const String _freeCallPopupAssetPath = 'lib/assets/free-call-popup.jpeg';
 
   Future<void> _maybeShowLoginPromoOnce() async {
     if (!mounted) return;
@@ -641,7 +641,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       context: navContext,
       barrierDismissible: true,
       barrierColor: Colors.transparent,
-      builder: (_) => const PromoImagePopup(assetPath: _freeCallPopupAssetPath),
+      builder: (_) => const WelcomeFreeCallPromoPopup(),
     );
     if (!mounted || !navContext.mounted) return;
     await FreeCallPopupService.markShown(uid);

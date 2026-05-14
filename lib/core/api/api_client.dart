@@ -14,7 +14,9 @@ typedef ImageServiceDegradedCallback = void Function(bool degraded);
 class ApiClient {
   late final Dio _dio;
   static final ApiClient _instance = ApiClient._internal();
-  bool _isRefreshingToken = false;
+
+  /// Concurrent 401s share one refresh (e.g. post-call burst of API calls).
+  static Future<String?>? _tokenRefreshFuture;
 
   /// In-memory copy of [AppConstants.keyAuthToken] to avoid SharedPreferences on every request.
   static String? _cachedAuthToken;
@@ -166,16 +168,17 @@ class ApiClient {
             );
           }
           
-          // 🔥 Firebase ID token expired: refresh and retry once
-          if (error.response?.statusCode == 401 && !_isRefreshingToken) {
-            final isTokenExpired = _isTokenExpiredError(error);
-            if (kDebugMode && isTokenExpired) {
-              debugPrint('   🔒 Token expired - attempting refresh and retry');
-            }
-            if (isTokenExpired) {
-              _isRefreshingToken = true;
+          // Firebase ID token expired: share one refresh across concurrent 401s.
+          if (error.response?.statusCode == 401) {
+            final hadAuth =
+                error.requestOptions.headers['Authorization'] != null;
+            if (hadAuth && _isTokenExpiredError(error)) {
+              if (kDebugMode) {
+                debugPrint('   🔒 Token expired - attempting refresh and retry');
+              }
               try {
-                final newToken = await _refreshFirebaseToken();
+                _tokenRefreshFuture ??= _refreshFirebaseToken();
+                final newToken = await _tokenRefreshFuture;
                 if (newToken != null) {
                   if (kDebugMode) {
                     debugPrint('   ✅ Token refreshed, retrying request');
@@ -184,15 +187,15 @@ class ApiClient {
                   final opts = error.requestOptions;
                   opts.headers['Authorization'] = 'Bearer $newToken';
                   final response = await _dio.fetch(opts);
-                  _isRefreshingToken = false;
                   return handler.resolve(response);
                 }
               } catch (e) {
                 if (kDebugMode) {
                   debugPrint('   ⚠️ Token refresh failed: $e');
                 }
+              } finally {
+                _tokenRefreshFuture = null;
               }
-              _isRefreshingToken = false;
             }
           }
           
