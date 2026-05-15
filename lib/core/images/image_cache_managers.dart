@@ -1,9 +1,11 @@
-/// Three tuned `CacheManager` instances per §7.3 of the Cloudflare-images
-/// migration plan.
+/// Three tuned cache managers per §7.3 of the Cloudflare-images migration plan.
 ///
 ///   - [avatarCacheManager]  : 365d stalePeriod, 2000 entries (hot, sticky)
 ///   - [feedCacheManager]    : 90d  stalePeriod, 500  entries (warm churn)
 ///   - [galleryCacheManager] : 365d stalePeriod, 300  entries (medium)
+///
+/// Each extends [CacheManager] with [ImageCacheManager] so [CachedNetworkImage]
+/// can use memCacheWidth/Height (required by [AppNetworkImage]).
 ///
 /// All managers persist to disk via the default flutter_cache_manager backend.
 /// They use a custom [HttpFileService] that negotiates WebP/AVIF with
@@ -18,9 +20,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:http/http.dart' as http;
 
+/// [CacheManager] + [ImageCacheManager] for resized decode via memCacheWidth/Height.
+class _CloudflareImageCacheManager extends CacheManager with ImageCacheManager {
+  _CloudflareImageCacheManager(super.config);
+}
+
 /// Hot path: chat / recent / call / feed-card avatars.
 /// Aggressive retention so they persist across cold restarts.
-final CacheManager avatarCacheManager = CacheManager(
+final CacheManager avatarCacheManager = _CloudflareImageCacheManager(
   Config(
     'matchvibe_avatars_v2',
     stalePeriod: const Duration(days: 365),
@@ -30,7 +37,7 @@ final CacheManager avatarCacheManager = CacheManager(
 );
 
 /// Feed-tile thumbnails — rotates faster as user scrolls infinite list.
-final CacheManager feedCacheManager = CacheManager(
+final CacheManager feedCacheManager = _CloudflareImageCacheManager(
   Config(
     'matchvibe_feed_v2',
     stalePeriod: const Duration(days: 90),
@@ -40,7 +47,7 @@ final CacheManager feedCacheManager = CacheManager(
 );
 
 /// Gallery thumbs / medium / xl — moderate retention.
-final CacheManager galleryCacheManager = CacheManager(
+final CacheManager galleryCacheManager = _CloudflareImageCacheManager(
   Config(
     'matchvibe_gallery_v2',
     stalePeriod: const Duration(days: 365),

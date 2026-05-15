@@ -203,6 +203,10 @@ class UserMessageMapper {
           }
         }
         if (apiMsg != null) return apiMsg;
+        if (code == 429) {
+          return _messageForRateLimited(data) ??
+              'Too many requests. Please wait a moment and try again.';
+        }
         if (code == 503) {
           final path = e.requestOptions.path.toLowerCase();
           if (path.contains('/chat') || path.contains('/stream')) {
@@ -229,6 +233,23 @@ class UserMessageMapper {
       case DioExceptionType.badCertificate:
         return 'Secure connection failed. Please try again later.';
     }
+  }
+
+  static String? _messageForRateLimited(dynamic data) {
+    if (data is! Map) return null;
+    final err = data['error'];
+    if (err == 'too_many_requests') {
+      return _rateLimitRetryMessage(data);
+    }
+    return null;
+  }
+
+  static String _rateLimitRetryMessage(Map<dynamic, dynamic> data) {
+    final ra = data['retry_after'] ?? data['retryAfterSeconds'];
+    if (ra is num && ra.toInt() > 0) {
+      return 'Too many requests. Please wait about ${ra.toInt()} seconds and try again.';
+    }
+    return 'Too many requests. Please wait a moment and try again.';
   }
 
   /// Maps backend `code` fields when `error` text is missing or redacted as unsafe.

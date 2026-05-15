@@ -8,6 +8,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../router/app_router.dart';
 import '../../features/auth/providers/auth_provider.dart';
 import '../../features/home/providers/availability_provider.dart';
+import '../../core/services/availability_socket_service.dart'
+    as socket_availability;
+import '../../shared/providers/image_service_degraded_provider.dart';
 import '../../features/creator/providers/creator_dashboard_provider.dart';
 import '../../features/video/controllers/call_connection_controller.dart';
 import '../../features/home/providers/home_provider.dart';
@@ -177,6 +180,9 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     ref.invalidate(homeFeedProvider);
     ref.invalidate(creatorsProvider);
     ref.invalidate(usersProvider);
+    ref.invalidate(creatorAvailabilityProvider);
+    ref.invalidate(socket_availability.creatorAvailabilityProvider);
+    ref.read(imageServiceDegradedProvider.notifier).markHealthy();
   }
 
   void _setupProviderListeners() {

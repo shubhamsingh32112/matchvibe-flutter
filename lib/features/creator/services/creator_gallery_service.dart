@@ -22,9 +22,10 @@ class CreatorProfileSnapshot {
 ///   1. [ImageUploadService.uploadGalleryImage] — compresses to WebP off-isolate,
 ///      strips EXIF, requests a direct-upload session, posts bytes to
 ///      Cloudflare with retry.
-///   2. `POST /creator/profile/gallery/commit { sessionId }` — backend resolves
-///      Cloudflare metadata, persists `IImageAsset`, enqueues async blurhash
-///      job, returns the updated `gallery` array.
+///   2. `POST /creator/profile/gallery/commit { sessionId, galleryItemId? }` —
+///      backend resolves Cloudflare metadata, persists `IImageAsset`, enqueues
+///      async blurhash job, returns the updated `gallery` array. Pass
+///      [galleryItemId] when replacing an existing slot (skips quota increment).
 ///
 /// The legacy Firebase Storage upload (PUT signed URL + storagePath) is gone.
 class CreatorGalleryService {
@@ -76,19 +77,28 @@ class CreatorGalleryService {
   Future<List<CreatorGalleryImage>> uploadGalleryImage({
     required Uint8List imageBytes,
     required String fileName,
+    /// When set, replaces the existing gallery slot instead of adding a new one.
+    String? galleryItemId,
   }) async {
     final uploaded = await ImageUploadService.uploadGalleryImage(
       bytes: imageBytes,
       fileName: fileName,
-      draftSlot: 'creator-gallery:$fileName',
+      draftSlot: galleryItemId != null && galleryItemId.isNotEmpty
+          ? 'creator-gallery:$galleryItemId'
+          : 'creator-gallery:$fileName',
     );
+
+    final commitData = <String, dynamic>{
+      'sessionId': uploaded.sessionId,
+      'fileName': fileName,
+    };
+    if (galleryItemId != null && galleryItemId.trim().isNotEmpty) {
+      commitData['galleryItemId'] = galleryItemId.trim();
+    }
 
     final commitResponse = await _apiClient.post(
       '/creator/profile/gallery/commit',
-      data: {
-        'sessionId': uploaded.sessionId,
-        'fileName': fileName,
-      },
+      data: commitData,
     );
 
     final body = commitResponse.data;
