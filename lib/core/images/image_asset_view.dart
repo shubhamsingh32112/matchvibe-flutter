@@ -11,6 +11,8 @@ library;
 
 import 'package:flutter/foundation.dart';
 
+import '../utils/api_json.dart';
+
 @immutable
 class AvatarUrls {
   const AvatarUrls({
@@ -103,17 +105,17 @@ class ImageAssetView {
 
   static ImageAssetView? fromJson(Map<String, dynamic>? json) {
     if (json == null) return null;
-    final imageId = json['imageId'];
-    final avatarUrls = AvatarUrls.fromJson(json['avatarUrls'] as Map<String, dynamic>?);
-    final galleryUrls = GalleryUrls.fromJson(json['galleryUrls'] as Map<String, dynamic>?);
-    if (imageId is! String || avatarUrls == null || galleryUrls == null) {
+    final imageId = readId(json['imageId']);
+    final avatarUrls = AvatarUrls.fromJson(readJsonMap(json['avatarUrls']));
+    final galleryUrls = GalleryUrls.fromJson(readJsonMap(json['galleryUrls']));
+    if (imageId == null || imageId.isEmpty || avatarUrls == null || galleryUrls == null) {
       return null;
     }
     return ImageAssetView(
       imageId: imageId,
       avatarUrls: avatarUrls,
       galleryUrls: galleryUrls,
-      blurhash: json['blurhash'] is String ? json['blurhash'] as String : null,
+      blurhash: readOptionalString(json['blurhash']),
       width: json['width'] is num ? (json['width'] as num).toInt() : null,
       height: json['height'] is num ? (json['height'] as num).toInt() : null,
     );
@@ -139,13 +141,13 @@ class AvatarAssetView {
 
   static AvatarAssetView? fromJson(Map<String, dynamic>? json) {
     if (json == null) return null;
-    final imageId = json['imageId'];
-    final avatarUrls = AvatarUrls.fromJson(json['avatarUrls'] as Map<String, dynamic>?);
-    if (imageId is! String || avatarUrls == null) return null;
+    final imageId = readId(json['imageId']);
+    final avatarUrls = AvatarUrls.fromJson(readJsonMap(json['avatarUrls']));
+    if (imageId == null || imageId.isEmpty || avatarUrls == null) return null;
     return AvatarAssetView(
       imageId: imageId,
       avatarUrls: avatarUrls,
-      blurhash: json['blurhash'] is String ? json['blurhash'] as String : null,
+      blurhash: readOptionalString(json['blurhash']),
       width: json['width'] is num ? (json['width'] as num).toInt() : null,
       height: json['height'] is num ? (json['height'] as num).toInt() : null,
     );

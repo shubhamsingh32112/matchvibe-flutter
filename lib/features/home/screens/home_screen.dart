@@ -40,7 +40,7 @@ import '../../../shared/widgets/permissions_intro_bottom_sheet.dart';
 import '../../../core/services/modal_coordinator_service.dart';
 import '../../../core/services/promo_popup_service.dart';
 import '../../../core/services/free_call_popup_service.dart';
-import '../../../shared/widgets/promo_image_popup.dart';
+import '../../../shared/widgets/welcome_free_call_promo_popup.dart';
 import '../../onboarding/models/onboarding_step.dart';
 import '../../onboarding/services/onboarding_flow_service.dart';
 import '../../onboarding/services/onboarding_popup_state_service.dart';
@@ -180,8 +180,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
-  static const String _promoAssetPath = 'lib/assets/free-call-popup.jpeg';
-
   Future<void> _maybeShowLoginPromoOnce() async {
     if (!mounted) return;
     final authState = ref.read(authProvider);
@@ -209,8 +207,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 context: ctx,
                 barrierDismissible: true,
                 barrierColor: Colors.transparent,
-                builder: (_) =>
-                    const PromoImagePopup(assetPath: _promoAssetPath),
+                builder: (_) => const WelcomeFreeCallPromoPopup(),
               );
             },
           ),
@@ -643,9 +640,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       context: navContext,
       barrierDismissible: true,
       barrierColor: Colors.transparent,
-      builder: (_) => const PromoImagePopup(
-        assetPath: 'lib/assets/free-call-popup.jpeg',
-      ),
+      builder: (_) => const WelcomeFreeCallPromoPopup(),
     );
     if (!mounted || !navContext.mounted) return;
     await FreeCallPopupService.markShown(uid);

@@ -1,7 +1,8 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// One-time centered image promo after welcome onboarding (jpeg asset).
+/// One-time welcome free-call promo dialog after onboarding welcome (coded UI).
 class FreeCallPopupService {
+  /// Prefs key suffix; name retains `jpeg` for backward compatibility with stored flags.
   static const String _prefix = 'free_call_popup_jpeg_shown';
 
   static String _k(String uid) => '${_prefix}_$uid';

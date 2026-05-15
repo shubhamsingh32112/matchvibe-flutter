@@ -80,6 +80,14 @@ void main() async {
       '   🌐 API_BASE_URL: ${dotenv.env['API_BASE_URL'] ?? "NOT SET"}',
     );
     debugPrint('   🔌 SOCKET_URL: ${dotenv.env['SOCKET_URL'] ?? "NOT SET"}');
+    final apiBase = (dotenv.env['API_BASE_URL'] ?? '').trim();
+    if (apiBase.contains('localhost') || apiBase.contains('127.0.0.1')) {
+      debugPrint(
+        '⚠️ [ENV] Debug/profile uses $envFile with a loopback API_BASE_URL. '
+        'A physical device cannot reach your PC. Use a LAN URL in .env.development, '
+        'adb reverse, or a release build to load .env.production.',
+      );
+    }
   }
   if (isProduction) {
     // Fail-safe warnings: if these are missing, the app will silently fall back to localhost and break in production.

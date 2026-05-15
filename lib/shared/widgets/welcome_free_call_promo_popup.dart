@@ -4,7 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// Welcome free-call promo shown after onboarding welcome (replaces JPEG asset).
+/// Welcome free-call promo shown after onboarding welcome (and login promo when ineligible for wallet intro).
 class WelcomeFreeCallPromoPopup extends StatelessWidget {
   const WelcomeFreeCallPromoPopup({super.key});
 
@@ -13,7 +13,7 @@ class WelcomeFreeCallPromoPopup extends StatelessWidget {
     final size = MediaQuery.sizeOf(context);
     final maxW =
         math.min(size.width * 0.94, 520.0).clamp(0.0, size.width - 24);
-    final bannerH = (maxW * 0.56).clamp(200.0, 300.0);
+    final bannerH = (maxW * 0.58).clamp(210.0, 310.0);
 
     return Material(
       type: MaterialType.transparency,
@@ -43,8 +43,6 @@ class WelcomeFreeCallPromoPopup extends StatelessWidget {
 class _WelcomeFreeCallPromoBanner extends StatelessWidget {
   const _WelcomeFreeCallPromoBanner();
 
-  static const _neonGreen = Color(0xFF7CFF40);
-  static const _accentYellow = Color(0xFFFFD700);
   static const _violet = Color(0xFF8A2BE2);
 
   TextStyle _headlineStyle(double size) => GoogleFonts.inter(
@@ -116,30 +114,34 @@ class _WelcomeFreeCallPromoBanner extends StatelessWidget {
                     children: [
                       const _FirstCallBadge(),
                       const SizedBox(height: 10),
-                      Text(
-                        'FIRST CALL',
-                        style: _headlineStyle(26).copyWith(color: Colors.white),
-                      ),
                       ShaderMask(
                         blendMode: BlendMode.srcIn,
                         shaderCallback: (bounds) => const LinearGradient(
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
-                          colors: [_neonGreen, _accentYellow],
+                          colors: [
+                            Color(0xFFFFFFFF),
+                            Color(0xFFE8FFE8),
+                            Color(0xFF7CFF40),
+                          ],
+                          stops: [0.0, 0.42, 1.0],
                         ).createShader(bounds),
                         child: Text(
-                          'IS ON US!',
-                          style: _headlineStyle(26),
+                          'FIRST CALL IS\nON US!',
+                          style: _headlineStyle(25).copyWith(
+                            color: Colors.white,
+                            height: 0.98,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 8),
                       Text(
                         'TALK. CONNECT. HAVE FUN.',
                         style: GoogleFonts.inter(
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.8,
-                          color: Colors.white.withValues(alpha: 0.92),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 1.0,
+                          color: Colors.white.withValues(alpha: 0.94),
                         ),
                       ),
                     ],
@@ -228,6 +230,26 @@ class _PromoBackgroundPainter extends CustomPainter {
       Rect.fromLTWH(size.width * 0.4, 0, size.width * 0.6, size.height),
       streak2,
     );
+
+    final streak3 = Paint()
+      ..shader = ui.Gradient.linear(
+        Offset(0, size.height * 0.35),
+        Offset(size.width * 0.45, size.height * 0.85),
+        [
+          const Color(0xFF5A189A).withValues(alpha: 0.0),
+          const Color(0xFF9333EA).withValues(alpha: 0.22),
+        ],
+      )
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14);
+    canvas.drawPath(
+      Path()
+        ..moveTo(0, size.height * 0.2)
+        ..lineTo(size.width * 0.35, 0)
+        ..lineTo(size.width * 0.5, size.height * 0.15)
+        ..lineTo(0, size.height * 0.55)
+        ..close(),
+      streak3,
+    );
   }
 
   @override
@@ -258,7 +280,7 @@ class _FirstCallBadge extends StatelessWidget {
             ),
             child: const Icon(
               Icons.phone_in_talk_rounded,
-              color: Color(0xFFB388FF),
+              color: Colors.white,
               size: 16,
             ),
           ),
@@ -293,6 +315,7 @@ class _FirstCallBadge extends StatelessWidget {
                 style: GoogleFonts.inter(
                   fontSize: 10,
                   fontWeight: FontWeight.w900,
+                  fontStyle: FontStyle.italic,
                   color: Colors.black,
                   letterSpacing: 0.2,
                 ),
@@ -317,13 +340,13 @@ class _NeonGreenCallCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: neon.withValues(alpha: 0.55),
-            blurRadius: 18,
+            color: neon.withValues(alpha: 0.6),
+            blurRadius: 20,
             spreadRadius: 1,
           ),
           BoxShadow(
-            color: neon.withValues(alpha: 0.25),
-            blurRadius: 32,
+            color: neon.withValues(alpha: 0.28),
+            blurRadius: 36,
             spreadRadius: 2,
           ),
         ],
@@ -337,7 +360,7 @@ class _NeonGreenCallCard extends StatelessWidget {
             end: Alignment.bottomRight,
             colors: [Color(0xFF0D3B12), Color(0xFF062010)],
           ),
-          border: Border.all(color: neon, width: 2.2),
+          border: Border.all(color: neon, width: 2.4),
         ),
         child: Stack(
           clipBehavior: Clip.none,
@@ -394,12 +417,14 @@ class _NeonGreenCallCard extends StatelessWidget {
                       ShaderMask(
                         blendMode: BlendMode.srcIn,
                         shaderCallback: (bounds) => const LinearGradient(
-                          colors: [Color(0xFF7CFF40), Color(0xFFFFE566)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [Color(0xFF7CFF40), Color(0xFFB8FF6A)],
                         ).createShader(bounds),
                         child: Text(
                           'FREE FREE!',
                           style: GoogleFonts.inter(
-                            fontSize: 18,
+                            fontSize: 19,
                             fontWeight: FontWeight.w900,
                             fontStyle: FontStyle.italic,
                             height: 1.0,
@@ -447,7 +472,7 @@ class _PurpleInfoBar extends StatelessWidget {
                 Icon(
                   Icons.bolt_rounded,
                   size: 16,
-                  color: Colors.amber.shade300,
+                  color: Colors.white,
                 ),
                 const SizedBox(width: 4),
                 Text(

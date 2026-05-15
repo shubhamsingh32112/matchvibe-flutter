@@ -119,7 +119,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
     seconds: 30,
   ); // Minimum time between requests
   static const Duration _tooManyRequestsCooldown = Duration(minutes: 5);
-  static const Duration _phoneVerificationUserTimeout = Duration(seconds: 30);
+  /// Must exceed Firebase SMS / `verifyPhoneNumber` latency on slow networks.
+  /// Previously 30s caused false timeouts while `codeSent` was still pending.
+  static const Duration _phoneVerificationUserTimeout = Duration(seconds: 90);
 
   // 🔥 FIX: Test phone numbers (for Firebase test authentication)
   // These numbers use manual OTP flow, no SMS auto-retrieval
@@ -132,6 +134,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
   /// Check if a phone number is a Firebase test number
   bool _isTestNumber(String phone) {
     return _testPhoneNumbers.contains(phone);
+  }
+
+  /// Strict E.164 for Firebase (`+[country][subscriber]`, digits only after +).
+  String? _normalizePhoneE164(String raw) {
+    final s = raw.trim().replaceAll(RegExp(r'[\s\-.]'), '');
+    if (s.isEmpty) return null;
+    if (!s.startsWith('+')) return null;
+    if (s.length < 10 || s.length > 17) return null;
+    if (!RegExp(r'^\+\d{9,16}$').hasMatch(s)) return null;
+    return s;
   }
 
   AuthNotifier() : super(AuthState()) {
@@ -372,10 +384,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
       debugPrint('   🌐 Full URL: ${AppConstants.baseUrl}/auth/login');
       debugPrint('   🔑 Auth token: Present (${token.length} chars)');
       debugPrint('   💡 Make sure backend is running and accessible');
-      // Optional device fingerprint for welcome-bonus eligibility (skip emulators / abuse).
+      // Optional device fingerprint for login (skip emulators / abuse).
       final Map<String, dynamic> loginBody = {};
       try {
-        if (await DeviceFingerprintService.shouldSendDeviceFingerprintForBonus()) {
+        if (await DeviceFingerprintService.shouldSendDeviceFingerprintForLogin()) {
           final fp = await DeviceFingerprintService.getDeviceFingerprint();
           if (fp.isNotEmpty) loginBody['deviceFingerprint'] = fp;
         }
@@ -901,6 +913,18 @@ class AuthNotifier extends StateNotifier<AuthState> {
       debugPrint('═══════════════════════════════════════════════════════');
       debugPrint('📱 [PHONE AUTH] Starting phone number authentication');
       debugPrint('═══════════════════════════════════════════════════════');
+      final normalized = _normalizePhoneE164(phoneNumber);
+      if (normalized == null) {
+        const err =
+            'Enter a valid number with country code (e.g. +1 555 000 0000).';
+        state = state.copyWith(isLoading: false, error: err);
+        return const PhoneAuthStartResult(
+          success: false,
+          status: PhoneAuthStartStatus.failed,
+          error: err,
+        );
+      }
+      phoneNumber = normalized;
       debugPrint('   📞 Phone number: $phoneNumber');
       debugPrint('   ⏰ Timestamp: ${DateTime.now().toIso8601String()}');
 
@@ -1199,6 +1223,24 @@ class AuthNotifier extends StateNotifier<AuthState> {
           if (isTest) return; // 🔥 Ignore timeout for test numbers
           debugPrint('⏱️  [PHONE AUTH] Auto-retrieval timeout');
           debugPrint('   💡 User must enter code manually');
+          // Rare: SMS path slow / flaky — `codeSent` may not have fired yet.
+          // Firebase still provides [verificationId] so we can open OTP.
+          if (!startResult.isCompleted && verificationId.isNotEmpty) {
+            _phoneVerificationInProgress = false;
+            _otpVerified = false;
+            state = state.copyWith(
+              isLoading: false,
+              verificationId: verificationId,
+              phoneNumber: phoneNumber,
+              error: null,
+            );
+            startResult.complete(
+              const PhoneAuthStartResult(
+                success: true,
+                status: PhoneAuthStartStatus.codeSent,
+              ),
+            );
+          }
         },
         // 🔥 Test numbers: zero timeout disables auto-retrieval
         // Real numbers: 60s for SMS auto-read
@@ -1211,7 +1253,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
         onTimeout: () {
           _phoneVerificationInProgress = false;
           const message =
-              'Verification is taking too long. Check your network and try again.';
+              'Verification is taking too long. Check signal or Wi-Fi and try again. '
+              'If you use a VPN, turn it off for SMS.';
           state = state.copyWith(isLoading: false, error: message);
           return const PhoneAuthStartResult(
             success: false,

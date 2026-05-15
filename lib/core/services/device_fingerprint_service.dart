@@ -2,13 +2,13 @@ import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 
-/// Stable device fingerprint for anti-abuse / welcome-bonus eligibility on login.
+/// Stable device fingerprint for anti-abuse signals on login (e.g. Fast Login).
 /// Android: androidId. iOS: identifierForVendor.
 class DeviceFingerprintService {
   static final DeviceInfoPlugin _deviceInfo = DeviceInfoPlugin();
 
   /// Whether to send [deviceFingerprint] on POST /auth/login (skip emulators).
-  static Future<bool> shouldSendDeviceFingerprintForBonus() async {
+  static Future<bool> shouldSendDeviceFingerprintForLogin() async {
     if (!Platform.isAndroid) return true; // iOS: no emulator check (simulators less abused)
     try {
       final android = await _deviceInfo.androidInfo;

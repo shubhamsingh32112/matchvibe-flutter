@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../../../core/images/image_asset_view.dart';
+import '../../../core/utils/api_json.dart';
 
 class CallHistoryModel extends Equatable {
   final String id;
@@ -47,28 +48,34 @@ class CallHistoryModel extends Equatable {
   String get otherMongoIdForCall => otherCreatorId ?? otherUserId;
 
   factory CallHistoryModel.fromJson(Map<String, dynamic> json) {
+    var ownerRole = readOptionalString(json['ownerRole']) ?? 'user';
+    if (ownerRole != 'user' && ownerRole != 'creator') {
+      ownerRole = 'user';
+    }
+    final dir = readOptionalString(json['direction']);
+    final direction =
+        dir == 'incoming' || dir == 'outgoing' ? dir : null;
+
     return CallHistoryModel(
-      id: json['_id'] as String? ?? '',
-      callId: json['callId'] as String? ?? '',
-      ownerUserId: json['ownerUserId'] as String? ?? '',
-      otherUserId: json['otherUserId'] as String? ?? '',
-      otherCreatorId: json['otherCreatorId'] as String?,
-      otherName: json['otherName'] as String? ?? 'Unknown',
+      id: readIdString(json['_id']),
+      callId: readOptionalString(json['callId']) ?? '',
+      ownerUserId: readIdString(json['ownerUserId']),
+      otherUserId: readIdString(json['otherUserId']),
+      otherCreatorId: readId(json['otherCreatorId']),
+      otherName: readOptionalString(json['otherName']) ?? 'Unknown',
       otherAvatar: json['otherAvatar'] is String
           ? json['otherAvatar'] as String?
           : null,
       otherAvatarAsset: AvatarAssetView.fromJson(
-        json['otherAvatarAsset'] as Map<String, dynamic>?,
+        readJsonMap(json['otherAvatarAsset']),
       ),
-      otherFirebaseUid: json['otherFirebaseUid'] as String? ?? '',
-      ownerRole: json['ownerRole'] as String? ?? 'user',
-      direction: json['direction'] as String?,
-      durationSeconds: json['durationSeconds'] as int? ?? 0,
-      coinsDeducted: json['coinsDeducted'] as int? ?? 0,
-      coinsEarned: json['coinsEarned'] as int? ?? 0,
-      createdAt: json['createdAt'] != null
-          ? DateTime.parse(json['createdAt'] as String)
-          : DateTime.now(),
+      otherFirebaseUid: readOptionalString(json['otherFirebaseUid']) ?? '',
+      ownerRole: ownerRole,
+      direction: direction,
+      durationSeconds: (json['durationSeconds'] as num?)?.toInt() ?? 0,
+      coinsDeducted: (json['coinsDeducted'] as num?)?.toInt() ?? 0,
+      coinsEarned: (json['coinsEarned'] as num?)?.toInt() ?? 0,
+      createdAt: readDateTimeWithFallback(json['createdAt']),
     );
   }
 

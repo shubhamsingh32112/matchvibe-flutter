@@ -90,6 +90,13 @@ class UserMessageMapper {
     if (error.contains('invalid-phone-number')) {
       return 'Invalid phone number. Please check and try again.';
     }
+    // Firebase / GCP: phone auth and some auth flows require a billing account
+    // on the linked Google Cloud project (see Firebase pricing / Blaze).
+    if (error.contains('BILLING_NOT_ENABLED')) {
+      return 'Phone sign-in is not available yet: billing must be enabled on the '
+          'Firebase/Google Cloud project for this app. Ask your developer to '
+          'link a billing account in Google Cloud Console, then retry.';
+    }
 
     if (error.contains('user-not-found')) {
       return 'User not found. Please sign up first.';

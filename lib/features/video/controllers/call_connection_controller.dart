@@ -1029,6 +1029,30 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     required String? endedCreatorLookupId,
     required Call? call,
   }) {
+    final userSnapshot = _ref.read(authProvider).user;
+    final hadWelcomeFreeCallUi = userSnapshot?.role == 'user' &&
+        (userSnapshot?.welcomeFreeCallEligible ?? false);
+
+    // Settlement updates `introFreeCallCredits` / `welcomeFreeCallEligible` in Mongo.
+    // Without a refresh, home still shows the welcome-free affordance until the next
+    // lifecycle refresh. Delay slightly so `/user/me` usually reads post-commit state.
+    if (wasConnected && endedCallId != null && endedCallId.isNotEmpty) {
+      unawaited(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        try {
+          await _ref.read(authProvider.notifier).refreshUser();
+        } catch (_) {}
+        // Second pass only when they were still eligible at hang-up — settlement can lag
+        // `/user/me` briefly; avoids stale free-call icon without extra traffic for others.
+        if (hadWelcomeFreeCallUi) {
+          await Future<void>.delayed(const Duration(milliseconds: 2000));
+          try {
+            await _ref.read(authProvider.notifier).refreshUser();
+          } catch (_) {}
+        }
+      }());
+    }
+
     final authState = _ref.read(authProvider);
     final currentUser = authState.user;
     final isRegularUser = currentUser != null && currentUser.role == 'user';

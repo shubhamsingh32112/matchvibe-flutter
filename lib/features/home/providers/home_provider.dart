@@ -172,13 +172,21 @@ class CreatorFeedNotifier extends AsyncNotifier<List<CreatorModel>> {
     final creatorsData = responseData['data']['creators'] as List? ?? const [];
     final creators = <CreatorModel>[];
     for (final raw in creatorsData) {
-      if (raw is! Map<String, dynamic>) continue;
+      if (raw is! Map) continue;
       try {
-        creators.add(CreatorModel.fromJson(raw));
+        creators.add(
+          CreatorModel.fromJson(Map<String, dynamic>.from(raw)),
+        );
       } catch (e, st) {
         debugPrint('⚠️ [HOME] Skipping malformed creator row: $e');
         debugPrint('$st');
       }
+    }
+    if (creatorsData.isNotEmpty && creators.isEmpty) {
+      throw Exception(
+        'CREATOR_FEED_PARSE_FAILED: server returned ${creatorsData.length} row(s) '
+        'but none could be parsed (check API / app versions).',
+      );
     }
 
     final apiAvailability = <String, CreatorAvailability>{};
@@ -288,9 +296,22 @@ class UserFeedNotifier extends AsyncNotifier<List<UserProfileModel>> {
       throw Exception('Failed to fetch users: status ${response.statusCode}');
     }
     final usersData = response.data['data']['users'] as List? ?? const [];
-    final users = usersData
-        .map((json) => UserProfileModel.fromJson(json as Map<String, dynamic>))
-        .toList();
+    final users = <UserProfileModel>[];
+    for (final raw in usersData) {
+      if (raw is! Map) continue;
+      try {
+        users.add(UserProfileModel.fromJson(Map<String, dynamic>.from(raw)));
+      } catch (e, st) {
+        debugPrint('⚠️ [HOME] Skipping malformed user row: $e');
+        debugPrint('$st');
+      }
+    }
+    if (usersData.isNotEmpty && users.isEmpty) {
+      throw Exception(
+        'USER_FEED_PARSE_FAILED: server returned ${usersData.length} row(s) '
+        'but none could be parsed (check API / app versions).',
+      );
+    }
     final pagination = response.data['data']['pagination'] as Map<String, dynamic>?;
 
     final apiAvailability = <String, UserAvailability>{};

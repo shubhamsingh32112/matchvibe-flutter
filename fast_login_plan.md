@@ -36,7 +36,7 @@ Google users: no change. Fast Login users: get a Firebase UID from a backend-cre
   - `authProvider?: 'google' | 'fast'` (optional)
   - `deviceFingerprint?: string` (optional, indexed for lookup)
   - `installId?: string` (optional)
-- Do **not** add a separate `freeTokensClaimed`; use existing `welcomeBonusClaimed` (one welcome bonus per user).
+- Do **not** add legacy wallet “welcome bonus claim” flags; use the same `coins` / `introFreeCallCredits` / onboarding model as Google signup.
 - Indexes:
   - `firebaseUid` (existing unique)
   - `deviceFingerprint` (sparse index, for fast-login lookup)
@@ -66,7 +66,7 @@ Google users: no change. Fast Login users: get a Firebase UID from a backend-cre
    - Return `{ success: true, data: { firebaseCustomToken } }`.
 4. If user does not exist:
    - Create Firebase user: `admin.auth().createUser({ uid: undefined })` (let Firebase generate UID) or use a deterministic UID from a hash of deviceFingerprint+installId to avoid orphaned Firebase users on Mongo failure.
-   - Create User in Mongo: `firebaseUid`, `deviceFingerprint`, `installId`, `authProvider: 'fast'`, `role: 'user'`, `coins: 0`, `welcomeBonusClaimed: false`, etc. (same defaults as login controller).
+   - Create User in Mongo: `firebaseUid`, `deviceFingerprint`, `installId`, `authProvider: 'fast'`, `role: 'user'`, `coins: 0`, same onboarding and intro-call defaults as the standard first-login controller path.
    - Generate custom token for new `firebaseUid`.
    - Return `{ success: true, data: { firebaseCustomToken } }`.
 5. Errors: 400 validation, 429 rate limit, 500 server.

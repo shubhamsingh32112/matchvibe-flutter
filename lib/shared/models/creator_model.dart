@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../../core/images/image_asset_view.dart';
+import '../../core/utils/api_json.dart';
 
 class CreatorGalleryImage extends Equatable {
   final String id;
@@ -19,23 +20,16 @@ class CreatorGalleryImage extends Equatable {
   });
 
   factory CreatorGalleryImage.fromJson(Map<String, dynamic> json) {
-    final id = json['id']?.toString() ?? '';
+    final id = readIdString(json['id']);
     if (id.isEmpty) {
       throw const FormatException('CreatorGalleryImage: missing id');
     }
 
-    final createdRaw = json['createdAt'];
-    DateTime? createdAt;
-    if (createdRaw is String) {
-      createdAt = DateTime.tryParse(createdRaw);
-    }
+    final createdAt = readDateTime(json['createdAt']);
 
     final imageMap = json['image'] ?? json['asset'];
-    final ImageAssetView? asset = imageMap is Map<String, dynamic>
-        ? ImageAssetView.fromJson(imageMap)
-        : imageMap is Map
-            ? ImageAssetView.fromJson(Map<String, dynamic>.from(imageMap))
-            : null;
+    final ImageAssetView? asset =
+        ImageAssetView.fromJson(readJsonMap(imageMap));
 
     return CreatorGalleryImage(
       id: id,
@@ -115,30 +109,32 @@ class CreatorModel extends Equatable {
 
   factory CreatorModel.fromJson(Map<String, dynamic> json) {
     final gallerySource = json['gallery'] ?? json['galleryImages'];
+    final id = readId(json['id']) ?? readId(json['_id']) ?? '';
+    if (id.isEmpty) {
+      throw const FormatException('CreatorModel: missing id');
+    }
+    var availability = readOptionalString(json['availability']) ?? 'busy';
+    if (availability != 'online' && availability != 'busy') {
+      availability = 'busy';
+    }
     return CreatorModel(
-      id: json['id'] as String,
-      userId: (json['userId'] as String?) ?? '',
-      firebaseUid: json['firebaseUid'] as String?,
-      name: json['name'] as String,
-      about: (json['about'] as String?) ?? '',
+      id: id,
+      userId: readIdString(json['userId']),
+      firebaseUid: readOptionalString(json['firebaseUid']),
+      name: readOptionalString(json['name']) ?? 'Unknown',
+      about: readOptionalString(json['about']) ?? '',
       avatar: AvatarAssetView.fromJson(
-        json['avatar'] as Map<String, dynamic>?,
+        readJsonMap(json['avatar']),
       ),
       galleryImages: _parseGalleryImages(gallerySource),
-      categories: json['categories'] != null
-          ? List<String>.from(json['categories'] as List)
-          : null,
-      price: (json['price'] as num).toDouble(),
-      age: json['age'] != null ? json['age'] as int? : null,
+      categories: readStringList(json['categories']),
+      price: (json['price'] as num?)?.toDouble() ?? 0.0,
+      age: (json['age'] as num?)?.toInt(),
       isOnline: json['isOnline'] as bool? ?? false,
       isFavorite: json['isFavorite'] as bool? ?? false,
-      availability: json['availability'] as String? ?? 'busy',
-      createdAt: json['createdAt'] != null
-          ? DateTime.parse(json['createdAt'] as String)
-          : null,
-      updatedAt: json['updatedAt'] != null
-          ? DateTime.parse(json['updatedAt'] as String)
-          : null,
+      availability: availability,
+      createdAt: readDateTime(json['createdAt']),
+      updatedAt: readDateTime(json['updatedAt']),
     );
   }
 

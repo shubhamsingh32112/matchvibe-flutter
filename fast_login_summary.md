@@ -19,7 +19,7 @@ This document summarizes what was implemented for Fast Login and how to verify i
    - **Logic:**
      - Lookup: single `User.findOne({ $or: [{ deviceFingerprint }, { firebaseUid }] })` (one DB round trip, uses both indexes).
      - If a user exists, a Firebase custom token is generated for their `firebaseUid` and returned.
-     - If no user exists: a deterministic Firebase UID is computed (`fast_` + first 22 chars of SHA256(deviceFingerprint:installId)), Firebase custom user is created with that UID (idempotent), and a new Mongo User is created with `authProvider: 'fast'`, same defaults as normal signup (coins: 0, welcomeBonusClaimed: false, etc.). Then a custom token for that UID is returned.
+     - If no user exists: a deterministic Firebase UID is computed (`fast_` + first 22 chars of SHA256(deviceFingerprint:installId)), Firebase custom user is created with that UID (idempotent), and a new Mongo User is created with `authProvider: 'fast'`, same defaults as normal Google signup (`coins: 0`, intro-call credits and onboarding fields per the standard first-login path). Then a custom token for that UID is returned.
    - **Race-condition handling:** Concurrent requests with same deviceFingerprint: Firebase `auth/uid-already-exists` → find User by firebaseUid or deviceFingerprint, return token. Mongo E11000 duplicate key → find User, return token.
    - **Response:** `{ success: true, data: { firebaseCustomToken } }`.
    - Validation: both fields required, non-empty, max 256 chars. Errors: 400 (validation), 429 (rate limit), 500 (server).
@@ -66,7 +66,7 @@ This document summarizes what was implemented for Fast Login and how to verify i
 
 - **Existing Google users:** No schema migration; `authProvider` (and device fields) are optional. Login and all downstream behavior unchanged.
 - **Stream Chat / Stream Video / sockets / call IDs / quotas:** No code changes. Fast Login users get a Firebase UID like everyone else; the same tokens and UIDs are used.
-- **Welcome bonus:** Fast Login users start with `welcomeBonusClaimed: false` and can claim the 30-coin welcome bonus in-app like other new users.
+- **Economy / promos:** Fast Login users match normal signup: wallet starts at 0 coins; welcome free-call eligibility follows server rules (`introFreeCallCredits` / `welcomeFreeCallEligible`). There is no separate in-app “claim 30 coins” welcome bonus.
 
 ---
 

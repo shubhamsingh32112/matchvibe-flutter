@@ -365,6 +365,15 @@ class ImageUploadService {
         body is Map<String, dynamic> ? body['error']?.toString() ?? 'service degraded' : 'service degraded',
       );
     }
+    if (status == 404) {
+      final errText = body is Map ? body['error']?.toString() ?? '' : '';
+      final hint = errText.contains('Route not found')
+          ? ' Reverse proxy must forward /api/v1/images/* to the Node app (same host as other API routes).'
+          : '';
+      throw ImageUploadFailedException(
+        'POST /images/direct-upload returned HTTP 404.$hint',
+      );
+    }
   }
 
   static Future<void> _uploadToCloudflareWithRetry({
