@@ -15,10 +15,12 @@ import '../../../core/utils/user_message_mapper.dart';
 import '../../chat/services/chat_service.dart';
 import '../../../core/services/availability_socket_service.dart';
 import '../../../core/services/device_fingerprint_service.dart';
+import '../../../core/services/install_referrer_service.dart';
 import '../../../core/services/google_sign_in_service.dart';
 import '../../../shared/models/user_model.dart';
 import '../../../core/utils/referral_apply_messages.dart';
 import '../../../core/utils/referral_code_format.dart';
+import '../../referral/services/referral_service.dart';
 import '../../../app/router/app_router.dart';
 import '../../../shared/widgets/app_toast.dart';
 
@@ -106,6 +108,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   // Referral: optional code to apply on first signup (cleared after sync)
   String? _pendingReferralCode;
+  final Completer<void> _referralHydrateCompleter = Completer<void>();
 
   // 🔥 FIX: Guards to prevent duplicate operations
   bool _otpVerified = false; // Prevents multiple OTP verify attempts
@@ -195,6 +198,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
               ? 'Firebase initialization required. Run flutterfire configure.'
               : 'Sign-in isn\'t ready yet. Please restart the app or contact support.',
         );
+        _completeReferralHydration();
       }
     } finally {
       _isInitializing = false;
@@ -202,8 +206,20 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
+  /// Login UI should await this before reading [peekPendingReferralCode].
+  Future<void> waitForReferralHydration() => _referralHydrateCompleter.future;
+
+  void _completeReferralHydration() {
+    if (!_referralHydrateCompleter.isCompleted) {
+      _referralHydrateCompleter.complete();
+    }
+  }
+
   Future<void> _init() async {
-    if (_auth == null) return;
+    if (_auth == null) {
+      _completeReferralHydration();
+      return;
+    }
 
     await _hydratePendingReferralFromPrefs();
 
@@ -419,6 +435,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
             meta is Map<String, dynamic> && meta['showWelcomeBackDialog'] == true;
         String? referralToastMessage;
         String? referralToastCode;
+        var agencyReferralAppliedOnLogin = false;
 
         final ra = responseData['referralApply'];
         if (ra is Map<String, dynamic> && ra['ok'] == false) {
@@ -439,15 +456,44 @@ class AuthNotifier extends StateNotifier<AuthState> {
                   (serverMessage != null && serverMessage.trim().isNotEmpty)
                   ? serverMessage.trim()
                   : ReferralApplyMessages.forServerCode(code);
-              if (code == 'INVALID_FORMAT' ||
+              final agencyRetryCodes = {
+                'NOT_ELIGIBLE_ROLE',
+                'WINDOW_EXPIRED',
+                'PURCHASE_ALREADY',
+              };
+              if (code != null && agencyRetryCodes.contains(code)) {
+                try {
+                  await ReferralService().applyAgencyHostReferral(
+                    pendingReferralForLogin,
+                  );
+                  _pendingReferralCode = null;
+                  unawaited(_persistPendingReferralCode());
+                  referralToastMessage = null;
+                  referralToastCode = null;
+                  agencyReferralAppliedOnLogin = true;
+                } on ApplyReferralException catch (agencyErr) {
+                  referralToastCode = agencyErr.errorCode;
+                  referralToastMessage = agencyErr.message;
+                  final retain = agencyErr.errorCode == 'INVALID_FORMAT' ||
+                      agencyErr.errorCode == 'NOT_FOUND' ||
+                      agencyErr.errorCode == 'AGENT_DISABLED' ||
+                      agencyErr.errorCode == 'CREATOR_CANNOT_REFER';
+                  _pendingReferralCode = retain ? pendingReferralForLogin : null;
+                  unawaited(_persistPendingReferralCode());
+                } catch (_) {
+                  _pendingReferralCode = null;
+                  unawaited(_persistPendingReferralCode());
+                }
+              } else if (code == 'INVALID_FORMAT' ||
                   code == 'NOT_FOUND' ||
                   code == 'AGENT_DISABLED' ||
                   code == 'CREATOR_CANNOT_REFER') {
                 _pendingReferralCode = pendingReferralForLogin;
+                unawaited(_persistPendingReferralCode());
               } else {
                 _pendingReferralCode = null;
+                unawaited(_persistPendingReferralCode());
               }
-              unawaited(_persistPendingReferralCode());
             }
           } else {
             _pendingReferralCode = null;
@@ -462,7 +508,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
         if (responseData.containsKey('user')) {
           // Regular user login - nested structure
           final userData = responseData['user'] as Map<String, dynamic>;
-          user = UserModel.fromJson(userData);
+          user = UserModel.fromJson(userData).copyWith(
+            hasAgencyAssignment: responseData['hasAgencyAssignment'] == true,
+          );
           debugPrint('👤 [AUTH] Regular user login detected');
         } else {
           // Creator login - flat structure with creator details
@@ -541,6 +589,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
                 onboardingData?['cameraMicStatus'] as String? ?? 'unknown',
             onboardingNotificationStatus:
                 onboardingData?['notificationStatus'] as String? ?? 'unknown',
+            hasAgencyAssignment: creatorData['hasAgencyAssignment'] == true,
           );
           debugPrint('🎭 [AUTH] Creator login detected');
           debugPrint('   👤 Creator Name: ${creatorData['name']}');
@@ -584,6 +633,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
         );
         debugPrint('✅ [AUTH] User authenticated and synced successfully');
         debugPrint('   🎉 Ready for app usage');
+
+        if (agencyReferralAppliedOnLogin) {
+          unawaited(refreshUser());
+        }
 
         final rtm = referralToastMessage;
         final rtc = referralToastCode;
@@ -725,11 +778,23 @@ class AuthNotifier extends StateNotifier<AuthState> {
         if (kDebugMode) {
           debugPrint('🎫 [AUTH] Restored pending referral from storage');
         }
+        return;
+      }
+
+      final fromInstall = await InstallReferrerService.tryConsumeReferralCode();
+      if (fromInstall != null && ReferralCodeFormat.isValid(fromInstall)) {
+        _pendingReferralCode = fromInstall;
+        await prefs.setString(AppConstants.keyPendingReferralCode, fromInstall);
+        if (kDebugMode) {
+          debugPrint('🎫 [AUTH] Pending referral from Play Install Referrer');
+        }
       }
     } catch (e) {
       if (kDebugMode) {
         debugPrint('⚠️ [AUTH] Hydrate pending referral failed: $e');
       }
+    } finally {
+      _completeReferralHydration();
     }
   }
 
@@ -1528,7 +1593,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
         if (responseData.containsKey('user')) {
           // Regular user - nested structure
           final userData = responseData['user'] as Map<String, dynamic>;
-          user = UserModel.fromJson(userData);
+          user = UserModel.fromJson(userData).copyWith(
+            hasAgencyAssignment: responseData['hasAgencyAssignment'] == true,
+          );
           debugPrint('✅ [AUTH] User data refreshed (regular user)');
         } else {
           // Creator - flat structure
@@ -1605,6 +1672,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
                 onboardingData?['cameraMicStatus'] as String? ?? 'unknown',
             onboardingNotificationStatus:
                 onboardingData?['notificationStatus'] as String? ?? 'unknown',
+            hasAgencyAssignment: responseData['hasAgencyAssignment'] == true,
           );
           debugPrint('✅ [AUTH] User data refreshed (creator)');
         }

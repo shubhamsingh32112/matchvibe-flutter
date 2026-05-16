@@ -54,5 +54,8 @@ class AppConstants {
 
   /// Staged referral code before Firebase sign-in (survives process death when persisted).
   static const String keyPendingReferralCode = 'pending_referral_code';
+
+  /// Set after first Play Install Referrer read attempt (Android only).
+  static const String keyInstallReferrerConsumed = 'install_referrer_consumed';
 }
 

@@ -60,26 +60,42 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   int _previewRequestId = 0;
   int _activePreviewId = 0;
 
+  /// Referral code came from install referrer or `?ref=` deep link (auto-stage for login).
+  bool _autoReferralFromLink = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initVideo();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrapReferralUi());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_bootstrapReferralUi());
+    });
   }
 
-  void _bootstrapReferralUi() {
+  Future<void> _bootstrapReferralUi() async {
+    await ref.read(authProvider.notifier).waitForReferralHydration();
+    if (!mounted) return;
+
     final fromQuery = widget.initialRefParam?.trim();
     if (fromQuery != null && fromQuery.isNotEmpty) {
-      _referralController.text = fromQuery.toUpperCase();
-      unawaited(_runReferralPreview(rawOverride: fromQuery));
+      await _stageAutoReferralFromLink(fromQuery);
       return;
     }
     final pending = ref.read(authProvider.notifier).peekPendingReferralCode();
     if (pending != null && pending.isNotEmpty) {
-      _referralController.text = pending;
-      setState(() => _stagedReferralDisplay = pending);
+      await _stageAutoReferralFromLink(pending);
     }
+  }
+
+  Future<void> _stageAutoReferralFromLink(String raw) async {
+    final upper = raw.trim().toUpperCase();
+    if (upper.isEmpty || !ReferralCodeFormat.isValid(upper)) return;
+    _autoReferralFromLink = true;
+    _referralController.text = upper;
+    await ref.read(authProvider.notifier).setPendingReferralCode(upper);
+    if (!mounted) return;
+    unawaited(_runReferralPreview(rawOverride: upper));
   }
 
   Future<void> _runReferralPreview({String? rawOverride}) async {
@@ -228,9 +244,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   }
 
   bool _referralReadyForSignIn() {
-    if (_previewLoading) return false;
+    if (_previewLoading && !_autoReferralFromLink) return false;
     final typed = _referralController.text.trim();
     if (typed.isEmpty) return true;
+    if (_autoReferralFromLink) {
+      final pending = ref.read(authProvider.notifier).peekPendingReferralCode();
+      if (pending != null && pending.toUpperCase() == typed.toUpperCase()) {
+        return true;
+      }
+    }
     final staged = _stagedReferralDisplay;
     return staged != null && staged == typed.toUpperCase();
   }
@@ -241,7 +263,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     if (!_referralReadyForSignIn()) {
       AppToast.showInfo(
         context,
-        'Tap Apply to confirm your referral code first.',
+        _autoReferralFromLink
+            ? 'Verifying your referral code…'
+            : 'Tap Apply to confirm your referral code first.',
       );
       return;
     }

@@ -17,6 +17,16 @@ class ApplyReferralException implements Exception {
 
 enum ReferralPreviewMode { signup, lateAttach }
 
+class AgencyReferralPreview {
+  final String code;
+  final String? agencyDisplayName;
+
+  const AgencyReferralPreview({
+    required this.code,
+    this.agencyDisplayName,
+  });
+}
+
 class ReferralService {
   final ApiClient _apiClient = ApiClient();
 
@@ -91,6 +101,85 @@ class ReferralService {
     try {
       final response = await _apiClient.post(
         '/user/referral/apply',
+        data: {'referralCode': c},
+      );
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        return;
+      }
+      final data = response.data;
+      if (data is Map<String, dynamic>) {
+        throw ApplyReferralException(
+          data['error'] as String? ?? 'Failed to apply referral code',
+          errorCode: data['errorCode'] as String?,
+        );
+      }
+      throw ApplyReferralException('Failed to apply referral code');
+    } on DioException catch (e) {
+      final data = e.response?.data;
+      if (data is Map<String, dynamic>) {
+        throw ApplyReferralException(
+          data['error'] as String? ?? 'Failed to apply referral code',
+          errorCode: data['errorCode'] as String?,
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// Logged-in agency host preview (`GET /referral/preview?mode=agency_host`).
+  Future<AgencyReferralPreview> previewAgencyHostReferral(String rawCode) async {
+    final c = rawCode.trim().toUpperCase();
+    if (!ReferralCodeFormat.isValid(c)) {
+      throw ApplyReferralException(
+        ReferralApplyMessages.forServerCode('INVALID_FORMAT'),
+        errorCode: 'INVALID_FORMAT',
+      );
+    }
+    try {
+      final response = await _apiClient.get(
+        '/referral/preview',
+        queryParameters: {'code': c, 'mode': 'agency_host'},
+      );
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        final data = response.data['data'] as Map<String, dynamic>?;
+        final code = data?['code'] as String?;
+        if (code != null && code.isNotEmpty) {
+          return AgencyReferralPreview(
+            code: code,
+            agencyDisplayName: data?['agencyDisplayName'] as String?,
+          );
+        }
+      }
+      throw ApplyReferralException(
+        'Invalid referral code',
+        errorCode: 'NOT_FOUND',
+      );
+    } on DioException catch (e) {
+      final data = e.response?.data;
+      if (data is Map<String, dynamic>) {
+        final errCode = data['errorCode'] as String?;
+        throw ApplyReferralException(
+          data['error'] as String? ??
+              ReferralApplyMessages.forServerCode(errCode),
+          errorCode: errCode,
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// Apply agency host referral (`POST /user/referral/apply-agency`).
+  Future<void> applyAgencyHostReferral(String rawCode) async {
+    final c = rawCode.trim().toUpperCase();
+    if (!ReferralCodeFormat.isValid(c)) {
+      throw ApplyReferralException(
+        ReferralApplyMessages.forServerCode('INVALID_FORMAT'),
+        errorCode: 'INVALID_FORMAT',
+      );
+    }
+    try {
+      final response = await _apiClient.post(
+        '/user/referral/apply-agency',
         data: {'referralCode': c},
       );
       if (response.statusCode == 200 && response.data['success'] == true) {

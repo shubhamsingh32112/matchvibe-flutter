@@ -29,6 +29,8 @@ import '../../features/wallet/widgets/call_ended_low_coins_modal.dart';
 import '../../features/wallet/providers/wallet_pricing_provider.dart';
 import '../../shared/providers/app_update_popup_provider.dart';
 import '../../core/services/permission_reconciliation_service.dart';
+import '../../features/referral/services/referral_service.dart';
+import '../../features/referral/widgets/agency_referral_apply_dialog.dart';
 
 /// Widget that wraps the app and handles lifecycle events.
 ///
@@ -474,11 +476,9 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
         appRouter.go('/login');
         return;
       }
-      final trimmed = raw.trim();
+      final trimmed = raw.trim().toUpperCase();
       debugPrint('🔗 [APP LINKS] signup deep link ref=$trimmed');
-      appRouter.go(
-        Uri(path: '/login', queryParameters: {'ref': trimmed}).toString(),
-      );
+      await _handleAgencyReferralSignupLink(trimmed);
       return;
     }
 
@@ -631,6 +631,64 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       }
     }
     await _saveDeferredUpdateAcks(remaining);
+  }
+
+  Future<void> _handleAgencyReferralSignupLink(String code) async {
+    final auth = ref.read(authProvider);
+    if (!auth.isAuthenticated) {
+      appRouter.go(
+        Uri(path: '/login', queryParameters: {'ref': code}).toString(),
+      );
+      return;
+    }
+    if (auth.user?.hasAgencyAssignment == true) {
+      debugPrint('🔗 [APP LINKS] already linked to agency — no-op');
+      return;
+    }
+    try {
+      final preview = await ReferralService().previewAgencyHostReferral(code);
+      if (!mounted) return;
+      _enqueueAgencyReferralDialog(
+        preview.code,
+        preview.agencyDisplayName,
+      );
+    } on ApplyReferralException catch (e) {
+      if (e.errorCode == 'ALREADY_LINKED_TO_AGENCY' ||
+          e.errorCode == 'ALREADY_REFERRED') {
+        debugPrint(
+          '🔗 [APP LINKS] agency referral not applicable (${e.errorCode}) — no-op',
+        );
+        return;
+      }
+      final navCtx = appRouter.routerDelegate.navigatorKey.currentContext;
+      if (navCtx != null && navCtx.mounted) {
+        AppToast.showError(navCtx, e.message);
+      }
+    } catch (e) {
+      debugPrint('⚠️ [APP LINKS] agency referral preview failed: $e');
+    }
+  }
+
+  void _enqueueAgencyReferralDialog(
+    String code,
+    String? agencyDisplayName,
+  ) {
+    final requestId = ref
+        .read(modalCoordinatorProvider.notifier)
+        .nextRequestId('agency-ref');
+    ref.read(modalCoordinatorProvider.notifier).enqueue<void>(
+          AppModalRequest<void>(
+            id: requestId,
+            priority: AppModalPriority.normal,
+            dedupeKey: 'agency-referral-$code',
+            present: (ctx, modalRef) => presentAgencyReferralApplyDialog(
+              ctx,
+              modalRef,
+              referralCode: code,
+              agencyDisplayName: agencyDisplayName,
+            ),
+          ),
+        );
   }
 
   void _enqueueAppUpdatePopup(AppUpdateModel pending, {required String source}) {

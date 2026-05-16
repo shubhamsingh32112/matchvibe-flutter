@@ -26,6 +26,8 @@ class UserModel extends Equatable {
   final bool creatorApplicationPending;
   final bool creatorApplicationRejected;
   final String? creatorApplicationRejectionReason;
+  /// True when creator profile has [assignedAgencyId] on the server.
+  final bool hasAgencyAssignment;
   // Creator-specific fields (only populated when role is 'creator')
   final String? name; // Creator name
   final String? about; // Creator about/bio
@@ -62,6 +64,7 @@ class UserModel extends Equatable {
     this.creatorApplicationPending = false,
     this.creatorApplicationRejected = false,
     this.creatorApplicationRejectionReason,
+    this.hasAgencyAssignment = false,
     this.name,
     this.about,
     this.age,
@@ -107,6 +110,7 @@ class UserModel extends Equatable {
       creatorApplicationRejected: json['creatorApplicationRejected'] == true,
       creatorApplicationRejectionReason:
           json['creatorApplicationRejectionReason'] as String?,
+      hasAgencyAssignment: json['hasAgencyAssignment'] == true,
       name: json['name'] as String?,
       about: json['about'] as String?,
       age: json['age'] != null ? json['age'] as int? : null,
@@ -167,6 +171,7 @@ class UserModel extends Equatable {
       'creatorApplicationPending': creatorApplicationPending,
       'creatorApplicationRejected': creatorApplicationRejected,
       'creatorApplicationRejectionReason': creatorApplicationRejectionReason,
+      'hasAgencyAssignment': hasAgencyAssignment,
       'name': name,
       'about': about,
       'age': age,
@@ -209,6 +214,7 @@ class UserModel extends Equatable {
     bool? creatorApplicationPending,
     bool? creatorApplicationRejected,
     String? creatorApplicationRejectionReason,
+    bool? hasAgencyAssignment,
     String? name,
     String? about,
     int? age,
@@ -248,6 +254,8 @@ class UserModel extends Equatable {
           creatorApplicationRejected ?? this.creatorApplicationRejected,
       creatorApplicationRejectionReason: creatorApplicationRejectionReason ??
           this.creatorApplicationRejectionReason,
+      hasAgencyAssignment:
+          hasAgencyAssignment ?? this.hasAgencyAssignment,
       name: name ?? this.name,
       about: about ?? this.about,
       age: age ?? this.age,
@@ -293,6 +301,7 @@ class UserModel extends Equatable {
         creatorApplicationPending,
         creatorApplicationRejected,
         creatorApplicationRejectionReason,
+        hasAgencyAssignment,
         name,
         about,
         age,
