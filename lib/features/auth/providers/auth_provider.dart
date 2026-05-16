@@ -33,9 +33,6 @@ class AuthState {
   final UserModel? user;
   final bool isLoading;
   final String? error;
-  final String? verificationId;
-  final int? resendToken;
-  final String? phoneNumber;
   final bool createdNow;
   final bool showWelcomeBackDialog;
 
@@ -44,9 +41,6 @@ class AuthState {
     this.user,
     this.isLoading = false,
     this.error,
-    this.verificationId,
-    this.resendToken,
-    this.phoneNumber,
     this.createdNow = false,
     this.showWelcomeBackDialog = false,
   });
@@ -58,9 +52,6 @@ class AuthState {
     UserModel? user,
     bool? isLoading,
     String? error,
-    String? verificationId,
-    int? resendToken,
-    String? phoneNumber,
     bool? createdNow,
     bool? showWelcomeBackDialog,
   }) {
@@ -69,36 +60,10 @@ class AuthState {
       user: user ?? this.user,
       isLoading: isLoading ?? this.isLoading,
       error: error,
-      verificationId: verificationId ?? this.verificationId,
-      resendToken: resendToken ?? this.resendToken,
-      phoneNumber: phoneNumber ?? this.phoneNumber,
       createdNow: createdNow ?? this.createdNow,
       showWelcomeBackDialog: showWelcomeBackDialog ?? this.showWelcomeBackDialog,
     );
   }
-}
-
-enum PhoneAuthStartStatus {
-  codeSent,
-  autoVerified,
-  blocked,
-  syncingBackend,
-  alreadyAuthenticated,
-  failed,
-}
-
-class PhoneAuthStartResult {
-  final bool success;
-  final PhoneAuthStartStatus status;
-  final String? error;
-  final int? retryAfterSeconds;
-
-  const PhoneAuthStartResult({
-    required this.success,
-    required this.status,
-    this.error,
-    this.retryAfterSeconds,
-  });
 }
 
 class AuthNotifier extends StateNotifier<AuthState> {
@@ -110,44 +75,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
   String? _pendingReferralCode;
   final Completer<void> _referralHydrateCompleter = Completer<void>();
 
-  // 🔥 FIX: Guards to prevent duplicate operations
-  bool _otpVerified = false; // Prevents multiple OTP verify attempts
-  bool _isSyncingToBackend = false; // Prevents duplicate backend syncs
-  String? _lastSyncedUid; // Tracks which UID was last synced
-  bool _phoneVerificationInProgress =
-      false; // Prevents duplicate verifyPhoneNumber calls
-  DateTime? _lastVerificationAttempt; // Track last verification request time
-  DateTime? _phoneBlockedUntil; // Explicit hard block for too-many-requests
-  static const Duration _verificationCooldown = Duration(
-    seconds: 30,
-  ); // Minimum time between requests
-  static const Duration _tooManyRequestsCooldown = Duration(minutes: 5);
-  /// Must exceed Firebase SMS / `verifyPhoneNumber` latency on slow networks.
-  /// Previously 30s caused false timeouts while `codeSent` was still pending.
-  static const Duration _phoneVerificationUserTimeout = Duration(seconds: 90);
-
-  // 🔥 FIX: Test phone numbers (for Firebase test authentication)
-  // These numbers use manual OTP flow, no SMS auto-retrieval
-  static const Set<String> _testPhoneNumbers = {
-    '+919999999999',
-    '+911234567890',
-    '+15555555555', // Common US test number
-  };
-
-  /// Check if a phone number is a Firebase test number
-  bool _isTestNumber(String phone) {
-    return _testPhoneNumbers.contains(phone);
-  }
-
-  /// Strict E.164 for Firebase (`+[country][subscriber]`, digits only after +).
-  String? _normalizePhoneE164(String raw) {
-    final s = raw.trim().replaceAll(RegExp(r'[\s\-.]'), '');
-    if (s.isEmpty) return null;
-    if (!s.startsWith('+')) return null;
-    if (s.length < 10 || s.length > 17) return null;
-    if (!RegExp(r'^\+\d{9,16}$').hasMatch(s)) return null;
-    return s;
-  }
+  // Guards to prevent duplicate operations
+  bool _isSyncingToBackend = false;
+  String? _lastSyncedUid;
 
   AuthNotifier() : super(AuthState()) {
     _initialize();
@@ -223,16 +153,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
     await _hydratePendingReferralFromPrefs();
 
-    // 🔥 CRITICAL: Disable app verification in debug mode
-    // Skips Play Integrity, reCAPTCHA, cert hash checks
-    // Does NOT affect production builds
-    if (kDebugMode) {
-      await _auth!.setSettings(appVerificationDisabledForTesting: true);
-      debugPrint(
-        '🧪 [AUTH] App verification DISABLED for testing (debug only)',
-      );
-    }
-
     debugPrint('🔐 [AUTH] Setting up auth state listener...');
 
     // Keep SharedPreferences Bearer token aligned with Firebase refresh cycles (~1h).
@@ -286,12 +206,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
         await _syncUserToBackend(user);
       } else {
         debugPrint('🚪 [AUTH] Auth state changed: User logged out');
-        // 🔥 FIX: Reset all guards on logout
-        _otpVerified = false;
         _isSyncingToBackend = false;
         _lastSyncedUid = null;
-        _phoneVerificationInProgress = false;
-        _phoneBlockedUntil = null;
         ApiClient.clearAuthTokenMemory();
         state = AuthState();
       }
@@ -918,7 +834,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     if (code == 'sign_in_failed' || code.contains('sign_in')) {
       return kDebugMode
           ? 'Google Sign-In failed (${e.message ?? e.code}). Check Firebase OAuth clients and SHA certificates.'
-          : 'Google Sign-In failed. Please try again or use phone sign-in.';
+          : 'Google Sign-In failed. Please try again.';
     }
     return UserMessageMapper.fromString(
       e.message ?? '',
@@ -939,531 +855,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
           e.message ?? '',
           fallback: 'Authentication failed. Please try again.',
         );
-    }
-  }
-
-  /// Phone number login - sends OTP via Firebase
-  Future<PhoneAuthStartResult> signInWithPhone(String phoneNumber) async {
-    return _signInWithPhoneImpl(phoneNumber);
-  }
-
-  /// OTP verification - completes phone sign-in after code is sent
-  Future<void> verifyOtp(String verificationId, String otp) async {
-    await _verifyOtpImpl(verificationId, otp);
-  }
-
-  Future<int?> _getServerRetryAfterSeconds(String phoneNumber) async {
-    try {
-      await _apiClient.post(
-        '/auth/phone-precheck',
-        data: {'phoneNumber': phoneNumber},
-      );
-      return null;
-    } on DioException catch (e) {
-      final data = e.response?.data;
-      if (e.response?.statusCode == 429 && data is Map<String, dynamic>) {
-        final retryAfter = data['retry_after'];
-        if (retryAfter is num && retryAfter > 0) {
-          return retryAfter.toInt();
-        }
-      }
-      return null;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<PhoneAuthStartResult> _signInWithPhoneImpl(String phoneNumber) async {
-    try {
-      debugPrint('═══════════════════════════════════════════════════════');
-      debugPrint('📱 [PHONE AUTH] Starting phone number authentication');
-      debugPrint('═══════════════════════════════════════════════════════');
-      final normalized = _normalizePhoneE164(phoneNumber);
-      if (normalized == null) {
-        const err =
-            'Enter a valid number with country code (e.g. +1 555 000 0000).';
-        state = state.copyWith(isLoading: false, error: err);
-        return const PhoneAuthStartResult(
-          success: false,
-          status: PhoneAuthStartStatus.failed,
-          error: err,
-        );
-      }
-      phoneNumber = normalized;
-      debugPrint('   📞 Phone number: $phoneNumber');
-      debugPrint('   ⏰ Timestamp: ${DateTime.now().toIso8601String()}');
-
-      if (_auth == null) {
-        debugPrint('❌ [PHONE AUTH] Firebase not initialized');
-        state = state.copyWith(error: 'Firebase not initialized');
-        return const PhoneAuthStartResult(
-          success: false,
-          status: PhoneAuthStartStatus.failed,
-          error: 'Firebase not initialized',
-        );
-      }
-
-      // 🔥 GUARD: Already signed in — don't call verifyPhoneNumber again
-      // BUT: If the app state isn't authenticated (e.g. backend sync failed
-      //       on a previous attempt), retry the sync instead of returning silently.
-      if (_auth!.currentUser != null) {
-        debugPrint('⏭️ [PHONE AUTH] User already signed in with Firebase');
-        debugPrint('   🆔 UID: ${_auth!.currentUser!.uid}');
-
-        if (!state.isAuthenticated) {
-          debugPrint(
-            '🔄 [PHONE AUTH] App state NOT authenticated — retrying backend sync',
-          );
-          // Clear previous error so UI shows loading instead of stale error
-          state = state.copyWith(
-            isLoading: true,
-            error: null,
-            firebaseUser: _auth!.currentUser,
-          );
-          _lastSyncedUid = null; // Reset so sync is allowed
-          _isSyncingToBackend = false; // Reset guard so sync proceeds
-          await _syncUserToBackend(_auth!.currentUser!);
-          final syncOk = state.isAuthenticated && state.error == null;
-          return PhoneAuthStartResult(
-            success: syncOk,
-            status: PhoneAuthStartStatus.syncingBackend,
-            error: syncOk ? null : state.error,
-          );
-        } else {
-          debugPrint(
-            '✅ [PHONE AUTH] Already fully authenticated — no action needed',
-          );
-          state = state.copyWith(isLoading: false, error: null);
-          return const PhoneAuthStartResult(
-            success: true,
-            status: PhoneAuthStartStatus.alreadyAuthenticated,
-          );
-        }
-      }
-
-      final retryAfterSeconds = await _getServerRetryAfterSeconds(phoneNumber);
-      if (retryAfterSeconds != null) {
-        final waitMinutes = (retryAfterSeconds / 60).ceil();
-        final message =
-            'Too many verification attempts. Please wait ${waitMinutes}m before requesting a new code.';
-        state = state.copyWith(isLoading: false, error: message);
-        _phoneBlockedUntil = DateTime.now().add(
-          Duration(seconds: retryAfterSeconds),
-        );
-        return PhoneAuthStartResult(
-          success: false,
-          status: PhoneAuthStartStatus.blocked,
-          error: message,
-          retryAfterSeconds: retryAfterSeconds,
-        );
-      }
-
-      // 🔥 GUARD: Verification already in progress
-      if (_phoneVerificationInProgress) {
-        debugPrint(
-          '⏭️ [PHONE AUTH] BLOCKED - Verification already in progress',
-        );
-        state = state.copyWith(
-          isLoading: false,
-          error: 'Verification is already in progress. Please wait a moment.',
-        );
-        return const PhoneAuthStartResult(
-          success: false,
-          status: PhoneAuthStartStatus.blocked,
-          error: 'Verification is already in progress. Please wait a moment.',
-        );
-      }
-
-      if (_phoneBlockedUntil != null) {
-        final now = DateTime.now();
-        if (now.isBefore(_phoneBlockedUntil!)) {
-          final remainingSeconds = _phoneBlockedUntil!
-              .difference(now)
-              .inSeconds;
-          final remainingMinutes = (remainingSeconds / 60).ceil();
-          state = state.copyWith(
-            isLoading: false,
-            error:
-                'Too many verification attempts. Please wait ${remainingMinutes}m before requesting a new code.',
-          );
-          return PhoneAuthStartResult(
-            success: false,
-            status: PhoneAuthStartStatus.blocked,
-            error:
-                'Too many verification attempts. Please wait ${remainingMinutes}m before requesting a new code.',
-            retryAfterSeconds: remainingSeconds,
-          );
-        }
-        _phoneBlockedUntil = null;
-      }
-
-      // 🔥 GUARD: Rate limiting - prevent too many requests
-      if (_lastVerificationAttempt != null) {
-        final timeSinceLastAttempt = DateTime.now().difference(
-          _lastVerificationAttempt!,
-        );
-        if (timeSinceLastAttempt < _verificationCooldown) {
-          final remainingSeconds =
-              (_verificationCooldown - timeSinceLastAttempt).inSeconds;
-          debugPrint('⏭️ [PHONE AUTH] BLOCKED - Rate limit cooldown active');
-          debugPrint(
-            '   ⏱️  Please wait ${remainingSeconds}s before trying again',
-          );
-          state = state.copyWith(
-            isLoading: false,
-            error:
-                'Please wait ${remainingSeconds}s before requesting a new code.',
-          );
-          return PhoneAuthStartResult(
-            success: false,
-            status: PhoneAuthStartStatus.blocked,
-            error:
-                'Please wait ${remainingSeconds}s before requesting a new code.',
-            retryAfterSeconds: remainingSeconds,
-          );
-        }
-      }
-
-      _phoneVerificationInProgress = true;
-      _lastVerificationAttempt = DateTime.now();
-
-      final isTest = _isTestNumber(phoneNumber);
-      debugPrint('   🧪 Is test number: $isTest');
-
-      state = state.copyWith(isLoading: true, error: null);
-      debugPrint(
-        '🔄 [PHONE AUTH] Requesting phone verification from Firebase...',
-      );
-      final startResult = Completer<PhoneAuthStartResult>();
-
-      await _auth!.verifyPhoneNumber(
-          phoneNumber: phoneNumber,
-          verificationCompleted: (PhoneAuthCredential credential) async {
-            debugPrint('───────────────────────────────────────────────────────');
-            debugPrint('✅ [PHONE AUTH] Auto-verification completed');
-            debugPrint('───────────────────────────────────────────────────────');
-
-            // 🔥 GUARD: Prevent double sign-in
-            if (_otpVerified) {
-              debugPrint(
-                '⏭️ [PHONE AUTH] OTP already verified, skipping auto-verify',
-              );
-              return;
-            }
-            if (_auth?.currentUser != null) {
-              debugPrint(
-                '⏭️ [PHONE AUTH] User already signed in, skipping auto-verify',
-              );
-              if (!startResult.isCompleted) {
-                startResult.complete(
-                  const PhoneAuthStartResult(
-                    success: true,
-                    status: PhoneAuthStartStatus.alreadyAuthenticated,
-                  ),
-                );
-              }
-              _phoneVerificationInProgress = false;
-              return;
-            }
-            _otpVerified = true;
-
-            try {
-              final userCredential = await _auth!.signInWithCredential(
-                credential,
-              );
-              debugPrint('✅ [PHONE AUTH] Auto sign-in successful');
-              debugPrint('   🆔 UID: ${userCredential.user?.uid}');
-              _phoneVerificationInProgress = false;
-              state = state.copyWith(isLoading: false, error: null);
-              if (!startResult.isCompleted) {
-                startResult.complete(
-                  const PhoneAuthStartResult(
-                    success: true,
-                    status: PhoneAuthStartStatus.autoVerified,
-                  ),
-                );
-              }
-            } catch (e) {
-              debugPrint('❌ [PHONE AUTH] Auto sign-in error: $e');
-              _otpVerified = false; // Reset so manual OTP can still work
-              _phoneVerificationInProgress = false;
-              final friendly = UserMessageMapper.userMessageFor(
-                e,
-                fallback: 'Auto verification failed. Enter the code manually.',
-              );
-              state = state.copyWith(isLoading: false, error: friendly);
-              if (!startResult.isCompleted) {
-                startResult.complete(
-                  PhoneAuthStartResult(
-                    success: false,
-                    status: PhoneAuthStartStatus.failed,
-                    error: friendly,
-                  ),
-                );
-              }
-            }
-          },
-          verificationFailed: (FirebaseAuthException e) {
-          debugPrint('───────────────────────────────────────────────────────');
-          debugPrint('❌ [PHONE AUTH] Verification failed');
-          debugPrint('───────────────────────────────────────────────────────');
-          debugPrint('   Code: ${e.code}');
-          debugPrint('   Message: ${e.message ?? "No message"}');
-
-          _phoneVerificationInProgress = false; // 🔥 Reset so user can retry
-
-          // Map common Firebase Phone Auth errors to user-friendly messages.
-          // In release, avoid leaking implementation details (SHA, Play Integrity, etc.)
-          // but keep enough hints for developers in debug builds.
-          String friendly;
-          switch (e.code) {
-            case 'invalid-phone-number':
-              friendly = 'Please enter a valid phone number.';
-              break;
-            case 'too-many-requests':
-              _phoneBlockedUntil = DateTime.now().add(_tooManyRequestsCooldown);
-              friendly =
-                  'Too many verification attempts. Please wait 5 minutes before trying again, or try using a different phone number.';
-              break;
-            case 'quota-exceeded':
-              friendly =
-                  'OTP service is temporarily unavailable. Please try again later.';
-              break;
-            case 'app-not-authorized':
-            case 'invalid-app-credential':
-            case 'missing-client-identifier':
-            case 'captcha-check-failed':
-              friendly = kDebugMode
-                  ? 'Phone auth: add this APK SHA-1 in Firebase for com.matchvibe.app (upload or Play signing cert).'
-                  : 'Phone sign-in isn\'t available on this build. Update the app from the Play Store or contact support@matchvibe.com.';
-              break;
-            default:
-              friendly = UserMessageMapper.fromString(
-                e.message ?? '',
-                fallback: 'Verification failed. Please try again.',
-              );
-          }
-
-          state = state.copyWith(isLoading: false, error: friendly);
-          if (!startResult.isCompleted) {
-            startResult.complete(
-              PhoneAuthStartResult(
-                success: false,
-                status: PhoneAuthStartStatus.failed,
-                error: friendly,
-                retryAfterSeconds: e.code == 'too-many-requests' ? 300 : null,
-              ),
-            );
-          }
-        },
-        codeSent: (String verificationId, int? resendToken) {
-          debugPrint('───────────────────────────────────────────────────────');
-          debugPrint('✅ [PHONE AUTH] Verification code sent successfully');
-          debugPrint('───────────────────────────────────────────────────────');
-          debugPrint('   🆔 Verification ID: $verificationId');
-          debugPrint('   📱 Phone: $phoneNumber');
-
-          _otpVerified = false; // Reset for new verification round
-          _phoneVerificationInProgress =
-              false; // 🔥 Reset so user can navigate to OTP
-
-          state = state.copyWith(
-            isLoading: false,
-            verificationId: verificationId,
-            resendToken: resendToken,
-            phoneNumber: phoneNumber,
-            error: null,
-          );
-          debugPrint('   ✅ Ready for OTP input screen');
-          if (!startResult.isCompleted) {
-            startResult.complete(
-              const PhoneAuthStartResult(
-                success: true,
-                status: PhoneAuthStartStatus.codeSent,
-              ),
-            );
-          }
-        },
-        codeAutoRetrievalTimeout: (String verificationId) {
-          if (isTest) return; // 🔥 Ignore timeout for test numbers
-          debugPrint('⏱️  [PHONE AUTH] Auto-retrieval timeout');
-          debugPrint('   💡 User must enter code manually');
-          // Rare: SMS path slow / flaky — `codeSent` may not have fired yet.
-          // Firebase still provides [verificationId] so we can open OTP.
-          if (!startResult.isCompleted && verificationId.isNotEmpty) {
-            _phoneVerificationInProgress = false;
-            _otpVerified = false;
-            state = state.copyWith(
-              isLoading: false,
-              verificationId: verificationId,
-              phoneNumber: phoneNumber,
-              error: null,
-            );
-            startResult.complete(
-              const PhoneAuthStartResult(
-                success: true,
-                status: PhoneAuthStartStatus.codeSent,
-              ),
-            );
-          }
-        },
-        // 🔥 Test numbers: zero timeout disables auto-retrieval
-        // Real numbers: 60s for SMS auto-read
-        timeout: isTest ? Duration.zero : const Duration(seconds: 60),
-      );
-
-      debugPrint('✅ [PHONE AUTH] verifyPhoneNumber() call completed');
-      return startResult.future.timeout(
-        _phoneVerificationUserTimeout,
-        onTimeout: () {
-          _phoneVerificationInProgress = false;
-          const message =
-              'Verification is taking too long. Check signal or Wi-Fi and try again. '
-              'If you use a VPN, turn it off for SMS.';
-          state = state.copyWith(isLoading: false, error: message);
-          return const PhoneAuthStartResult(
-            success: false,
-            status: PhoneAuthStartStatus.failed,
-            error: message,
-          );
-        },
-      );
-    } catch (e) {
-      debugPrint('───────────────────────────────────────────────────────');
-      debugPrint('❌ [PHONE AUTH] Unexpected error');
-      debugPrint('───────────────────────────────────────────────────────');
-      debugPrint('   Error: $e');
-      _phoneVerificationInProgress = false;
-      state = state.copyWith(
-        isLoading: false,
-        error: UserMessageMapper.userMessageFor(
-          e,
-          fallback: 'Phone verification failed. Please try again.',
-        ),
-      );
-      return PhoneAuthStartResult(
-        success: false,
-        status: PhoneAuthStartStatus.failed,
-        error: UserMessageMapper.userMessageFor(
-          e,
-          fallback: 'Phone verification failed. Please try again.',
-        ),
-      );
-    }
-  }
-
-  Future<void> _verifyOtpImpl(String verificationId, String otp) async {
-    try {
-      debugPrint('🔐 [OTP] Starting OTP verification...');
-      debugPrint('   🆔 Verification ID: $verificationId');
-      debugPrint('   🔢 OTP: $otp');
-
-      if (_otpVerified) {
-        debugPrint('⏭️ [OTP] Already verified, skipping duplicate');
-        return;
-      }
-
-      if (_auth == null) {
-        debugPrint('❌ [OTP] Firebase not initialized');
-        state = state.copyWith(error: 'Firebase not initialized');
-        return;
-      }
-
-      _otpVerified = true;
-      state = state.copyWith(isLoading: true, error: null);
-
-      final credential = PhoneAuthProvider.credential(
-        verificationId: verificationId,
-        smsCode: otp,
-      );
-
-      debugPrint('🔑 [OTP] Credential created, signing in...');
-
-      UserCredential? userCredential;
-      try {
-        userCredential = await _auth!.signInWithCredential(credential);
-      } catch (signInError) {
-        final currentUser = _auth!.currentUser;
-        if (currentUser != null) {
-          debugPrint('⚠️  [OTP] Sign in had error but user is authenticated');
-          state = state.copyWith(
-            verificationId: null,
-            resendToken: null,
-            phoneNumber: null,
-            isLoading: false,
-          );
-          return;
-        }
-        rethrow;
-      }
-
-      debugPrint('✅ [OTP] Sign in successful');
-
-      if (userCredential.user != null) {
-        state = state.copyWith(
-          verificationId: null,
-          resendToken: null,
-          phoneNumber: null,
-          isLoading: false,
-        );
-      }
-    } catch (e) {
-      final currentUser = _auth?.currentUser;
-      if (currentUser != null) {
-        state = state.copyWith(
-          verificationId: null,
-          resendToken: null,
-          phoneNumber: null,
-          isLoading: false,
-          error: null,
-        );
-        return;
-      }
-
-      _otpVerified = false;
-      debugPrint('❌ [OTP] Verification error: $e');
-      if (e is FirebaseAuthException) {
-        String errorMessage;
-        switch (e.code) {
-          case 'invalid-verification-code':
-            errorMessage =
-                'Invalid verification code. Please check and try again.';
-            break;
-          case 'session-expired':
-            errorMessage =
-                'Verification code expired. Please request a new code.';
-            state = state.copyWith(
-              verificationId: null,
-              resendToken: null,
-              phoneNumber: null,
-              isLoading: false,
-              error: errorMessage,
-            );
-            return;
-          case 'invalid-verification-id':
-            errorMessage =
-                'Invalid verification session. Please request a new code.';
-            state = state.copyWith(
-              verificationId: null,
-              resendToken: null,
-              phoneNumber: null,
-              isLoading: false,
-              error: errorMessage,
-            );
-            return;
-          default:
-            errorMessage = UserMessageMapper.fromString(
-              e.message ?? '',
-              fallback: 'Verification failed. Please try again.',
-            );
-        }
-        state = state.copyWith(isLoading: false, error: errorMessage);
-      } else {
-        state = state.copyWith(
-          isLoading: false,
-          error: 'Verification failed. Please try again.',
-        );
-      }
     }
   }
 
@@ -1499,11 +890,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await prefs.clear();
       debugPrint('✅ [AUTH] Local storage cleared');
 
-      _otpVerified = false;
       _isSyncingToBackend = false;
       _lastSyncedUid = null;
-      _phoneVerificationInProgress = false;
-      _phoneBlockedUntil = null;
 
       state = AuthState();
       debugPrint('✅ [AUTH] Sign out completed');
@@ -1691,17 +1079,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
       debugPrint('❌ [AUTH] Error refreshing user data: $e');
       // Don't update state on error - keep existing data
     }
-  }
-
-  // OTP verification - commented out (phone login disabled)
-  void clearVerificationState() {
-    debugPrint('🗑️  [AUTH] Clearing verification state');
-    state = state.copyWith(
-      verificationId: null,
-      resendToken: null,
-      phoneNumber: null,
-      error: null,
-    );
   }
 
   /// Clear error state

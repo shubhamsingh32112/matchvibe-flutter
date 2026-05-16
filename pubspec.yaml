@@ -2,7 +2,7 @@ name: zztherapy
 description: "Match Vibe - Flutter mobile app"
 publish_to: 'none'
 
-version: 1.0.0+35
+version: 1.0.0+36
 
 
 environment:
@@ -68,9 +68,6 @@ dependencies:
   flutter_image_compress: ^2.3.0
   flutter_blurhash: ^0.8.2
   connectivity_plus: ^7.0.0
-  
-  # Phone Input (kept for backward compatibility if phone login is re-enabled)
-  intl_phone_field: ^3.2.0
   
   # Stream Chat
   stream_chat_flutter: ^9.0.0

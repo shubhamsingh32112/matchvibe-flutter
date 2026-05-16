@@ -1,5 +1,4 @@
 import 'dart:async' show unawaited;
-import 'dart:ui';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -7,13 +6,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl_phone_field/intl_phone_field.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/utils/error_handler.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../shared/widgets/app_toast.dart';
-import '../../../shared/widgets/app_modal_bottom_sheet.dart';
 import '../../../core/utils/referral_code_format.dart';
 import '../../referral/services/referral_service.dart';
 import '../providers/auth_provider.dart';
@@ -36,7 +33,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   static const double _referralFieldGap = 8;
   static const double _referralApplyGap = 10;
   static const double _referralToGoogleGap = 14;
-  static const double _socialButtonsGap = 12;
 
   final _referralController = TextEditingController();
   final _referralFocusNode = FocusNode();
@@ -48,9 +44,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
   /// Tracks that the user started Google sign-in (for in-pill spinner).
   bool _googlePressed = false;
-
-  /// Phone sheet is sending OTP (for in-pill spinner on main screen).
-  bool _phoneSending = false;
 
   /// After successful [GET /referral/preview] — normalized code shown in banner.
   String? _stagedReferralDisplay;
@@ -289,252 +282,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     }
   }
 
-  void _showPhoneLoginSheet() {
-    final rootContext = context;
-    String? phoneValue;
-    var isSending = false;
-
-    showAppModalBottomSheet<void>(
-      context: context,
-      barrierOpacity: 0.54,
-      builder: (sheetContext) {
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
-          ),
-          child: ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-              child: Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.72),
-                  border: Border(
-                    top: BorderSide(
-                      color: Colors.white.withValues(alpha: 0.12),
-                    ),
-                  ),
-                ),
-                padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
-                child: StatefulBuilder(
-                  builder: (context, setModalState) {
-                    return Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Center(
-                          child: Container(
-                            width: 40,
-                            height: 4,
-                            margin: const EdgeInsets.only(bottom: 16),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.35),
-                              borderRadius: BorderRadius.circular(2),
-                            ),
-                          ),
-                        ),
-                        const Text(
-                          'Continue with Phone',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'We\'ll send you a verification code.',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.75),
-                            fontSize: 15,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        Theme(
-                          data: Theme.of(context).copyWith(
-                            colorScheme: const ColorScheme.dark(
-                              primary: Color(0xFF90CAF9),
-                              onPrimary: Colors.black,
-                              surface: Color(0xFF2A2A2A),
-                              onSurface: Colors.white,
-                            ),
-                          ),
-                          child: IntlPhoneField(
-                            decoration: InputDecoration(
-                              labelText: 'Phone number',
-                              labelStyle: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.7),
-                              ),
-                              filled: true,
-                              fillColor: Colors.white.withValues(alpha: 0.12),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(16),
-                                borderSide: BorderSide.none,
-                              ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(16),
-                                borderSide: BorderSide(
-                                  color: Colors.white.withValues(alpha: 0.2),
-                                ),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(16),
-                                borderSide: const BorderSide(
-                                  color: Color(0xFF90CAF9),
-                                  width: 2,
-                                ),
-                              ),
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 14,
-                              ),
-                            ),
-                            style: const TextStyle(color: Colors.white),
-                            dropdownTextStyle: const TextStyle(
-                              color: Colors.white,
-                            ),
-                            flagsButtonPadding: const EdgeInsets.only(left: 8),
-                            initialCountryCode: 'IN',
-                            enabled: !isSending,
-                            onChanged: (phone) {
-                              phoneValue = phone.completeNumber;
-                            },
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: isSending
-                                ? null
-                                : () async {
-                                    if (!_referralReadyForSignIn()) {
-                                      AppToast.showInfo(
-                                        sheetContext,
-                                        'Tap Apply to confirm your referral code first.',
-                                      );
-                                      return;
-                                    }
-                                    final phone = phoneValue?.trim();
-                                    if (phone == null || phone.isEmpty) {
-                                      AppToast.showInfo(
-                                        sheetContext,
-                                        'Please enter your phone number',
-                                      );
-                                      return;
-                                    }
-                                    final refCode = _referralController.text
-                                        .trim();
-                                    if (refCode.isNotEmpty &&
-                                        !ReferralCodeFormat.isValid(refCode)) {
-                                      AppToast.showInfo(
-                                        sheetContext,
-                                        'Referral code must be 6 or 8 characters',
-                                      );
-                                      return;
-                                    }
-
-                                    setModalState(() => isSending = true);
-                                    if (rootContext.mounted) {
-                                      setState(() => _phoneSending = true);
-                                    }
-                                    try {
-                                      await ref
-                                          .read(authProvider.notifier)
-                                          .setPendingReferralCode(
-                                            refCode.isEmpty
-                                                ? null
-                                                : refCode.toUpperCase(),
-                                          );
-                                      final result = await ref
-                                          .read(authProvider.notifier)
-                                          .signInWithPhone(phone);
-
-                                      if (!sheetContext.mounted) return;
-
-                                      if (!result.success &&
-                                          result.error != null &&
-                                          result.error!.isNotEmpty) {
-                                        AppToast.showError(
-                                          sheetContext,
-                                          result.error!,
-                                        );
-                                      }
-
-                                      if (result.status ==
-                                              PhoneAuthStartStatus
-                                                  .alreadyAuthenticated ||
-                                          result.status ==
-                                              PhoneAuthStartStatus
-                                                  .autoVerified ||
-                                          (result.status ==
-                                                  PhoneAuthStartStatus
-                                                      .syncingBackend &&
-                                              result.success)) {
-                                        if (rootContext.mounted &&
-                                            Navigator.of(rootContext)
-                                                .canPop()) {
-                                          Navigator.of(rootContext).pop();
-                                        }
-                                      }
-                                    } finally {
-                                      if (sheetContext.mounted) {
-                                        setModalState(() => isSending = false);
-                                      }
-                                      if (rootContext.mounted) {
-                                        setState(() => _phoneSending = false);
-                                      }
-                                    }
-                                  },
-                            borderRadius: BorderRadius.circular(28),
-                            child: Ink(
-                              height: 54,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.94),
-                                borderRadius: BorderRadius.circular(28),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.2),
-                                    blurRadius: 12,
-                                    offset: const Offset(0, 4),
-                                  ),
-                                ],
-                              ),
-                              child: Center(
-                                child: isSending
-                                    ? const SizedBox(
-                                        width: 24,
-                                        height: 24,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Color(0xFF1A1A1A),
-                                        ),
-                                      )
-                                    : const Text(
-                                        'Send code',
-                                        style: TextStyle(
-                                          color: Color(0xFF1A1A1A),
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 16,
-                                        ),
-                                      ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   void _showNetworkErrorDialog(BuildContext context, String errorMessage) {
     final scheme = Theme.of(context).colorScheme;
     final isNoRouteToHost =
@@ -683,159 +430,169 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   }
 
   Widget _referralBlock(bool pillsEnabled) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          'Referral code (optional)',
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.88),
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: _referralFieldGap),
-        TextField(
-          controller: _referralController,
-          focusNode: _referralFocusNode,
-          enabled: pillsEnabled && !_previewLoading,
-          decoration: InputDecoration(
-            hintText: 'e.g. JOE48392 or JO4832',
-            hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.45)),
-            filled: true,
-            fillColor: Colors.white.withValues(alpha: 0.12),
-            counterText: '',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: BorderSide.none,
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: BorderSide(
-                color: Colors.white.withValues(alpha: 0.2),
-              ),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: const BorderSide(color: Color(0xFF90CAF9), width: 2),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 14,
-            ),
-          ),
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.5,
-          ),
-          textCapitalization: TextCapitalization.characters,
-          maxLength: 8,
-          onChanged: (_) {
-            _activePreviewId = ++_previewRequestId;
-            if (_stagedReferralDisplay != null) {
-              unawaited(
-                ref.read(authProvider.notifier).setPendingReferralCode(null),
-              );
-              setState(() {
-                _stagedReferralDisplay = null;
-                _referralInlineError = null;
-              });
-            }
-          },
-        ),
-        const SizedBox(height: _referralApplyGap),
-        SizedBox(
-          height: 48,
-          child: OutlinedButton(
-            onPressed: pillsEnabled && !_previewLoading
-                ? () => _runReferralPreview()
-                : null,
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.white,
-              side: BorderSide(color: Colors.white.withValues(alpha: 0.5)),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-            child: _previewLoading
-                ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Text('Apply'),
-          ),
-        ),
-        if (_referralInlineError != null) ...[
-          const SizedBox(height: 8),
-          Text(
-            _referralInlineError!,
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Referral code (optional)',
             style: TextStyle(
-              color: Colors.red.shade200,
+              color: Color(0xFF1A1A1A),
               fontSize: 13,
-              height: 1.3,
+              fontWeight: FontWeight.w600,
             ),
           ),
-        ],
-        if (_stagedReferralDisplay != null) ...[
-          const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+          const SizedBox(height: _referralFieldGap),
+          TextField(
+            controller: _referralController,
+            focusNode: _referralFocusNode,
+            enabled: pillsEnabled && !_previewLoading,
+            decoration: InputDecoration(
+              hintText: 'e.g. JOE48392 or JO4832',
+              hintStyle: TextStyle(color: Colors.grey.shade500),
+              filled: true,
+              fillColor: const Color(0xFFF5F5F5),
+              counterText: '',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: Colors.grey.shade300),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: Colors.grey.shade300),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: Color(0xFF90CAF9), width: 2),
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 14,
+              ),
             ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(
-                  Icons.check_circle,
-                  color: Colors.green.shade300,
-                  size: 22,
+            style: const TextStyle(
+              color: Color(0xFF1A1A1A),
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.5,
+            ),
+            textCapitalization: TextCapitalization.characters,
+            maxLength: 8,
+            onChanged: (_) {
+              _activePreviewId = ++_previewRequestId;
+              if (_stagedReferralDisplay != null) {
+                unawaited(
+                  ref.read(authProvider.notifier).setPendingReferralCode(null),
+                );
+                setState(() {
+                  _stagedReferralDisplay = null;
+                  _referralInlineError = null;
+                });
+              }
+            },
+          ),
+          const SizedBox(height: _referralApplyGap),
+          SizedBox(
+            height: 48,
+            child: ElevatedButton(
+              onPressed: pillsEnabled && !_previewLoading
+                  ? () => _runReferralPreview()
+                  : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1A1A1A),
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: Colors.grey.shade300,
+                disabledForegroundColor: Colors.grey.shade600,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Referral validated: ${_stagedReferralDisplay!}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 15,
-                        ),
+                elevation: 0,
+              ),
+              child: _previewLoading
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Continue with Google or phone to finish sign-in.',
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.78),
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
+                    )
+                  : const Text(
+                      'Apply',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+            ),
+          ),
+          if (_referralInlineError != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _referralInlineError!,
+              style: TextStyle(
+                color: Colors.red.shade700,
+                fontSize: 13,
+                height: 1.3,
+              ),
+            ),
+          ],
+          if (_stagedReferralDisplay != null) ...[
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE8F5E9),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.check_circle,
+                    color: Colors.green.shade700,
+                    size: 22,
                   ),
-                ),
-                TextButton(
-                  onPressed: pillsEnabled ? _clearStagedReferral : null,
-                  child: Text(
-                    'Change',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.9),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Referral validated: ${_stagedReferralDisplay!}',
+                          style: const TextStyle(
+                            color: Color(0xFF1A1A1A),
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Continue with Google to finish sign-in.',
+                          style: TextStyle(
+                            color: Colors.grey.shade700,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-              ],
+                  TextButton(
+                    onPressed: pillsEnabled ? _clearStagedReferral : null,
+                    child: Text(
+                      'Change',
+                      style: TextStyle(
+                        color: Colors.grey.shade800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
+          ],
         ],
-      ],
+      ),
     );
   }
 
@@ -852,37 +609,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         setState(() => _googlePressed = false);
       }
 
-      if (next.verificationId != null &&
-          next.phoneNumber != null &&
-          !next.isLoading &&
-          mounted &&
-          (_phoneSending ||
-              previous?.verificationId != next.verificationId)) {
-        setState(() => _phoneSending = false);
-        debugPrint('✅ [UI] OTP sent, navigating to OTP screen...');
-        Future.delayed(const Duration(milliseconds: 100), () {
-          if (!context.mounted) return;
-          final nav = Navigator.of(context);
-          if (nav.canPop()) {
-            nav.pop();
-          }
-          context.push(
-            '/otp',
-            extra: {
-              'phoneNumber': next.phoneNumber!,
-              'verificationId': next.verificationId!,
-            },
-          );
-        });
-      }
-      if (_phoneSending &&
-          mounted &&
-          !next.isLoading &&
-          next.error == null &&
-          next.verificationId == null &&
-          next.isAuthenticated) {
-        setState(() => _phoneSending = false);
-      }
       if (next.isAuthenticated &&
           mounted &&
           previous?.isAuthenticated != true) {
@@ -903,9 +629,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
           mounted &&
           !next.isLoading &&
           previous?.error != next.error) {
-        if (_phoneSending) {
-          setState(() => _phoneSending = false);
-        }
         final errorMessage = next.error!;
         if (errorMessage.toLowerCase().contains('network') ||
             errorMessage.toLowerCase().contains('connection') ||
@@ -922,7 +645,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     });
 
     final showGoogleSpinner = _googlePressed && isLoginBusy;
-    final showPhoneSpinner = _phoneSending && isLoginBusy;
     final pillsEnabled = !isLoginBusy;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -1050,20 +772,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                           label: 'Continue with Google',
                           busyLabel: 'Signing in…',
                           showSpinner: showGoogleSpinner,
-                        ),
-                        const SizedBox(height: _socialButtonsGap),
-                        _pillButton(
-                          onPressed: pillsEnabled && !_previewLoading
-                              ? _showPhoneLoginSheet
-                              : null,
-                          leading: const Icon(
-                            Icons.phone_android_rounded,
-                            size: 26,
-                            color: Color(0xFF1A1A1A),
-                          ),
-                          label: 'Continue with Phone',
-                          busyLabel: 'Sending…',
-                          showSpinner: showPhoneSpinner,
                         ),
                         const SizedBox(height: 20),
                         Center(
