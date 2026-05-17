@@ -13,7 +13,6 @@ import '../../features/account/screens/blocked_buddies_screen.dart';
 import '../../features/account/screens/delete_account_screen.dart';
 import '../../features/account/screens/edit_profile_screen.dart';
 import '../../features/referral/screens/host_application_pending_screen.dart';
-import '../../features/referral/screens/host_profile_setup_screen.dart';
 import '../../features/wallet/screens/wallet_screen.dart';
 import '../../features/wallet/screens/payment_status_screen.dart';
 import '../../features/wallet/screens/transactions_screen.dart';
@@ -66,7 +65,7 @@ final appRouter = GoRouter(
           ),
           GoRoute(
             path: '/host-profile-setup',
-            builder: (context, state) => const HostProfileSetupScreen(),
+            redirect: (context, state) => '/edit-profile',
           ),
           GoRoute(
             path: '/gender',

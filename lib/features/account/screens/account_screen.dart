@@ -19,6 +19,7 @@ import '../../creator/models/creator_dashboard_model.dart';
 import '../../creator/providers/creator_dashboard_provider.dart';
 import '../../creator/providers/creator_status_provider.dart';
 import '../../referral/screens/referral_screen.dart';
+import '../../referral/utils/host_onboarding_routes.dart';
 import '../../support/screens/support_screen.dart';
 import '../../video/providers/call_billing_provider.dart';
 import '../../wallet/screens/transactions_screen.dart';
@@ -105,20 +106,25 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     await ref.read(authProvider.notifier).refreshUser();
     if (!mounted) return;
 
-    final updatedRole = ref.read(authProvider).user?.role;
+    final user = ref.read(authProvider).user;
+    final hostRoute = hostOnboardingRedirectPath(user);
+    if (hostRoute != null) {
+      AppToast.showSuccess(context, 'Profile refreshed.');
+      context.go(hostRoute);
+      return;
+    }
+
+    final updatedRole = user?.role;
     final becameCreator = previousRole != 'creator' && updatedRole == 'creator';
 
     if (becameCreator) {
       AppToast.showSuccess(
         context,
-        'Promotion detected. Switched to creator home.',
+        'You\'re now a host. Complete your profile in Edit Profile when ready.',
       );
+      context.go('/home');
     } else {
       AppToast.showSuccess(context, 'Profile refreshed.');
-    }
-
-    if (becameCreator) {
-      context.go('/home');
     }
   }
 

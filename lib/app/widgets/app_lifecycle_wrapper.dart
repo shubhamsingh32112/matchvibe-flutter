@@ -287,6 +287,14 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
         if (user.role == 'user') {
           warmWalletPricingCache(ref);
         }
+        final prevUser = prev?.user;
+        final hostPath = hostOnboardingRedirectPath(user);
+        if (hostPath != null &&
+            (prevUser == null ||
+                prevUser.creatorApplicationPending !=
+                    user.creatorApplicationPending)) {
+          _maybeNavigateHostOnboarding(user);
+        }
       }
     });
 
@@ -785,6 +793,8 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     if (path == null || !mounted) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      final current = appRouter.routerDelegate.currentConfiguration.uri.path;
+      if (current == path) return;
       appRouter.go(path);
     });
   }
@@ -793,19 +803,6 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
   Future<void> _maybeToastProfileUpdatedByAdmin() async {
     final user = ref.read(authProvider).user;
     if (user == null) return;
-
-    if (user.hostProfileSetupRequired) {
-      if (!mounted) return;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        AppToast.showInfo(
-          context,
-          'You\'ve been approved as a host. Complete your profile to go live.',
-        );
-        appRouter.go('/host-profile-setup');
-      });
-      return;
-    }
 
     if (user.role != 'creator' && user.role != 'admin') return;
 

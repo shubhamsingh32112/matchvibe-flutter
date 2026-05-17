@@ -28,10 +28,13 @@ class _HostApplicationPendingScreenState
       if (!mounted) return;
       final user = ref.read(authProvider).user;
       final next = hostOnboardingRedirectPath(user);
-      if (next == null || next == '/host-application-pending') {
+      if (next != null && next != '/host-application-pending') {
+        context.go(next);
         return;
       }
-      context.go(next);
+      if (user?.role == 'creator' || user?.role == 'admin') {
+        context.go('/home');
+      }
     } finally {
       if (mounted) setState(() => _refreshing = false);
     }

@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/widgets/app_modal_dialog.dart';
 import '../../../shared/widgets/app_toast.dart';
+import '../../../app/router/app_router.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../services/referral_service.dart';
+import '../utils/host_onboarding_routes.dart';
 
 /// Confirms applying an agency referral code for a logged-in user or host.
 Future<void> presentAgencyReferralApplyDialog(
@@ -56,6 +58,10 @@ class _AgencyReferralApplyDialogBodyState
       await ref.read(authProvider.notifier).refreshUser();
       if (!mounted) return;
       widget.onDismiss();
+      final hostRoute = hostOnboardingRedirectPath(ref.read(authProvider).user);
+      if (hostRoute != null) {
+        appRouter.go(hostRoute);
+      }
       AppToast.showSuccess(
         context,
         'Request sent to the agency for approval',
