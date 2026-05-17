@@ -8,6 +8,7 @@ import '../../../shared/widgets/app_toast.dart';
 import '../../../core/services/image_presets_service.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../referral/utils/host_onboarding_routes.dart';
 
 class GenderSelectionScreen extends ConsumerStatefulWidget {
   const GenderSelectionScreen({super.key});
@@ -121,7 +122,10 @@ class _GenderSelectionScreenState extends ConsumerState<GenderSelectionScreen> {
         // Refresh user data in auth provider
         await ref.read(authProvider.notifier).refreshUser();
 
-        if (mounted) context.go('/home');
+        if (!mounted) return;
+        final hostRoute =
+            hostOnboardingRedirectPath(ref.read(authProvider).user);
+        context.go(hostRoute ?? '/home');
       } else {
         throw Exception('Failed to save profile: ${response.statusCode}');
       }

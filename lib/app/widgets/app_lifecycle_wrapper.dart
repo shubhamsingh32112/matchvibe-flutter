@@ -31,6 +31,8 @@ import '../../shared/providers/app_update_popup_provider.dart';
 import '../../core/services/permission_reconciliation_service.dart';
 import '../../features/referral/services/referral_service.dart';
 import '../../features/referral/widgets/agency_referral_apply_dialog.dart';
+import '../../features/referral/utils/host_onboarding_routes.dart';
+import '../../shared/models/user_model.dart';
 
 /// Widget that wraps the app and handles lifecycle events.
 ///
@@ -778,10 +780,33 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
         );
   }
 
+  void _maybeNavigateHostOnboarding(UserModel? user) {
+    final path = hostOnboardingRedirectPath(user);
+    if (path == null || !mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      appRouter.go(path);
+    });
+  }
+
   /// When [UserModel.profileRevision] increases (admin edited profile), show a one-time toast.
   Future<void> _maybeToastProfileUpdatedByAdmin() async {
     final user = ref.read(authProvider).user;
     if (user == null) return;
+
+    if (user.hostProfileSetupRequired) {
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        AppToast.showInfo(
+          context,
+          'You\'ve been approved as a host. Complete your profile to go live.',
+        );
+        appRouter.go('/host-profile-setup');
+      });
+      return;
+    }
+
     if (user.role != 'creator' && user.role != 'admin') return;
 
     final prefs = await SharedPreferences.getInstance();
@@ -865,7 +890,11 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
         );
         ref.invalidate(homeFeedProvider);
         ref.invalidate(creatorsProvider);
-        unawaited(ref.read(authProvider.notifier).refreshUser());
+        unawaited(() async {
+          await ref.read(authProvider.notifier).refreshUser();
+          if (!mounted) return;
+          _maybeNavigateHostOnboarding(ref.read(authProvider).user);
+        }());
         unawaited(_refreshPendingAppUpdate());
         // Permissions reconciliation: if permissions changed post-onboarding, report once.
         if (user.onboardingStage == 'completed') {

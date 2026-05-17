@@ -13,6 +13,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../core/utils/referral_code_format.dart';
 import '../../referral/services/referral_service.dart';
+import '../../referral/utils/host_onboarding_routes.dart';
 import '../providers/auth_provider.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -30,9 +31,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   static const double _loginSectionHorizontalPadding = 28;
   static const double _loginSectionTopPadding = 12;
   static const double _loginSectionBottomPadding = 8;
-  static const double _referralFieldGap = 8;
-  static const double _referralApplyGap = 10;
-  static const double _referralToGoogleGap = 14;
+  static const double _referralToGoogleGap = 11;
 
   final _referralController = TextEditingController();
   final _referralFocusNode = FocusNode();
@@ -55,6 +54,46 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
   /// Referral code came from install referrer or `?ref=` deep link (auto-stage for login).
   bool _autoReferralFromLink = false;
+
+  /// User opened the optional referral input (collapsed by default).
+  bool _referralExpanded = false;
+
+  bool get _showStagedChip =>
+      _stagedReferralDisplay != null && !_referralExpanded;
+
+  bool get _showReferralVerifying =>
+      _autoReferralFromLink &&
+      _previewLoading &&
+      _stagedReferralDisplay == null &&
+      !_referralExpanded;
+
+  void _openReferralSection() {
+    setState(() {
+      _referralExpanded = true;
+      _referralInlineError = null;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _referralFocusNode.requestFocus();
+    });
+  }
+
+  void _closeReferralSection() {
+    if (_stagedReferralDisplay != null) {
+      setState(() => _referralExpanded = false);
+      return;
+    }
+    setState(() {
+      _referralExpanded = false;
+      _referralInlineError = null;
+      _referralController.clear();
+    });
+  }
+
+  Future<void> _editStagedReferral() async {
+    await _clearStagedReferral();
+    if (!mounted) return;
+    _openReferralSection();
+  }
 
   @override
   void initState() {
@@ -99,6 +138,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       setState(() {
         _referralInlineError = 'Enter a referral code';
         _stagedReferralDisplay = null;
+        _referralExpanded = true;
       });
       return;
     }
@@ -133,6 +173,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         _stagedReferralDisplay = normalized;
         _referralController.text = normalized;
         _referralInlineError = null;
+        _referralExpanded = false;
       });
     } on ApplyReferralException catch (e) {
       if (requestId != _activePreviewId) return;
@@ -142,6 +183,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         _previewLoading = false;
         _stagedReferralDisplay = null;
         _referralInlineError = e.message;
+        _referralExpanded = true;
       });
     } on DioException catch (e) {
       if (requestId != _activePreviewId) return;
@@ -153,6 +195,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         _referralInlineError = ErrorHandler.getHumanReadableError(
           e.message ?? 'Network error',
         );
+        _referralExpanded = true;
       });
     } catch (e) {
       if (requestId != _activePreviewId) return;
@@ -162,6 +205,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         _previewLoading = false;
         _stagedReferralDisplay = null;
         _referralInlineError = 'Could not verify referral code. Try again.';
+        _referralExpanded = true;
       });
     }
   }
@@ -429,168 +473,276 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     );
   }
 
-  Widget _referralBlock(bool pillsEnabled) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+  Widget _referralSection(bool pillsEnabled) {
+    if (_showStagedChip) {
+      return _referralStagedChip(pillsEnabled);
+    }
+    if (_showReferralVerifying) {
+      return _referralVerifyingRow();
+    }
+    if (_referralExpanded || _referralInlineError != null) {
+      return _referralCompactInputRow(pillsEnabled);
+    }
+    return _referralCollapsedLink(pillsEnabled);
+  }
+
+  Widget _referralCollapsedLink(bool pillsEnabled) {
+    return Align(
+      alignment: Alignment.center,
+      child: TextButton(
+        onPressed: pillsEnabled ? _openReferralSection : null,
+        style: TextButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          minimumSize: Size.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        child: Text(
+          'Have a referral code?',
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.82),
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            decoration: TextDecoration.underline,
+            decorationColor: Colors.white.withValues(alpha: 0.55),
+          ),
+        ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+    );
+  }
+
+  Widget _referralVerifyingRow() {
+    return Container(
+      height: 38,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+      ),
+      child: Row(
         children: [
-          const Text(
-            'Referral code (optional)',
-            style: TextStyle(
-              color: Color(0xFF1A1A1A),
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: _referralFieldGap),
-          TextField(
-            controller: _referralController,
-            focusNode: _referralFocusNode,
-            enabled: pillsEnabled && !_previewLoading,
-            decoration: InputDecoration(
-              hintText: 'e.g. JOE48392 or JO4832',
-              hintStyle: TextStyle(color: Colors.grey.shade500),
-              filled: true,
-              fillColor: const Color(0xFFF5F5F5),
-              counterText: '',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: Colors.grey.shade300),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: Colors.grey.shade300),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: const BorderSide(color: Color(0xFF90CAF9), width: 2),
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 14,
-              ),
-            ),
-            style: const TextStyle(
-              color: Color(0xFF1A1A1A),
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.5,
-            ),
-            textCapitalization: TextCapitalization.characters,
-            maxLength: 8,
-            onChanged: (_) {
-              _activePreviewId = ++_previewRequestId;
-              if (_stagedReferralDisplay != null) {
-                unawaited(
-                  ref.read(authProvider.notifier).setPendingReferralCode(null),
-                );
-                setState(() {
-                  _stagedReferralDisplay = null;
-                  _referralInlineError = null;
-                });
-              }
-            },
-          ),
-          const SizedBox(height: _referralApplyGap),
           SizedBox(
-            height: 48,
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Colors.white.withValues(alpha: 0.9),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            'Verifying referral code…',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.9),
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _referralStagedChip(bool pillsEnabled) {
+    return Container(
+      height: 38,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.check_circle,
+            size: 16,
+            color: Colors.green.shade300,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Referral applied · ${_stagedReferralDisplay!}',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.95),
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          TextButton(
+            onPressed: pillsEnabled ? () => unawaited(_editStagedReferral()) : null,
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: Text(
+              'Change',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.9),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                decoration: TextDecoration.underline,
+                decorationColor: Colors.white.withValues(alpha: 0.7),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _referralCompactInputRow(bool pillsEnabled) {
+    final canApply = pillsEnabled && !_previewLoading;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Expanded(child: _referralGlassInput(canApply)),
+            const SizedBox(width: 6),
+            TextButton(
+              onPressed: pillsEnabled ? _closeReferralSection : null,
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: Text(
+                'Not now',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.65),
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (_referralInlineError != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            _referralInlineError!,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Colors.red.shade300,
+              fontSize: 12,
+              height: 1.3,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _referralGlassInput(bool canApply) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _referralController,
+              focusNode: _referralFocusNode,
+              enabled: canApply,
+              textInputAction: TextInputAction.done,
+              onSubmitted: canApply ? (_) => _runReferralPreview() : null,
+              decoration: InputDecoration(
+                hintText: 'Referral code',
+                hintStyle: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.45),
+                  fontSize: 14,
+                ),
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.08),
+                isDense: true,
+                counterText: '',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide.none,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(
+                    color: Colors.white.withValues(alpha: 0.35),
+                  ),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+              ),
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.95),
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+                letterSpacing: 0.5,
+              ),
+              textCapitalization: TextCapitalization.characters,
+              maxLength: 8,
+              onChanged: (_) {
+                _activePreviewId = ++_previewRequestId;
+                if (_stagedReferralDisplay != null) {
+                  unawaited(
+                    ref
+                        .read(authProvider.notifier)
+                        .setPendingReferralCode(null),
+                  );
+                  setState(() {
+                    _stagedReferralDisplay = null;
+                    _referralInlineError = null;
+                  });
+                }
+              },
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            height: 38,
             child: ElevatedButton(
-              onPressed: pillsEnabled && !_previewLoading
-                  ? () => _runReferralPreview()
-                  : null,
+              onPressed: canApply ? () => _runReferralPreview() : null,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF1A1A1A),
                 foregroundColor: Colors.white,
-                disabledBackgroundColor: Colors.grey.shade300,
-                disabledForegroundColor: Colors.grey.shade600,
+                disabledBackgroundColor: Colors.white.withValues(alpha: 0.2),
+                disabledForegroundColor: Colors.white.withValues(alpha: 0.4),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                minimumSize: const Size(72, 38),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 elevation: 0,
               ),
               child: _previewLoading
-                  ? const SizedBox(
-                      width: 22,
-                      height: 22,
+                  ? SizedBox(
+                      width: 18,
+                      height: 18,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: Colors.white,
+                        color: Colors.white.withValues(alpha: 0.95),
                       ),
                     )
                   : const Text(
                       'Apply',
-                      style: TextStyle(fontWeight: FontWeight.w600),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
                     ),
             ),
           ),
-          if (_referralInlineError != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              _referralInlineError!,
-              style: TextStyle(
-                color: Colors.red.shade700,
-                fontSize: 13,
-                height: 1.3,
-              ),
-            ),
-          ],
-          if (_stagedReferralDisplay != null) ...[
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE8F5E9),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    Icons.check_circle,
-                    color: Colors.green.shade700,
-                    size: 22,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Referral validated: ${_stagedReferralDisplay!}',
-                          style: const TextStyle(
-                            color: Color(0xFF1A1A1A),
-                            fontWeight: FontWeight.w700,
-                            fontSize: 15,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Continue with Google to finish sign-in.',
-                          style: TextStyle(
-                            color: Colors.grey.shade700,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: pillsEnabled ? _clearStagedReferral : null,
-                    child: Text(
-                      'Change',
-                      style: TextStyle(
-                        color: Colors.grey.shade800,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
         ],
       ),
     );
@@ -613,17 +765,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
           mounted &&
           previous?.isAuthenticated != true) {
         debugPrint('✅ [UI] User authenticated, navigating...');
-        if (next.user?.gender == null || next.user!.gender!.isEmpty) {
-          Future.delayed(const Duration(milliseconds: 300), () {
-            if (!context.mounted) return;
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (!context.mounted) return;
+          final hostRoute = hostOnboardingRedirectPath(next.user);
+          if (hostRoute != null) {
+            context.go(hostRoute);
+            return;
+          }
+          if (next.user?.gender == null || next.user!.gender!.isEmpty) {
             context.go('/gender');
-          });
-        } else {
-          Future.delayed(const Duration(milliseconds: 300), () {
-            if (!context.mounted) return;
+          } else {
             context.go('/home');
-          });
-        }
+          }
+        });
       }
       if (next.error != null &&
           mounted &&
@@ -653,6 +807,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       ),
       child: Scaffold(
         backgroundColor: Colors.black,
+        resizeToAvoidBottomInset: true,
         body: Stack(
           fit: StackFit.expand,
           children: [
@@ -748,8 +903,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                         color: Colors.white,
                       ),
                     ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(
+                  SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(
                       _loginSectionHorizontalPadding,
                       _loginSectionTopPadding,
                       _loginSectionHorizontalPadding,
@@ -758,7 +913,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _referralBlock(pillsEnabled),
+                        _referralSection(pillsEnabled),
                         const SizedBox(height: _referralToGoogleGap),
                         _pillButton(
                           onPressed: pillsEnabled && !_previewLoading

@@ -26,6 +26,8 @@ class UserModel extends Equatable {
   final bool creatorApplicationPending;
   final bool creatorApplicationRejected;
   final String? creatorApplicationRejectionReason;
+  /// Agency approved referral — complete host profile in app before going live.
+  final bool hostProfileSetupRequired;
   /// True when creator profile has [assignedAgencyId] on the server.
   final bool hasAgencyAssignment;
   // Creator-specific fields (only populated when role is 'creator')
@@ -64,6 +66,7 @@ class UserModel extends Equatable {
     this.creatorApplicationPending = false,
     this.creatorApplicationRejected = false,
     this.creatorApplicationRejectionReason,
+    this.hostProfileSetupRequired = false,
     this.hasAgencyAssignment = false,
     this.name,
     this.about,
@@ -110,6 +113,7 @@ class UserModel extends Equatable {
       creatorApplicationRejected: json['creatorApplicationRejected'] == true,
       creatorApplicationRejectionReason:
           json['creatorApplicationRejectionReason'] as String?,
+      hostProfileSetupRequired: json['hostProfileSetupRequired'] == true,
       hasAgencyAssignment: json['hasAgencyAssignment'] == true,
       name: json['name'] as String?,
       about: json['about'] as String?,
@@ -171,6 +175,7 @@ class UserModel extends Equatable {
       'creatorApplicationPending': creatorApplicationPending,
       'creatorApplicationRejected': creatorApplicationRejected,
       'creatorApplicationRejectionReason': creatorApplicationRejectionReason,
+      'hostProfileSetupRequired': hostProfileSetupRequired,
       'hasAgencyAssignment': hasAgencyAssignment,
       'name': name,
       'about': about,
@@ -214,6 +219,7 @@ class UserModel extends Equatable {
     bool? creatorApplicationPending,
     bool? creatorApplicationRejected,
     String? creatorApplicationRejectionReason,
+    bool? hostProfileSetupRequired,
     bool? hasAgencyAssignment,
     String? name,
     String? about,
@@ -254,6 +260,8 @@ class UserModel extends Equatable {
           creatorApplicationRejected ?? this.creatorApplicationRejected,
       creatorApplicationRejectionReason: creatorApplicationRejectionReason ??
           this.creatorApplicationRejectionReason,
+      hostProfileSetupRequired:
+          hostProfileSetupRequired ?? this.hostProfileSetupRequired,
       hasAgencyAssignment:
           hasAgencyAssignment ?? this.hasAgencyAssignment,
       name: name ?? this.name,
@@ -301,6 +309,7 @@ class UserModel extends Equatable {
         creatorApplicationPending,
         creatorApplicationRejected,
         creatorApplicationRejectionReason,
+        hostProfileSetupRequired,
         hasAgencyAssignment,
         name,
         about,

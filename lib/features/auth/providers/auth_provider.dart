@@ -460,6 +460,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
                 creatorData['creatorApplicationRejected'] == true,
             creatorApplicationRejectionReason:
                 creatorData['creatorApplicationRejectionReason'] as String?,
+            hostProfileSetupRequired:
+                creatorData['hostProfileSetupRequired'] == true,
             name: creatorData['name'] as String?, // Creator name
             about: creatorData['about'] as String?, // Creator about
             age: creatorData['age'] != null
@@ -1015,6 +1017,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
                 responseData['creatorApplicationRejected'] == true,
             creatorApplicationRejectionReason:
                 responseData['creatorApplicationRejectionReason'] as String?,
+            hostProfileSetupRequired:
+                responseData['hostProfileSetupRequired'] == true,
             name: responseData['name'] as String?, // Creator name
             about: responseData['about'] as String?, // Creator about
             age: responseData['age'] != null

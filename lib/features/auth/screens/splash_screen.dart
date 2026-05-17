@@ -9,6 +9,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/loader_bg_wordmark_cover.dart';
 import '../providers/auth_provider.dart';
+import '../../referral/utils/host_onboarding_routes.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -55,6 +56,11 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
   void _goAfterAuth(AuthState authState) {
     if (!mounted) return;
+    final hostRoute = hostOnboardingRedirectPath(authState.user);
+    if (hostRoute != null) {
+      context.go(hostRoute);
+      return;
+    }
     if (authState.user?.gender == null || authState.user!.gender!.isEmpty) {
       context.go('/gender');
     } else {
