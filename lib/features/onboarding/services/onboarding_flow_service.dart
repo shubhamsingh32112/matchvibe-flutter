@@ -13,11 +13,13 @@ class OnboardingFlowService {
     _afterStageAdvanceSuccess = fn;
   }
 
+  static const int onboardingFlowVersion = 2;
   static const String _welcomePrefix = 'onboarding_welcome_seen';
   static const String _permissionsPrefix = 'onboarding_permissions_seen';
   static const String _completedPrefix = 'onboarding_completed';
   static const String _idemStagePrefix = 'idempotency_onboarding_stage_v1';
   static const String _idemPermPrefix = 'idempotency_onboarding_perm_v1';
+  static const String _mutationPrefix = 'onboarding_client_mutation_v1';
   static const int _idemTtlMs = 24 * 60 * 60 * 1000;
 
   static String _k(String prefix, String uid) => '${prefix}_$uid';
@@ -55,7 +57,6 @@ class OnboardingFlowService {
         return OnboardingStep.permission;
       case OnboardingStageContract.completed:
         return OnboardingStep.completed;
-      // Bonus program removed: treat legacy server stage as permission.
       case 'bonus':
         return OnboardingStep.permission;
       default:
@@ -99,19 +100,34 @@ class OnboardingFlowService {
     return OnboardingStep.completed;
   }
 
+  /// Ensures server stage is at least `permissions` before accept (v2 strict path).
+  static Future<void> ensureServerAtPermissionsStage({
+    required String firebaseUid,
+    String? serverStage,
+    String? sessionId,
+  }) async {
+    final stage = serverStage?.trim() ?? '';
+    if (stage == 'permission' ||
+        stage == 'permissions' ||
+        stage == OnboardingStageContract.completed) {
+      return;
+    }
+    if (stage == OnboardingStageContract.welcome || stage == 'bonus' || stage.isEmpty) {
+      await markWelcomeSeen(firebaseUid, sessionId: sessionId);
+      await markPermissionsSeen(firebaseUid, sessionId: sessionId);
+    }
+  }
+
   static Future<void> markWelcomeSeen(
     String firebaseUid, {
     String? sessionId,
   }) async {
-    // Backend maps POST `stage` → transition event: `welcome` → welcome_seen
-    // (welcome_seen advances server from welcome → bonus). Do NOT send `bonus`
-    // here — that maps to bonus_seen and targets permissions while still on
-    // welcome, causing invalid transitions / 500s and an onboarding loop.
     await _advanceOnServer(
       firebaseUid: firebaseUid,
       stage: OnboardingStageContract.welcome,
       event: 'welcome_seen',
       sessionId: sessionId,
+      mutationStep: OnboardingStep.welcome,
     );
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_k(_welcomePrefix, firebaseUid), true);
@@ -126,23 +142,18 @@ class OnboardingFlowService {
       stage: OnboardingStageContract.permission,
       event: 'permissions_not_now',
       sessionId: sessionId,
+      mutationStep: OnboardingStep.permission,
     );
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_k(_permissionsPrefix, firebaseUid), true);
   }
 
-  static Future<void> markCompleted(
-    String firebaseUid, {
-    String? sessionId,
-  }) async {
-    await _advanceOnServer(
-      firebaseUid: firebaseUid,
-      stage: OnboardingStageContract.completed,
-      event: 'permissions_accept',
-      sessionId: sessionId,
-    );
+  /// Local-only completion for non-user roles; do not POST stage=completed.
+  static Future<void> markLocalCompleted(String firebaseUid) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_k(_completedPrefix, firebaseUid), true);
+    await prefs.setBool(_k(_welcomePrefix, firebaseUid), true);
+    await prefs.setBool(_k(_permissionsPrefix, firebaseUid), true);
   }
 
   static Future<void> clearLocalFlags(String firebaseUid) async {
@@ -154,6 +165,31 @@ class OnboardingFlowService {
 
   static String _idemKey(String prefix, String uid, String suffix) =>
       '${prefix}_${uid}_$suffix';
+
+  static Future<String> _loadOrCreateClientMutationId({
+    required String firebaseUid,
+    required OnboardingStep step,
+    String? sessionId,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = _idemKey(_mutationPrefix, firebaseUid, step.name);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final raw = prefs.getString(key);
+    if (raw != null && raw.isNotEmpty) {
+      final parts = raw.split('|');
+      if (parts.length == 2) {
+        final createdAt = int.tryParse(parts[0]) ?? 0;
+        final value = parts[1];
+        if (createdAt > 0 && (now - createdAt) <= _idemTtlMs && value.isNotEmpty) {
+          return value;
+        }
+      }
+    }
+    final sessionPart = sessionId ?? 'nosession';
+    final value = 'ob_${firebaseUid}_${step.name}_${sessionPart}_$now';
+    await prefs.setString(key, '$now|$value');
+    return value;
+  }
 
   static Future<String> _loadOrCreateStageIdempotencyKey({
     required String firebaseUid,
@@ -186,27 +222,51 @@ class OnboardingFlowService {
     await prefs.remove(_idemKey(_idemStagePrefix, firebaseUid, event));
   }
 
+  static Map<String, String> _onboardingHeaders({
+    required String idempotencyKey,
+    String? sessionId,
+    String? clientMutationId,
+  }) {
+    return {
+      'X-Idempotency-Key': idempotencyKey,
+      'X-Onboarding-Flow-Version': '$onboardingFlowVersion',
+      if (sessionId != null) 'X-Onboarding-Session-Id': sessionId,
+      if (clientMutationId != null && clientMutationId.isNotEmpty)
+        'X-Client-Mutation-Id': clientMutationId,
+    };
+  }
+
   static Future<void> _advanceOnServer({
     required String firebaseUid,
     required String stage,
     required String event,
     String? sessionId,
+    required OnboardingStep mutationStep,
   }) async {
     const retries = 3;
     final key = await _loadOrCreateStageIdempotencyKey(
       firebaseUid: firebaseUid,
       event: event,
     );
+    final clientMutationId = await _loadOrCreateClientMutationId(
+      firebaseUid: firebaseUid,
+      step: mutationStep,
+      sessionId: sessionId,
+    );
     for (var attempt = 1; attempt <= retries; attempt++) {
       try {
         await ApiClient()
             .post(
               '/user/onboarding/stage',
-              data: {'stage': stage},
-              headers: {
-                'X-Idempotency-Key': key,
-                if (sessionId != null) 'X-Onboarding-Session-Id': sessionId,
+              data: {
+                'stage': stage,
+                'clientMutationId': clientMutationId,
               },
+              headers: _onboardingHeaders(
+                idempotencyKey: key,
+                sessionId: sessionId,
+                clientMutationId: clientMutationId,
+              ),
             )
             .timeout(const Duration(seconds: 4));
         try {
@@ -229,10 +289,24 @@ class OnboardingFlowService {
     required String cameraMicStatus,
     required String notificationStatus,
     String? sessionId,
+    String? serverStage,
   }) async {
+    if (decision == PermissionsDecision.accept) {
+      await ensureServerAtPermissionsStage(
+        firebaseUid: firebaseUid,
+        serverStage: serverStage,
+        sessionId: sessionId,
+      );
+    }
+
     final requestId = await _loadOrCreatePermRequestId(
       firebaseUid: firebaseUid,
       decision: decision.wireValue,
+    );
+    final clientMutationId = await _loadOrCreateClientMutationId(
+      firebaseUid: firebaseUid,
+      step: OnboardingStep.permission,
+      sessionId: sessionId,
     );
     final response = await ApiClient().post(
       '/user/onboarding/permissions-decision',
@@ -241,12 +315,19 @@ class OnboardingFlowService {
         'requestId': requestId,
         'cameraMicStatus': cameraMicStatus,
         'notificationStatus': notificationStatus,
+        'clientMutationId': clientMutationId,
       },
-      headers: {
-        if (sessionId != null) 'X-Onboarding-Session-Id': sessionId,
-      },
+      headers: _onboardingHeaders(
+        idempotencyKey: requestId,
+        sessionId: sessionId,
+        clientMutationId: clientMutationId,
+      ),
     );
     await _clearPermRequestId(firebaseUid: firebaseUid, decision: decision.wireValue);
+    if (decision == PermissionsDecision.accept) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_k(_completedPrefix, firebaseUid), true);
+    }
     final data = response.data as Map<String, dynamic>;
     return (data['data'] as Map<String, dynamic>? ?? <String, dynamic>{});
   }
@@ -288,7 +369,6 @@ class OnboardingFlowService {
       return AppConstants.enableServerOnboardingFlow ||
           AppConstants.enableDeterministicOnboardingRunner;
     } catch (_) {
-      // Tests may run without dotenv initialization.
       return true;
     }
   }

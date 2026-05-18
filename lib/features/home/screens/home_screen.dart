@@ -401,8 +401,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (firebaseUid == null) return;
     if (user == null) return;
     if (user.role != 'user') {
-      // Creators/admins should not run user onboarding runner.
-      await OnboardingFlowService.markCompleted(firebaseUid, sessionId: sessionId);
+      // Creators/admins: clear local onboarding only — never POST stage=completed.
+      await OnboardingFlowService.markLocalCompleted(firebaseUid);
       await OnboardingPopupStateService.clearAllForUser(firebaseUid);
       await OnboardingRunnerLockService.clear(firebaseUid);
       ref.read(modalCoordinatorProvider.notifier).setOnboardingInProgress(false);
@@ -927,6 +927,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           cameraMicStatus: await PermissionService.cameraMicStatusForApi(),
           notificationStatus: 'unknown',
           sessionId: _onboardingSessionId,
+          serverStage: ref.read(authProvider).user?.onboardingStage,
         );
         unawaited(ref.read(authProvider.notifier).refreshUser());
       } catch (_) {
@@ -985,6 +986,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         cameraMicStatus: cameraMicStatus,
         notificationStatus: notificationStatus,
         sessionId: _onboardingSessionId,
+        serverStage: ref.read(authProvider).user?.onboardingStage,
       );
       unawaited(ref.read(authProvider.notifier).refreshUser());
       ref
