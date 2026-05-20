@@ -9,7 +9,6 @@ import '../providers/stream_video_provider.dart';
 import '../services/call_ringtone_service.dart';
 import '../utils/call_remote_image_resolver.dart';
 import '../utils/remote_avatar_lookup.dart';
-import '../../../core/api/api_client.dart' as api;
 import '../../home/providers/home_provider.dart';
 import 'incoming_call_widget.dart';
 
@@ -158,11 +157,12 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
         debugPrint('📞 [INCOMING CALL] Incoming call cleared by SDK');
         _cancelRingTimeout();
         CallRingtoneService.stop();
+        final clearedCallId = _incomingCall?.id;
         if (mounted) {
           setState(() {
             _incomingCall = null;
-            if (call != null) {
-              _incomingFallbackImageByCallId.remove(call.id);
+            if (clearedCallId != null) {
+              _incomingFallbackImageByCallId.remove(clearedCallId);
             }
           });
         }
@@ -291,31 +291,27 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
       final remoteUsername = createdBy?.name?.toString() ??
           createdBy?.extraData?['username']?.toString();
 
-      debugPrint('🔍 [INCOMING CALL] Looking up avatar for: firebaseUid=$remoteFirebaseUid, username=$remoteUsername');
+      final calleeRole = ref.read(authProvider).user?.role;
+      final cachedCreators = ref.read(creatorsProvider).valueOrNull;
 
-      // First try user list
-      var lookedUp = await lookupAvatarFromUserList(
+      debugPrint(
+        '🔍 [INCOMING CALL] Looking up avatar for: firebaseUid=$remoteFirebaseUid, username=$remoteUsername, calleeRole=$calleeRole',
+      );
+
+      final lookedUp = await lookupIncomingCallerAvatar(
+        calleeRole: calleeRole,
         remoteFirebaseUid: remoteFirebaseUid,
         remoteUsername: remoteUsername,
         debugSourceTag: 'incoming_prefetch',
+        cachedCreators: cachedCreators,
       );
-      
-      debugPrint('🔍 [INCOMING CALL] User list lookup result: ${lookedUp ?? "null"}');
-      
-      // If not found in user list, try creators list (for creator-initiated calls)
-      if (lookedUp == null && remoteFirebaseUid != null && remoteFirebaseUid.isNotEmpty) {
-        debugPrint('🔍 [INCOMING CALL] Trying creators list lookup...');
-        lookedUp = await _lookupAvatarFromCreatorsList(
-          remoteFirebaseUid: remoteFirebaseUid,
-          remoteUsername: remoteUsername,
-        );
-        debugPrint('🔍 [INCOMING CALL] Creators list lookup result: ${lookedUp ?? "null"}');
-      }
+
+      debugPrint('🔍 [INCOMING CALL] Avatar lookup result: ${lookedUp ?? "null"}');
       
       if (lookedUp != null && lookedUp.isNotEmpty && mounted) {
         debugPrint('✅ [INCOMING CALL] Setting fallback image for call ${call.id}: $lookedUp');
         setState(() {
-          _incomingFallbackImageByCallId[call.id] = lookedUp!;
+          _incomingFallbackImageByCallId[call.id] = lookedUp;
         });
       } else {
         debugPrint('⚠️ [INCOMING CALL] No avatar found for call ${call.id}');
@@ -375,121 +371,5 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
 
     // No incoming call, show normal UI
     return widget.child;
-  }
-
-  /// Lookup avatar from in-memory feed first, then first page of [GET /creator/feed].
-  Future<String?> _lookupAvatarFromCreatorsList({
-    String? remoteFirebaseUid,
-    String? remoteUsername,
-  }) async {
-    if (remoteFirebaseUid == null || remoteFirebaseUid.isEmpty) {
-      return null;
-    }
-
-    String? photoFromCreatorMaps(Map<String, dynamic> creator) {
-      // Prefer the Cloudflare avatar's callPhoto variant if present, fall
-      // back to the legacy `photo` URL for transitional payloads.
-      final avatarMap = creator['avatar'];
-      if (avatarMap is Map) {
-        final urls = avatarMap['avatarUrls'];
-        if (urls is Map) {
-          final callPhoto = urls['callPhoto']?.toString().trim();
-          if (callPhoto != null && callPhoto.isNotEmpty) return callPhoto;
-          final md = urls['md']?.toString().trim();
-          if (md != null && md.isNotEmpty) return md;
-        }
-      }
-      final photoRaw = creator['photo'];
-      final photo = photoRaw != null ? photoRaw.toString().trim() : null;
-      if (photo != null && photo.isNotEmpty) return photo;
-      return null;
-    }
-
-    bool matches(Map<String, dynamic> creator) {
-      final creatorFirebaseUid = creator['firebaseUid']?.toString().trim();
-      final creatorName = creator['name']?.toString().trim();
-      final un = remoteUsername?.trim();
-      final idMatched = creatorFirebaseUid != null &&
-          creatorFirebaseUid.isNotEmpty &&
-          creatorFirebaseUid.toLowerCase() == remoteFirebaseUid.toLowerCase();
-      final nameMatched = un != null &&
-          un.isNotEmpty &&
-          creatorName != null &&
-          creatorName.isNotEmpty &&
-          creatorName.toLowerCase() == un.toLowerCase();
-      return idMatched || nameMatched;
-    }
-
-    try {
-      final cached = ref.read(creatorsProvider).valueOrNull;
-      if (cached != null) {
-        for (final c in cached) {
-          final uid = c.firebaseUid?.trim();
-          final idMatched = uid != null &&
-              uid.isNotEmpty &&
-              uid.toLowerCase() == remoteFirebaseUid.toLowerCase();
-          final un = remoteUsername?.trim();
-          final nameMatched = un != null &&
-              un.isNotEmpty &&
-              c.name.toLowerCase() == un.toLowerCase();
-          if (idMatched || nameMatched) {
-            final p = (c.feedTileUrl ?? '').trim();
-            if (p.isNotEmpty) {
-              debugPrint(
-                '✅ [INCOMING CALL] Creator avatar from cached feed: $p',
-              );
-              return p;
-            }
-          }
-        }
-      }
-
-      // ✅ Prefer an O(1) lookup endpoint over scanning feed page 1.
-      try {
-        final byUid = await api.ApiClient().get(
-          '/creator/by-firebase-uid/${Uri.encodeComponent(remoteFirebaseUid)}',
-        );
-        final creator = byUid.data?['data']?['creator'];
-        if (creator is Map) {
-          final map = Map<String, dynamic>.from(creator);
-          final photo = photoFromCreatorMaps(map);
-          if (photo != null) {
-            debugPrint(
-              '✅ [INCOMING CALL] Creator avatar from /creator/by-firebase-uid: $photo',
-            );
-            return photo;
-          }
-        }
-      } catch (_) {
-        // best-effort: fall back to feed scan
-      }
-
-      final response = await api.ApiClient().get(
-        '/creator/feed?page=1&limit=50',
-      );
-      final creatorsData = response.data?['data']?['creators'];
-      if (creatorsData is! List) {
-        return null;
-      }
-
-      for (final item in creatorsData) {
-        if (item is! Map) continue;
-        final creator = Map<String, dynamic>.from(item);
-        if (!matches(creator)) continue;
-        final photo = photoFromCreatorMaps(creator);
-        if (photo != null) {
-          debugPrint(
-            '✅ [INCOMING CALL] Creator avatar from /creator/feed: $photo',
-          );
-          return photo;
-        }
-      }
-    } catch (e) {
-      debugPrint(
-        '❌ [INCOMING CALL] Creator avatar lookup failed: $e',
-      );
-    }
-
-    return null;
   }
 }

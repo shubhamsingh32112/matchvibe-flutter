@@ -279,12 +279,21 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
 
       // 5. getOrCreate (creates call + rings creator)
       final callService = _ref.read(callServiceProvider);
+      final caller = _ref.read(authProvider).user;
+      final callerImage = caller?.avatarAsset?.avatarUrls.md;
+      final callerName = (caller?.name?.trim().isNotEmpty == true)
+          ? caller!.name!.trim()
+          : (caller?.username?.trim().isNotEmpty == true)
+              ? caller!.username!.trim()
+              : null;
       final call = await callService.initiateCallToMember(
         memberFirebaseUid: creatorFirebaseUid,
         initiatorFirebaseUid: firebaseUser.uid,
         creatorMongoId: creatorMongoId,
         streamVideo: streamVideo,
         initiatedByRole: 'user',
+        initiatorImageUrl: callerImage,
+        initiatorDisplayName: callerName,
       );
 
       // Store billing metadata
@@ -632,7 +641,9 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
           createdBy?.name?.toString() ??
           createdBy?.extraData?['username']?.toString();
 
-      final lookedUp = await lookupAvatarFromUserList(
+      final calleeRole = _ref.read(authProvider).user?.role;
+      final lookedUp = await lookupIncomingCallerAvatar(
+        calleeRole: calleeRole,
         remoteFirebaseUid: remoteFirebaseUid,
         remoteUsername: remoteUsername,
         debugSourceTag: 'accept_incoming',
