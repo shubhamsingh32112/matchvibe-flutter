@@ -54,18 +54,10 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
 
   @override
   Widget build(BuildContext context) {
-    final authState = ref.watch(authProvider);
-    final unreadCountAsync = ref.watch(chatUnreadCountProvider);
-    final billingState = ref.watch(callBillingProvider);
-    final unreadCount = unreadCountAsync.valueOrNull ?? 0;
-    final isCreator = authState.user?.role == 'creator' || authState.user?.role == 'admin';
-    final isRegularUser = authState.user?.role == 'user';
+    final userRole = ref.watch(authProvider.select((s) => s.user?.role));
+    final isCreator = userRole == 'creator' || userRole == 'admin';
+    final isRegularUser = userRole == 'user';
     final isHomePage = widget.selectedIndex == 0;
-
-    // During an active call, show live Redis coins; otherwise show MongoDB coins
-    final coins = billingState.isActive && !isCreator
-        ? billingState.userCoins
-        : (authState.user?.coins ?? 0);
 
     // Refresh user data + call history when billing settles
     // 🔥 OPTIMIZED: Socket events (coins_updated, creator:data_updated) handle most updates instantly
@@ -79,7 +71,8 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
         ref.invalidate(recentCallsProvider); // Refresh recent calls list
         // Also refresh creator dashboard if user is a creator (for earnings/stats)
         // Note: Coins are updated instantly via socket events, so this mainly updates earnings/stats
-        if (isCreator) {
+        final role = ref.read(authProvider).user?.role;
+        if (role == 'creator' || role == 'admin') {
           ref.invalidate(creatorDashboardProvider);
         }
         // Reset billing state after a short delay
@@ -151,43 +144,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                     icon: const Icon(Icons.favorite_border),
                     onPressed: () => context.push('/home/favorites'),
                   ),
-                InkWell(
-                  onTap: () {
-                    final path =
-                        GoRouter.of(context).routeInformationProvider.value.uri.path;
-                    if (path == '/wallet') {
-                      ref.read(authProvider.notifier).refreshUser();
-                      return;
-                    }
-                    context.push('/wallet');
-                  },
-                  borderRadius: BorderRadius.circular(8),
-                  child: Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    child: Row(
-                      children: [
-                        const GemIcon(size: 20),
-                        const SizedBox(width: 4),
-                        if (authState.isLoading)
-                          const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: LoadingIndicator(size: 16, color: Colors.white),
-                          )
-                        else
-                          Text(
-                            coins.toString(),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
+                _MainLayoutCoinChip(isCreator: isCreator),
               ],
             ),
       body: widget.accountMenuStyle
@@ -212,19 +169,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
               selectedIcon: Icon(Icons.history),
               label: 'Recent',
             ),
-            NavigationDestination(
-              icon: Badge(
-                isLabelVisible: unreadCount > 0,
-                label: Text(unreadCount.toString()),
-                child: const Icon(Icons.chat_bubble_outline),
-              ),
-              selectedIcon: Badge(
-                isLabelVisible: unreadCount > 0,
-                label: Text(unreadCount.toString()),
-                child: const Icon(Icons.chat_bubble),
-              ),
-              label: 'Chat',
-            ),
+            const _MainLayoutChatNavDestination(),
             const NavigationDestination(
               icon: Icon(Icons.person_outline),
               selectedIcon: Icon(Icons.person),
@@ -240,6 +185,90 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: scaffold,
+    );
+  }
+}
+
+/// Coin balance chip — watches coins/loading/billing only, not full [authProvider].
+class _MainLayoutCoinChip extends ConsumerWidget {
+  final bool isCreator;
+
+  const _MainLayoutCoinChip({required this.isCreator});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final authCoins = ref.watch(
+      authProvider.select((s) => (s.user?.coins ?? 0, s.isLoading)),
+    );
+    final billingSlice = ref.watch(
+      callBillingProvider.select((b) => (b.isActive, b.userCoins)),
+    );
+    final coins = billingSlice.$1 && !isCreator
+        ? billingSlice.$2
+        : authCoins.$1;
+    final isLoading = authCoins.$2;
+
+    return InkWell(
+      onTap: () {
+        final path =
+            GoRouter.of(context).routeInformationProvider.value.uri.path;
+        if (path == '/wallet') {
+          ref.read(authProvider.notifier).refreshUser();
+          return;
+        }
+        context.push('/wallet');
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
+          children: [
+            const GemIcon(size: 20),
+            const SizedBox(width: 4),
+            if (isLoading)
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: LoadingIndicator(size: 16, color: Colors.white),
+              )
+            else
+              Text(
+                coins.toString(),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Chat tab badge — watches unread count only.
+class _MainLayoutChatNavDestination extends ConsumerWidget {
+  const _MainLayoutChatNavDestination();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unreadCount = ref.watch(
+      chatUnreadCountProvider.select((a) => a.valueOrNull ?? 0),
+    );
+
+    return NavigationDestination(
+      icon: Badge(
+        isLabelVisible: unreadCount > 0,
+        label: Text(unreadCount.toString()),
+        child: const Icon(Icons.chat_bubble_outline),
+      ),
+      selectedIcon: Badge(
+        isLabelVisible: unreadCount > 0,
+        label: Text(unreadCount.toString()),
+        child: const Icon(Icons.chat_bubble),
+      ),
+      label: 'Chat',
     );
   }
 }

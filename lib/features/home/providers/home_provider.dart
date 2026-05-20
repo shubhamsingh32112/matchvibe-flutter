@@ -93,13 +93,16 @@ class CreatorFeedNotifier extends AsyncNotifier<List<CreatorModel>> {
 
   @override
   Future<List<CreatorModel>> build() async {
-    final auth = ref.watch(authProvider);
+    final auth = ref.read(authProvider);
     ref.listen<AuthState>(authProvider, (previous, next) {
       final prevUid = previous?.firebaseUser?.uid;
       final nextUid = next.firebaseUser?.uid;
+      final prevRole = previous?.user?.role;
+      final nextRole = next.user?.role;
       final userBecameReady = previous?.user == null && next.user != null;
+      final roleChanged = prevRole != nextRole;
       if (_shouldFetchCreators(next) &&
-          (userBecameReady || prevUid != nextUid)) {
+          (userBecameReady || prevUid != nextUid || roleChanged)) {
         unawaited(refreshFeed());
       }
     });
@@ -569,15 +572,18 @@ final creatorOrderBridgeProvider = Provider<void>((ref) {
 final homeFeedProvider = Provider<List<dynamic>>((ref) {
   ref.watch(creatorOrderBridgeProvider);
 
-  final authState = ref.watch(authProvider);
-  final user = authState.user;
+  final authIdentity = ref.watch(
+    authProvider.select((s) => (s.user?.id, s.user?.role)),
+  );
+  final userId = authIdentity.$1;
+  final userRole = authIdentity.$2;
 
-  if (user == null) {
+  if (userId == null || userRole == null) {
     return [];
   }
 
   // If user is an admin, check their view mode preference
-  if (user.role == 'admin') {
+  if (userRole == 'admin') {
     final adminViewMode = ref.watch(adminViewModeProvider);
     final creatorsAsync = ref.watch(creatorsProvider);
 
@@ -610,7 +616,7 @@ final homeFeedProvider = Provider<List<dynamic>>((ref) {
   }
 
   // If user is a creator, show users
-  if (user.role == 'creator') {
+  if (userRole == 'creator') {
     final usersAsync = ref.watch(usersProvider);
     return usersAsync.when(
       data: (users) => users,
@@ -643,11 +649,10 @@ final homeFeedProvider = Provider<List<dynamic>>((ref) {
 });
 
 final homeFeedHasMoreProvider = Provider<bool>((ref) {
-  final authState = ref.watch(authProvider);
-  final user = authState.user;
-  if (user == null) return false;
-  if (user.role == 'creator' ||
-      (user.role == 'admin' &&
+  final userRole = ref.watch(authProvider.select((s) => s.user?.role));
+  if (userRole == null) return false;
+  if (userRole == 'creator' ||
+      (userRole == 'admin' &&
           ref.watch(adminViewModeProvider) == AdminViewMode.creator)) {
     return ref.watch(usersFeedMetaProvider).hasMore;
   }

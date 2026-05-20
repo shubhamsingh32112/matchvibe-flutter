@@ -81,7 +81,7 @@ class _CallEndedLowCoinsModalState extends ConsumerState<CallEndedLowCoinsModal>
   Widget build(BuildContext context) {
     final intent = widget.intent;
     final availability = intent.remoteFirebaseUid != null
-        ? ref.watch(creatorAvailabilityProvider)[intent.remoteFirebaseUid!]
+        ? ref.watch(creatorStatusProvider(intent.remoteFirebaseUid))
         : null;
     final isOnline = availability == CreatorAvailability.online;
     final pricingAsync = ref.watch(walletPricingProvider);

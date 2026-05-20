@@ -763,8 +763,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   @override
   Widget build(BuildContext context) {
     _installDegradedListener();
-    final authState = ref.watch(authProvider);
-    final user = authState.user;
+    final user = ref.watch(authProvider.select((s) => s.user));
     final availableAvatars = _getAvailableAvatars();
     final scheme = Theme.of(context).colorScheme;
 

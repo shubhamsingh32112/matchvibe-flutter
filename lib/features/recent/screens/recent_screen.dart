@@ -33,85 +33,105 @@ class _RecentScreenState extends ConsumerState<RecentScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final recentCallsAsync = ref.watch(recentCallsProvider);
-
     return MainLayout(
       selectedIndex: 1,
-      child: recentCallsAsync.when(
-        loading: () => const SkeletonList(itemCount: 8),
-        error: (err, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
+      child: _RecentCallListBody(onRefresh: _refresh),
+    );
+  }
+}
+
+/// Isolated list body so [MainLayout] shell rebuilds do not re-watch [recentCallsProvider].
+class _RecentCallListBody extends ConsumerWidget {
+  final Future<void> Function() onRefresh;
+
+  const _RecentCallListBody({required this.onRefresh});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final recentCallsAsync = ref.watch(recentCallsProvider);
+    final showCallButtonsForUsers = ref.watch(
+      authProvider.select((s) => s.user?.role == 'user'),
+    );
+
+    return recentCallsAsync.when(
+      loading: () => const SkeletonList(itemCount: 8),
+      error: (err, _) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline, size: 48),
+              const SizedBox(height: 12),
+              Text(
+                'Failed to load recent calls',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                UserMessageMapper.userMessageFor(
+                  err,
+                  fallback: 'Couldn\'t load recent calls. Please try again.',
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: onRefresh,
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      ),
+      data: (calls) {
+        if (calls.isNotEmpty) {
+          ImagePrecacheService.precacheRecentCalls(context, calls);
+        }
+        if (calls.isEmpty) {
+          return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.error_outline, size: 48),
-                const SizedBox(height: 12),
-                Text('Failed to load recent calls',
-                    style: Theme.of(context).textTheme.titleMedium),
+                const Icon(Icons.history, size: 64, color: AppPalette.emptyIcon),
+                const SizedBox(height: 16),
+                Text(
+                  'No recent calls',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: AppPalette.onSurface,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
                 const SizedBox(height: 8),
                 Text(
-                  UserMessageMapper.userMessageFor(
-                    err,
-                    fallback: 'Couldn\'t load recent calls. Please try again.',
-                  ),
+                  'Your call history will appear here',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AppPalette.subtitle,
+                      ),
                   textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 16),
-                ElevatedButton(
-                  onPressed: _refresh,
-                  child: const Text('Retry'),
                 ),
               ],
             ),
-          ),
-        ),
-        data: (calls) {
-          if (calls.isNotEmpty) {
-            ImagePrecacheService.precacheRecentCalls(context, calls);
-          }
-          if (calls.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.history, size: 64, color: AppPalette.emptyIcon),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No recent calls',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          color: AppPalette.onSurface,
-                          fontWeight: FontWeight.w600,
-                        ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Your call history will appear here',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: AppPalette.subtitle,
-                        ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            );
-          }
-
-          return RefreshIndicator(
-            onRefresh: _refresh,
-            child: ListView.separated(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: calls.length,
-              separatorBuilder: (_, __) =>
-                  const Divider(height: 1, indent: 76, endIndent: 16),
-              itemBuilder: (context, index) {
-                final call = calls[index];
-                return _CallHistoryTile(call: call);
-              },
-            ),
           );
-        },
-      ),
+        }
+
+        return RefreshIndicator(
+          onRefresh: onRefresh,
+          child: ListView.separated(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            itemCount: calls.length,
+            separatorBuilder: (_, __) =>
+                const Divider(height: 1, indent: 76, endIndent: 16),
+            itemBuilder: (context, index) {
+              final call = calls[index];
+              return _CallHistoryTile(
+                call: call,
+                showCallButton: showCallButtonsForUsers && call.isOutgoing,
+              );
+            },
+          ),
+        );
+      },
     );
   }
 }
@@ -120,20 +140,20 @@ class _RecentScreenState extends ConsumerState<RecentScreen> {
 // Single call history tile
 // ═══════════════════════════════════════════════════════════════════════════
 
-class _CallHistoryTile extends ConsumerWidget {
+class _CallHistoryTile extends StatelessWidget {
   final CallHistoryModel call;
-  const _CallHistoryTile({required this.call});
+  final bool showCallButton;
+
+  const _CallHistoryTile({
+    required this.call,
+    required this.showCallButton,
+  });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final isOutgoing = call.isOutgoing;
     final timeAgo = _formatTimeAgo(call.createdAt);
-
-    // Only show call button for regular users (outgoing calls to creators)
-    final authState = ref.watch(authProvider);
-    final isRegularUser = authState.user?.role == 'user';
-    final showCallButton = isRegularUser && isOutgoing;
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -350,11 +370,11 @@ class _CallButtonState extends ConsumerState<_CallButton> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
-    // Check if creator is online
-    final availabilityMap = ref.watch(creatorAvailabilityProvider);
-    final isOnline =
-        (availabilityMap[widget.otherFirebaseUid] ?? CreatorAvailability.busy) ==
-            CreatorAvailability.online;
+    // Per-UID availability (not the full map) — see availability_provider.dart
+    final creatorAvailability = ref.watch(
+      creatorStatusProvider(widget.otherFirebaseUid),
+    );
+    final isOnline = creatorAvailability == CreatorAvailability.online;
 
     return IconButton(
       onPressed: isOnline ? _initiateCall : null,

@@ -577,10 +577,15 @@ final availabilitySocketServiceProvider = Provider<AvailabilitySocketService>((r
 /// 
 /// Returns CreatorAvailability.busy if not found (safe default)
 final creatorStatusProvider = Provider.family<CreatorAvailability, String?>((ref, creatorId) {
-  if (creatorId == null) return CreatorAvailability.busy;
-  
-  final availabilityMap = ref.watch(creatorAvailabilityProvider);
-  return availabilityMap[creatorId] ?? CreatorAvailability.busy;
+  if (creatorId == null || creatorId.isEmpty) {
+    return CreatorAvailability.busy;
+  }
+
+  return ref.watch(
+    creatorAvailabilityProvider.select(
+      (map) => map[creatorId] ?? CreatorAvailability.busy,
+    ),
+  );
 });
 
 /// 🔥 CONVENIENCE PROVIDER: Check if creator is online

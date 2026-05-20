@@ -321,27 +321,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  SliverGridDelegate _gridDelegateForWidth(double width) {
-    int crossAxisCount = 2;
-    double aspectRatio = 0.70;
-    if (width >= 1200) {
-      crossAxisCount = 5;
-      aspectRatio = 0.82;
-    } else if (width >= 900) {
-      crossAxisCount = 4;
-      aspectRatio = 0.78;
-    } else if (width >= 640) {
-      crossAxisCount = 3;
-      aspectRatio = 0.74;
-    }
-    return SliverGridDelegateWithFixedCrossAxisCount(
-      crossAxisCount: crossAxisCount,
-      crossAxisSpacing: AppSpacing.xs,
-      mainAxisSpacing: AppSpacing.xs,
-      childAspectRatio: aspectRatio,
-    );
-  }
-
   /// Ensure Socket.IO is connected for realtime events.
   ///
   /// Availability hydration is handled centrally in `StreamChatWrapper` to avoid duplicate
@@ -1052,21 +1031,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (_homeBuildCount % 20 == 0) {
       debugPrint('📊 [HOME] build count=$_homeBuildCount');
     }
-    final homeFeedItems = ref.watch(
-      homeFeedProvider,
-    ); // Now a Provider, not FutureProvider
-    final authState = ref.watch(authProvider);
-    final user = authState.user;
-    final isCreator = user?.role == 'creator' || user?.role == 'admin';
-    final scheme = Theme.of(context).colorScheme;
+    final userRole = ref.watch(authProvider.select((s) => s.user?.role));
+    final isCreator = userRole == 'creator' || userRole == 'admin';
 
     return MainLayout(
       selectedIndex: 0,
       child: AppScaffold(
         padded: true,
         child: isCreator
-            ? _CreatorTasksView()
-            : _buildHomeFeedContent(homeFeedItems, scheme, isCreator),
+            ? const _CreatorTasksView()
+            : _HomeUserFeedView(scrollController: _homeScrollController),
       ),
     );
   }
@@ -1285,14 +1259,43 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     });
   }
 
-  Widget _buildHomeFeedContent(
-    List<dynamic> items,
-    ColorScheme scheme,
-    bool isCreator,
-  ) {
-    // Show loading state while creators are being fetched
-    final creatorsAsync = ref.watch(creatorsProvider);
-    final isLoading = creatorsAsync.isLoading;
+}
+
+/// User/creator-feed grid — watches [homeFeedProvider] without full [authProvider].
+class _HomeUserFeedView extends ConsumerWidget {
+  final ScrollController scrollController;
+
+  const _HomeUserFeedView({required this.scrollController});
+
+  static SliverGridDelegate gridDelegateForWidth(double width) {
+    int crossAxisCount = 2;
+    double aspectRatio = 0.70;
+    if (width >= 1200) {
+      crossAxisCount = 5;
+      aspectRatio = 0.82;
+    } else if (width >= 900) {
+      crossAxisCount = 4;
+      aspectRatio = 0.78;
+    } else if (width >= 640) {
+      crossAxisCount = 3;
+      aspectRatio = 0.74;
+    }
+    return SliverGridDelegateWithFixedCrossAxisCount(
+      crossAxisCount: crossAxisCount,
+      crossAxisSpacing: AppSpacing.xs,
+      mainAxisSpacing: AppSpacing.xs,
+      childAspectRatio: aspectRatio,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final items = ref.watch(homeFeedProvider);
+    final creatorsStatus = ref.watch(
+      creatorsProvider.select((a) => (a.isLoading, a.hasError)),
+    );
+    final isLoading = creatorsStatus.$1;
+    final hasError = creatorsStatus.$2;
 
     if (isLoading) {
       return GridView.builder(
@@ -1308,7 +1311,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       );
     }
 
-    if (creatorsAsync.hasError) {
+    if (hasError) {
+      final creatorsAsync = ref.read(creatorsProvider);
       final errorMessage = UserMessageMapper.userMessageFor(
         creatorsAsync.error,
         fallback: 'Couldn\'t load creators. Pull down to retry.',
@@ -1338,37 +1342,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // Show empty state if no items
     if (items.isEmpty) {
       return RefreshIndicator(
-        onRefresh: () async {
-          final beforeRole = ref.read(authProvider).user?.role;
-          await ref.read(authProvider.notifier).refreshUser();
-          final afterRole = ref.read(authProvider).user?.role;
-          if (mounted && beforeRole != 'creator' && afterRole == 'creator') {
-            AppToast.showSuccess(
-              context,
-              'You are now a creator. Home has been updated.',
-            );
-          }
-          final adminView = ref.read(adminViewModeProvider);
-          final creatorLikeView =
-              afterRole == 'creator' ||
-              (afterRole == 'admin' && adminView == AdminViewMode.creator);
-          if (creatorLikeView) {
-            await ref.read(usersProvider.notifier).refreshFeed();
-          } else {
-            await ref.read(creatorsProvider.notifier).refreshFeed();
-          }
-          await Future.delayed(const Duration(milliseconds: 500));
-        },
+        onRefresh: () => _refreshHomeFeed(context, ref),
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           child: SizedBox(
             height: MediaQuery.of(context).size.height - 200,
-            child: EmptyState(
-              icon: isCreator ? Icons.people_outline : Icons.person_outline,
-              title: isCreator ? 'No users available' : 'No creators available',
-              message: isCreator
-                  ? 'Users will appear here when they join'
-                  : 'Creators will appear here when they join',
+            child: const EmptyState(
+              icon: Icons.person_outline,
+              title: 'No creators available',
+              message: 'Creators will appear here when they join',
             ),
           ),
         ),
@@ -1381,32 +1363,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
 
     return RefreshIndicator(
-      onRefresh: () async {
-        // Manual refresh - invalidate providers to force refetch
-        debugPrint('🔄 [HOME] Manual refresh triggered');
-        final beforeRole = ref.read(authProvider).user?.role;
-        await ref.read(authProvider.notifier).refreshUser();
-        final afterRole = ref.read(authProvider).user?.role;
-        if (mounted && beforeRole != 'creator' && afterRole == 'creator') {
-          AppToast.showSuccess(
-            context,
-            'You are now a creator. Home has been updated.',
-          );
-        }
-        final adminView = ref.read(adminViewModeProvider);
-        final creatorLikeView =
-            afterRole == 'creator' ||
-            (afterRole == 'admin' && adminView == AdminViewMode.creator);
-        if (creatorLikeView) {
-          await ref.read(usersProvider.notifier).refreshFeed();
-        } else {
-          await ref.read(creatorsProvider.notifier).refreshFeed();
-        }
-        // Wait a bit for the refresh to complete
-        await Future.delayed(const Duration(milliseconds: 500));
-      },
+      onRefresh: () => _refreshHomeFeed(context, ref),
       child: CustomScrollView(
-        controller: _homeScrollController,
+        controller: scrollController,
         slivers: [
           const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.md)),
           SliverPadding(
@@ -1414,7 +1373,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             sliver: SliverLayoutBuilder(
               builder: (context, constraints) {
                 return SliverGrid(
-                  gridDelegate: _gridDelegateForWidth(
+                  gridDelegate: gridDelegateForWidth(
                     constraints.crossAxisExtent,
                   ),
                   delegate: SliverChildBuilderDelegate((context, index) {
@@ -1431,14 +1390,248 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               },
             ),
           ),
-          if (ref.watch(homeFeedHasMoreProvider))
-            const SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.only(bottom: 24),
-                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          const _HomeFeedLoadMoreFooter(),
+        ],
+      ),
+    );
+  }
+
+  static Future<void> _refreshHomeFeed(BuildContext context, WidgetRef ref) async {
+    debugPrint('🔄 [HOME] Manual refresh triggered');
+    final beforeRole = ref.read(authProvider).user?.role;
+    await ref.read(authProvider.notifier).refreshUser();
+    final afterRole = ref.read(authProvider).user?.role;
+    if (context.mounted && beforeRole != 'creator' && afterRole == 'creator') {
+      AppToast.showSuccess(
+        context,
+        'You are now a creator. Home has been updated.',
+      );
+    }
+    final adminView = ref.read(adminViewModeProvider);
+    final creatorLikeView =
+        afterRole == 'creator' ||
+        (afterRole == 'admin' && adminView == AdminViewMode.creator);
+    if (creatorLikeView) {
+      await ref.read(usersProvider.notifier).refreshFeed();
+    } else {
+      await ref.read(creatorsProvider.notifier).refreshFeed();
+    }
+    await Future.delayed(const Duration(milliseconds: 500));
+  }
+}
+
+class _HomeFeedLoadMoreFooter extends ConsumerWidget {
+  const _HomeFeedLoadMoreFooter();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (!ref.watch(homeFeedHasMoreProvider)) {
+      return const SliverToBoxAdapter(child: SizedBox.shrink());
+    }
+    return const SliverToBoxAdapter(
+      child: Padding(
+        padding: EdgeInsets.only(bottom: 24),
+        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      ),
+    );
+  }
+}
+
+class _CreatorHomeBalanceCard extends ConsumerWidget {
+  const _CreatorHomeBalanceCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final earningsAsync = ref.watch(dashboardEarningsProvider);
+    final balance = ref.watch(dashboardCoinsProvider);
+    final scheme = Theme.of(context).colorScheme;
+
+    return earningsAsync.when(
+      data: (earnings) => AppCard(
+        margin: const EdgeInsets.only(bottom: AppSpacing.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Balance',
+                  style: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.refresh, size: 20),
+                  tooltip: 'Refresh balance',
+                  onPressed: () async {
+                    debugPrint('🔄 [CREATOR HOME] Manual refresh triggered');
+                    ref.invalidate(creatorDashboardProvider);
+                    await ref.read(authProvider.notifier).refreshUser();
+                  },
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  iconSize: 20,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  balance.toString(),
+                  style: TextStyle(
+                    color: scheme.onSurface,
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text(
+                    'coins',
+                    style: TextStyle(
+                      color: scheme.onSurfaceVariant,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                _EarningsStatItem(
+                  label: 'Calls',
+                  value: earnings.totalCalls.toString(),
+                  icon: Icons.phone,
+                ),
+                const SizedBox(width: 24),
+                _EarningsStatItem(
+                  label: 'Minutes',
+                  value: earnings.totalMinutes.toStringAsFixed(1),
+                  icon: Icons.timer,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+      loading: () => AppCard(
+        margin: const EdgeInsets.only(bottom: AppSpacing.lg),
+        child: const SizedBox(
+          height: 100,
+          child: Center(child: LoadingIndicator()),
+        ),
+      ),
+      error: (error, stack) => AppCard(
+        margin: const EdgeInsets.only(bottom: AppSpacing.lg),
+        child: const SizedBox(
+          height: 100,
+          child: Center(child: LoadingIndicator()),
+        ),
+      ),
+    );
+  }
+}
+
+class _CreatorHomeOnlineTodayCard extends ConsumerWidget {
+  const _CreatorHomeOnlineTodayCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final dashboardAsync = ref.watch(creatorDashboardProvider);
+    final scheme = Theme.of(context).colorScheme;
+
+    return dashboardAsync.when(
+      data: (dashboard) => AppCard(
+        margin: const EdgeInsets.only(bottom: AppSpacing.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Available online today',
+              style: TextStyle(
+                color: scheme.onSurfaceVariant,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
               ),
             ),
-        ],
+            const SizedBox(height: 8),
+            Text(
+              _formatCreatorOnlineDuration(dashboard.onlineTodaySeconds),
+              style: TextStyle(
+                color: scheme.onSurface,
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            if (dashboard.onlineTodayResetsAt != null &&
+                dashboard.onlineTodayResetsAt!.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Next reset: ${_shortIsoLocal(dashboard.onlineTodayResetsAt!)}',
+                style: TextStyle(
+                  color: scheme.onSurfaceVariant,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      loading: () => const SizedBox.shrink(),
+      error: (e, st) => const SizedBox.shrink(),
+    );
+  }
+}
+
+class _CreatorHomeTasksSection extends ConsumerWidget {
+  final void Function(CreatorTasksResponse tasksResponse) onShowTasks;
+
+  const _CreatorHomeTasksSection({required this.onShowTasks});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tasksAsync = ref.watch(dashboardTasksProvider);
+    final scheme = Theme.of(context).colorScheme;
+
+    return tasksAsync.when(
+      data: (tasksResponse) => _TaskProgressButton(
+        tasksResponse: tasksResponse,
+        onTap: () => onShowTasks(tasksResponse),
+      ),
+      loading: () => AppCard(
+        margin: const EdgeInsets.only(bottom: AppSpacing.lg),
+        child: const SizedBox(
+          height: 80,
+          child: Center(child: LoadingIndicator()),
+        ),
+      ),
+      error: (error, stack) => AppCard(
+        margin: const EdgeInsets.only(bottom: AppSpacing.lg),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              Text(
+                'Failed to load tasks',
+                style: TextStyle(color: scheme.error),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => ref.invalidate(creatorDashboardProvider),
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1463,12 +1656,6 @@ class _CreatorTasksViewState extends ConsumerState<_CreatorTasksView> {
 
   @override
   Widget build(BuildContext context) {
-    // Use dashboard-derived providers (auto-synced via creator:data_updated socket event)
-    final tasksAsync = ref.watch(dashboardTasksProvider);
-    final earningsAsync = ref.watch(dashboardEarningsProvider);
-    final dashboardAsync = ref.watch(creatorDashboardProvider);
-    // 🔥 FIX: dashboardCoinsProvider is now a Provider (not FutureProvider) for instant updates
-    final balance = ref.watch(dashboardCoinsProvider);
     final scheme = Theme.of(context).colorScheme;
 
     return SingleChildScrollView(
@@ -1476,204 +1663,37 @@ class _CreatorTasksViewState extends ConsumerState<_CreatorTasksView> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SizedBox(height: AppSpacing.md),
-          // Balance Card (shows current balance, not total earned)
-        // Note: We use earningsAsync for stats (calls, minutes) but balance from auth state for instant updates
-        earningsAsync.when(
-          data: (earnings) => AppCard(
+          const _CreatorHomeBalanceCard(),
+          const _CreatorHomeOnlineTodayCard(),
+          AppCard(
             margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header with Balance label and Manual Refresh button
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Balance',
-                      style: TextStyle(
-                        color: scheme.onSurfaceVariant,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const WithdrawalScreen(),
                     ),
-                    // Manual refresh button for creators
-                    IconButton(
-                      icon: const Icon(Icons.refresh, size: 20),
-                      tooltip: 'Refresh balance',
-                      onPressed: () async {
-                        debugPrint(
-                          '🔄 [CREATOR HOME] Manual refresh triggered',
-                        );
-                        // Refresh both dashboard and auth user
-                        ref.invalidate(creatorDashboardProvider);
-                        await ref.read(authProvider.notifier).refreshUser();
-                      },
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      iconSize: 20,
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      balance.toString(),
-                      style: TextStyle(
-                        color: scheme.onSurface,
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Text(
-                        'coins',
-                        style: TextStyle(
-                          color: scheme.onSurfaceVariant,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    _EarningsStatItem(
-                      label: 'Calls',
-                      value: earnings.totalCalls.toString(),
-                      icon: Icons.phone,
-                    ),
-                    const SizedBox(width: 24),
-                    _EarningsStatItem(
-                      label: 'Minutes',
-                      value: earnings.totalMinutes.toStringAsFixed(1),
-                      icon: Icons.timer,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          loading: () => AppCard(
-            margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-            child: const SizedBox(
-              height: 100,
-              child: Center(child: LoadingIndicator()),
-            ),
-          ),
-          error: (error, stack) => AppCard(
-            margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-            child: const SizedBox(
-              height: 100,
-              child: Center(child: LoadingIndicator()),
-            ),
-          ),
-        ),
-        dashboardAsync.when(
-          data: (dashboard) => AppCard(
-            margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Available online today',
-                  style: TextStyle(
-                    color: scheme.onSurfaceVariant,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
+                  );
+                },
+                icon: const Icon(Icons.account_balance_wallet_outlined),
+                label: const Text('Request Withdrawal'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: scheme.primary,
+                  foregroundColor: scheme.onPrimary,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _formatCreatorOnlineDuration(dashboard.onlineTodaySeconds),
-                  style: TextStyle(
-                    color: scheme.onSurface,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                if (dashboard.onlineTodayResetsAt != null &&
-                    dashboard.onlineTodayResetsAt!.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    'Next reset: ${_shortIsoLocal(dashboard.onlineTodayResetsAt!)}',
-                    style: TextStyle(
-                      color: scheme.onSurfaceVariant,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          loading: () => const SizedBox.shrink(),
-          error: (e, st) => const SizedBox.shrink(),
-        ),
-        // Withdrawal Button
-        AppCard(
-          margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-          child: SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => const WithdrawalScreen(),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.account_balance_wallet_outlined),
-              label: const Text('Request Withdrawal'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: scheme.primary,
-                foregroundColor: scheme.onPrimary,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
                 ),
               ),
             ),
           ),
-        ),
-        // Task Progress Button - Opens bottom sheet on click
-        tasksAsync.when(
-          data: (tasksResponse) => _TaskProgressButton(
-            tasksResponse: tasksResponse,
-            onTap: () => _showTaskProgressBottomSheet(context, tasksResponse),
+          _CreatorHomeTasksSection(
+            onShowTasks: (tasksResponse) =>
+                _showTaskProgressBottomSheet(context, tasksResponse),
           ),
-          loading: () => AppCard(
-            margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-            child: const SizedBox(
-              height: 80,
-              child: Center(child: LoadingIndicator()),
-            ),
-          ),
-          error: (error, stack) => AppCard(
-            margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  Text(
-                    'Failed to load tasks',
-                    style: TextStyle(color: scheme.error),
-                  ),
-                  const SizedBox(height: 8),
-                  TextButton(
-                    onPressed: () => ref.invalidate(creatorDashboardProvider),
-                    child: const Text('Retry'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
         ],
       ),
     );

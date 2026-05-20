@@ -393,13 +393,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     );
   }
 
-  bool _isLoginBusy(AuthState authState) {
-    return authState.isLoading ||
-        (authState.firebaseUser != null &&
-            authState.user == null &&
-            authState.error == null);
-  }
-
   Widget _pillButton({
     required VoidCallback? onPressed,
     required Widget leading,
@@ -750,8 +743,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
   @override
   Widget build(BuildContext context) {
-    final authState = ref.watch(authProvider);
-    final isLoginBusy = _isLoginBusy(authState);
+    final isLoginBusy = ref.watch(
+      authProvider.select(
+        (s) => s.isLoading ||
+            (s.firebaseUser != null && s.user == null && s.error == null),
+      ),
+    );
 
     ref.listen(authProvider, (previous, next) {
       if (previous?.isLoading == true &&

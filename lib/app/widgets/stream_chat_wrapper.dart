@@ -203,20 +203,26 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
 
   @override
   Widget build(BuildContext context) {
-    final authState = ref.watch(authProvider);
+    final authReady = ref.watch(
+      authProvider.select(
+        (s) => s.isAuthenticated &&
+            s.firebaseUser != null &&
+            s.user != null,
+      ),
+    );
+    final firebaseUser = ref.watch(
+      authProvider.select((s) => s.firebaseUser),
+    );
     final streamClient = ref.watch(streamChatNotifierProvider);
 
     // 🔥 FIX 1 & 3: Initialize Socket.IO when authenticated (with auth token for authentication)
     // ⚠️ Guard: only init once – do NOT re-init on every widget rebuild,
     // because that would re-seed and could fire getIdToken() on every frame.
-    if (!_socketInitialized &&
-        authState.isAuthenticated &&
-        authState.firebaseUser != null &&
-        authState.user != null) {
+    if (!_socketInitialized && authReady && firebaseUser != null) {
       _socketInitialized = true;
       // Get Firebase ID token for socket authentication
       // This runs asynchronously but socket service handles pending auth gracefully
-      authState.firebaseUser!
+      firebaseUser
           .getIdToken()
           .then((token) {
             if (!context.mounted) return;
@@ -279,7 +285,7 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
     });
 
     // Handle initial state: if user is already authenticated on first build
-    if (authState.isAuthenticated &&
+    if (authReady &&
         streamClient?.state.currentUser == null &&
         !_isConnecting) {
       // Use post-frame callback to avoid calling async in build

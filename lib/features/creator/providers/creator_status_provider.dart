@@ -91,11 +91,11 @@ class CreatorStatusNotifier extends StateNotifier<CreatorStatus> {
 
     // Listen to availability provider for the creator's own Firebase UID
     // This will update whenever the backend broadcasts a status change
-    _ref.listen<Map<String, CreatorAvailability>>(
-      creatorAvailabilityProvider,
+    _ref.listen<CreatorAvailability?>(
+      creatorAvailabilityProvider.select((m) => m[firebaseUid]),
       (previous, next) {
-        final ownAvailability = next[firebaseUid];
-        if (ownAvailability != null) {
+        if (next != null) {
+          final ownAvailability = next;
           final newStatus = ownAvailability == CreatorAvailability.online
               ? CreatorStatus.online
               : CreatorStatus.offline;
@@ -104,26 +104,31 @@ class CreatorStatusNotifier extends StateNotifier<CreatorStatus> {
             state = newStatus;
             debugPrint('📡 [CREATOR STATUS] Updated from socket event: ${newStatus == CreatorStatus.online ? "online" : "offline"}');
           }
+        } else if (previous != null) {
+          // Key removed from map — fall through to socket check
+          _updateFromSocketConnection();
         } else {
-          // If not in map, check socket connection state
-          final socketService = AvailabilitySocketService.instance;
-          if (socketService.isConnected) {
-            // Socket is connected but status not in map yet - assume online
-            // Backend will broadcast status shortly
-            if (state != CreatorStatus.online) {
-              state = CreatorStatus.online;
-              debugPrint('📡 [CREATOR STATUS] Updated from socket connection: online');
-            }
-          } else {
-            // Socket disconnected - definitely offline
-            if (state != CreatorStatus.offline) {
-              state = CreatorStatus.offline;
-              debugPrint('📡 [CREATOR STATUS] Updated from socket disconnection: offline');
-            }
-          }
+          _updateFromSocketConnection();
         }
       },
     );
+  }
+
+  void _updateFromSocketConnection() {
+    final socketService = AvailabilitySocketService.instance;
+    if (socketService.isConnected) {
+      if (state != CreatorStatus.online) {
+        state = CreatorStatus.online;
+        debugPrint(
+          '📡 [CREATOR STATUS] Updated from socket connection: online',
+        );
+      }
+    } else if (state != CreatorStatus.offline) {
+      state = CreatorStatus.offline;
+      debugPrint(
+        '📡 [CREATOR STATUS] Updated from socket disconnection: offline',
+      );
+    }
   }
 
   /// Update status based on socket connection state

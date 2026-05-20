@@ -188,7 +188,9 @@ class _OutgoingCallViewState extends ConsumerState<_OutgoingCallView>
 
   @override
   Widget build(BuildContext context) {
-    final currentUserId = ref.watch(authProvider).firebaseUser?.uid;
+    final currentUserId = ref.watch(
+      authProvider.select((s) => s.firebaseUser?.uid),
+    );
     final callConnectionState = ref.watch(callConnectionControllerProvider);
     final isConnecting =
         !widget.isOutgoing || callConnectionState.creatorAcceptedForOutgoing;
@@ -530,7 +532,10 @@ class _VideoCallScreenContentState
   @override
   Widget build(BuildContext context) {
     final billingState = ref.watch(callBillingProvider);
-    final authState = ref.watch(authProvider);
+    final currentUserId = ref.watch(
+      authProvider.select((s) => s.firebaseUser?.uid),
+    );
+    final userRole = ref.watch(authProvider.select((s) => s.user?.role));
     final callConnectionState = ref.watch(callConnectionControllerProvider);
     final materialTheme = Theme.of(context);
     final baseStreamTheme =
@@ -541,7 +546,6 @@ class _VideoCallScreenContentState
         callContentBackgroundColor: Colors.transparent,
       ),
     );
-    final currentUserId = authState.firebaseUser?.uid;
     final remoteImageUrl = resolveRemoteImageUrl(
       call: widget.call,
       currentUserId: currentUserId,
@@ -549,8 +553,7 @@ class _VideoCallScreenContentState
       enableDebugLogs: true,
       debugSourceTag: 'connected',
     );
-    final isCreator =
-        authState.user?.role == 'creator' || authState.user?.role == 'admin';
+    final isCreator = userRole == 'creator' || userRole == 'admin';
     final showBillingOverlay =
         callConnectionState.phase == CallConnectionPhase.connected;
     final connectedFor =

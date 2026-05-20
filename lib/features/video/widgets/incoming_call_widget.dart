@@ -58,7 +58,9 @@ class _IncomingCallWidgetState extends ConsumerState<IncomingCallWidget>
   @override
   Widget build(BuildContext context) {
     final callPhase = ref.watch(callConnectionControllerProvider).phase;
-    final currentUserId = ref.watch(authProvider).firebaseUser?.uid;
+    final currentUserId = ref.watch(
+      authProvider.select((s) => s.firebaseUser?.uid),
+    );
     final isProcessing = callPhase == CallConnectionPhase.preparing ||
         callPhase == CallConnectionPhase.joining;
 

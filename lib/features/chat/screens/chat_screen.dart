@@ -434,113 +434,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return isCallActivityId || isLegacyCallActivity;
   }
 
-  Widget _buildCallActivityCard(
-    BuildContext context,
-    Message message, {
-    required bool showCallAgain,
-    required bool isCreatorOnline,
-  }) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = (message.text ?? '').trim();
-    final canCallAgain = showCallAgain && isCreatorOnline && !_isInitiatingCall;
-    final actionLabel = _isInitiatingCall
-        ? 'Calling...'
-        : isCreatorOnline
-        ? 'Call again'
-        : 'Creator offline';
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: Center(
-        child: Material(
-          color: scheme.tertiaryContainer.withValues(alpha: 0.45),
-          borderRadius: BorderRadius.circular(14),
-          child: InkWell(
-            onTap: canCallAgain ? _initiateVideoCall : null,
-            borderRadius: BorderRadius.circular(14),
-            child: Container(
-              constraints: const BoxConstraints(maxWidth: 340),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: scheme.tertiary.withValues(alpha: 0.35),
-                ),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.videocam_rounded,
-                        size: 16,
-                        color: scheme.onTertiaryContainer,
-                      ),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          text.isEmpty ? 'Video call completed' : text,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: scheme.onTertiaryContainer,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (showCallAgain) ...[
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (_isInitiatingCall)
-                          SizedBox(
-                            width: 12,
-                            height: 12,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                scheme.onTertiaryContainer,
-                              ),
-                            ),
-                          )
-                        else
-                          Icon(
-                            isCreatorOnline
-                                ? Icons.call_made_rounded
-                                : Icons.do_not_disturb_alt_rounded,
-                            size: 14,
-                            color: scheme.onTertiaryContainer.withValues(
-                              alpha: isCreatorOnline ? 0.9 : 0.7,
-                            ),
-                          ),
-                        const SizedBox(width: 6),
-                        Text(
-                          actionLabel,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: scheme.onTertiaryContainer.withValues(
-                              alpha: isCreatorOnline ? 1 : 0.8,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   void _showRestrictedContentDialog() {
     showDialog(
       context: context,
@@ -686,31 +579,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (role == 'user' && mounted) {
       context.push('/wallet');
     }
-  }
-
-  // ── Video call from chat ───────────────────────────────────────────────
-
-  Widget _buildCallAction(ColorScheme colorScheme, bool isOnline) {
-    return IconButton(
-      onPressed:
-          _initiateVideoCall, // Always enabled - will check online status inside
-      icon: _isInitiatingCall
-          ? SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation<Color>(colorScheme.primary),
-              ),
-            )
-          : Icon(
-              Icons.videocam,
-              color: isOnline
-                  ? colorScheme.primary
-                  : colorScheme.onSurface.withValues(alpha: 0.5),
-            ),
-      tooltip: isOnline ? 'Video Call' : 'Video Call',
-    );
   }
 
   /// Whether the video call button should be shown.
@@ -1191,15 +1059,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       );
     }
 
-    // Keep widget reactive to call phase for action visibility/state.
-    ref.watch(callConnectionControllerProvider);
-
     final colorScheme = Theme.of(context).colorScheme;
-    final availabilityMap = ref.watch(creatorAvailabilityProvider);
-    final isCreatorOnline =
-        _otherUserFirebaseUid != null &&
-        (availabilityMap[_otherUserFirebaseUid!] ?? CreatorAvailability.busy) ==
-            CreatorAvailability.online;
     final canCallFromChat = _showCallButton;
     final canReportFromChat = _canReportCreatorFromChat;
     final canCreatorCallFromChat = _showCreatorCallButton;
@@ -1279,7 +1139,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ),
               // Video call button: always visible for users when we have the other member
               if (_showCallButton)
-                _buildCallAction(colorScheme, isCreatorOnline),
+                _ChatUserVideoCallButton(
+                  otherFirebaseUid: _otherUserFirebaseUid,
+                  isInitiatingCall: _isInitiatingCall,
+                  onPressed: _initiateVideoCall,
+                ),
               // Video call button for creators (creator → user)
               if (canCreatorCallFromChat)
                 IconButton(
@@ -1307,11 +1171,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   messageBuilder:
                       (context, details, messageList, defaultMessageWidget) {
                         if (_isCallActivityMessage(details.message)) {
-                          return _buildCallActivityCard(
-                            context,
-                            details.message,
+                          return _ChatCallActivityCardHost(
+                            otherFirebaseUid: _otherUserFirebaseUid,
                             showCallAgain: canCallFromChat,
-                            isCreatorOnline: isCreatorOnline,
+                            isInitiatingCall: _isInitiatingCall,
+                            onCallAgain: _initiateVideoCall,
+                            message: details.message,
                           );
                         }
 
@@ -1341,6 +1206,196 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Watches per-creator availability only (not the full map).
+class _ChatCallActivityCardHost extends ConsumerWidget {
+  final String? otherFirebaseUid;
+  final bool showCallAgain;
+  final bool isInitiatingCall;
+  final Future<void> Function() onCallAgain;
+  final Message message;
+
+  const _ChatCallActivityCardHost({
+    required this.otherFirebaseUid,
+    required this.showCallAgain,
+    required this.isInitiatingCall,
+    required this.onCallAgain,
+    required this.message,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final status = ref.watch(creatorStatusProvider(otherFirebaseUid));
+    final isCreatorOnline = status == CreatorAvailability.online;
+    return _ChatCallActivityCard(
+      message: message,
+      showCallAgain: showCallAgain,
+      isCreatorOnline: isCreatorOnline,
+      isInitiatingCall: isInitiatingCall,
+      onCallAgain: onCallAgain,
+    );
+  }
+}
+
+/// Call-activity message UI; availability comes from [_ChatCallActivityCardHost].
+class _ChatCallActivityCard extends StatelessWidget {
+  final Message message;
+  final bool showCallAgain;
+  final bool isCreatorOnline;
+  final bool isInitiatingCall;
+  final Future<void> Function() onCallAgain;
+
+  const _ChatCallActivityCard({
+    required this.message,
+    required this.showCallAgain,
+    required this.isCreatorOnline,
+    required this.isInitiatingCall,
+    required this.onCallAgain,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = (message.text ?? '').trim();
+    final canCallAgain = showCallAgain && isCreatorOnline && !isInitiatingCall;
+    final actionLabel = isInitiatingCall
+        ? 'Calling...'
+        : isCreatorOnline
+        ? 'Call again'
+        : 'Creator offline';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Center(
+        child: Material(
+          color: scheme.tertiaryContainer.withValues(alpha: 0.45),
+          borderRadius: BorderRadius.circular(14),
+          child: InkWell(
+            onTap: canCallAgain ? onCallAgain : null,
+            borderRadius: BorderRadius.circular(14),
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 340),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: scheme.tertiary.withValues(alpha: 0.35),
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.videocam_rounded,
+                        size: 16,
+                        color: scheme.onTertiaryContainer,
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          text.isEmpty ? 'Video call completed' : text,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: scheme.onTertiaryContainer,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (showCallAgain) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isInitiatingCall)
+                          SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                scheme.onTertiaryContainer,
+                              ),
+                            ),
+                          )
+                        else
+                          Icon(
+                            isCreatorOnline
+                                ? Icons.call_made_rounded
+                                : Icons.do_not_disturb_alt_rounded,
+                            size: 14,
+                            color: scheme.onTertiaryContainer.withValues(
+                              alpha: isCreatorOnline ? 0.9 : 0.7,
+                            ),
+                          ),
+                        const SizedBox(width: 6),
+                        Text(
+                          actionLabel,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: scheme.onTertiaryContainer.withValues(
+                              alpha: isCreatorOnline ? 1 : 0.8,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// App bar video call button with per-UID availability watch only.
+class _ChatUserVideoCallButton extends ConsumerWidget {
+  final String? otherFirebaseUid;
+  final bool isInitiatingCall;
+  final Future<void> Function() onPressed;
+
+  const _ChatUserVideoCallButton({
+    required this.otherFirebaseUid,
+    required this.isInitiatingCall,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final status = ref.watch(creatorStatusProvider(otherFirebaseUid));
+    final isOnline = status == CreatorAvailability.online;
+
+    return IconButton(
+      onPressed: onPressed,
+      icon: isInitiatingCall
+          ? SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(colorScheme.primary),
+              ),
+            )
+          : Icon(
+              Icons.videocam,
+              color: isOnline
+                  ? colorScheme.primary
+                  : colorScheme.onSurface.withValues(alpha: 0.5),
+            ),
+      tooltip: isOnline ? 'Video Call' : 'Video Call',
     );
   }
 }

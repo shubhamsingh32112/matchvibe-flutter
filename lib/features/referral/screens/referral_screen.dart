@@ -135,7 +135,7 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final user = ref.watch(authProvider).user;
+    final user = ref.watch(authProvider.select((s) => s.user));
     final codeFromUser = user?.referralCode ?? _data?.referralCode;
 
     return ClipRRect(

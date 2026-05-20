@@ -1074,7 +1074,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
 
   @override
   Widget build(BuildContext context) {
-    ref.watch(authProvider);
+    ref.watch(authProvider.select((s) => s.isAuthenticated));
     return widget.child;
   }
 }

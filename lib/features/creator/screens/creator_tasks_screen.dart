@@ -26,8 +26,7 @@ class _CreatorTasksScreenState extends ConsumerState<CreatorTasksScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final authState = ref.watch(authProvider);
-    final user = authState.user;
+    final user = ref.watch(authProvider.select((s) => s.user));
 
     // 🔒 PHASE T2: Role guard at route level
     if (user?.role != 'creator' && user?.role != 'admin') {

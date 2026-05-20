@@ -58,8 +58,7 @@ final dashboardTodayEarningsProvider = FutureProvider<TodayEarnings>((ref) async
 final dashboardCoinsProvider = Provider<int>((ref) {
   // 🔥 FIX: Use auth state for instant coin updates (updated via socket events)
   // This provides instant UI updates without waiting for API calls
-  final authState = ref.watch(authProvider);
-  final authCoins = authState.user?.coins;
+  final authCoins = ref.watch(authProvider.select((s) => s.user?.coins));
   
   if (authCoins != null) {
     // Use auth state coins (updated instantly via socket events)

@@ -40,8 +40,7 @@ class _WithdrawalScreenState extends ConsumerState<WithdrawalScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final authState = ref.watch(authProvider);
-    final user = authState.user;
+    final user = ref.watch(authProvider.select((s) => s.user));
     final withdrawalState = ref.watch(withdrawalProvider);
 
     // Role guard — only creators

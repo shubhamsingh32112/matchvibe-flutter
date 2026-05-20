@@ -186,8 +186,8 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final authState = ref.watch(authProvider);
-    final user = authState.user;
+    final user = ref.watch(authProvider.select((s) => s.user));
+    final authLoading = ref.watch(authProvider.select((s) => s.isLoading));
     final scheme = Theme.of(context).colorScheme;
     final topInset = MediaQuery.paddingOf(context).top;
     final isCreator = user?.role == 'creator' || user?.role == 'admin';
@@ -209,7 +209,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
       child: MainLayout(
         selectedIndex: 3,
         accountMenuStyle: true,
-        child: authState.isLoading && user == null
+        child: authLoading && user == null
             ? const Center(child: LoadingIndicator())
             : ColoredBox(
                 color: AppBrandGradients.accountMenuPageBackground,
@@ -221,7 +221,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                         scheme: scheme,
                         topInset: topInset,
                         user: user,
-                        authLoading: authState.isLoading,
+                        authLoading: authLoading,
                         coins: coins,
                         isCreator: isCreator,
                         unread: unread,

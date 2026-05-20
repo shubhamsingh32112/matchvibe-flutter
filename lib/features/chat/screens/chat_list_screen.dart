@@ -79,9 +79,9 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
   @override
   Widget build(BuildContext context) {
     final streamChat = StreamChat.maybeOf(context);
-    final authState = ref.watch(authProvider);
-    final isCreator = authState.user?.role == 'creator' ||
-        authState.user?.role == 'admin';
+    final userRole = ref.watch(authProvider.select((s) => s.user?.role));
+    final isCreator =
+        userRole == 'creator' || userRole == 'admin';
 
     // Wait for StreamChat to be ready
     if (streamChat == null || streamChat.client.state.currentUser == null) {

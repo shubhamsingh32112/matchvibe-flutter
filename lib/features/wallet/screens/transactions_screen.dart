@@ -95,8 +95,7 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final authState = ref.watch(authProvider);
-    final user = authState.user;
+    final user = ref.watch(authProvider.select((s) => s.user));
     final isCreator = user?.role == 'creator' || user?.role == 'admin';
     final coins = user?.coins ?? 0;
 

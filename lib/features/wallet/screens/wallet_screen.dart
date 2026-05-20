@@ -192,19 +192,23 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final authState = ref.watch(authProvider);
-    final user = authState.user;
-    final isCreator = user?.role == 'creator' || user?.role == 'admin';
-    final billingState = ref.watch(callBillingProvider);
-    final coins = billingState.isActive && !isCreator
-        ? billingState.userCoins
-        : (user?.coins ?? 0);
+    final userRole = ref.watch(authProvider.select((s) => s.user?.role));
+    final authCoins = ref.watch(
+      authProvider.select((s) => s.user?.coins ?? 0),
+    );
+    final isCreator = userRole == 'creator' || userRole == 'admin';
+    final billingSlice = ref.watch(
+      callBillingProvider.select((b) => (b.isActive, b.userCoins)),
+    );
+    final coins = billingSlice.$1 && !isCreator
+        ? billingSlice.$2
+        : authCoins;
     final walletPricingAsync =
         isCreator ? null : ref.watch(walletPricingProvider);
 
     final earningsAsync =
         isCreator ? ref.watch(dashboardEarningsProvider) : null;
-    ref.watch(socketServiceProvider);
+    ref.listen(socketServiceProvider, (_, __) {});
 
     if (isCreator) {
       return Scaffold(

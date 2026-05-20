@@ -75,7 +75,7 @@ class _HelpSupportScreenState extends ConsumerState<HelpSupportScreen> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final user = ref.watch(authProvider).user;
+    final user = ref.watch(authProvider.select((s) => s.user));
     final isCreator = user?.role == 'creator' || user?.role == 'admin';
 
     return ClipRRect(

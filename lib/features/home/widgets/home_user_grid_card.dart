@@ -187,10 +187,13 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
         widget.creator?.name ?? widget.user?.username ?? 'User';
     final age = _creatorAge();
     final country = _creatorCountry();
-    final authState = ref.watch(authProvider);
-    final isRegularUser = authState.user?.role == 'user';
+    final userRole = ref.watch(authProvider.select((s) => s.user?.role));
+    final welcomeFreeCallEligible = ref.watch(
+      authProvider.select((s) => s.user?.welcomeFreeCallEligible == true),
+    );
+    final isRegularUser = userRole == 'user';
     final showVideoCall = isRegularUser && widget.creator != null;
-    final callVariant = authState.user?.welcomeFreeCallEligible == true
+    final callVariant = welcomeFreeCallEligible
         ? CallButtonVariant.welcomeFree
         : CallButtonVariant.normal;
 
