@@ -6,6 +6,7 @@ import 'package:permission_handler/permission_handler.dart' as ph;
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/services/sentry_service.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/widgets/app_toast.dart';
@@ -100,6 +101,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(SentryService.setScreenTag('home'));
     unawaited(_checkAndShowWelcomeBackDialog());
     _checkAndShowWelcomeDialog();
     // Note: Bonus onboarding removed; flow is welcome → permissions
@@ -114,6 +116,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   @override
   void dispose() {
+    unawaited(SentryService.clearScreenTag());
     WidgetsBinding.instance.removeObserver(this);
     _creatorBusyToastSub?.close();
     _feedbackPromptSub?.close();

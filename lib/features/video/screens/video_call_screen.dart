@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:stream_video_flutter/stream_video_flutter.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import '../../../core/services/sentry_service.dart';
 import '../controllers/call_connection_controller.dart';
 import '../providers/call_billing_provider.dart';
 import '../widgets/live_billing_overlay.dart';
@@ -60,6 +61,7 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(SentryService.setScreenTag('video_call'));
     // Keep the screen on for the entire duration of the call screen
     WakelockPlus.enable();
     debugPrint('🔆 [WAKELOCK] Screen wake lock ENABLED (call screen opened)');
@@ -75,6 +77,7 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
 
   @override
   void dispose() {
+    unawaited(SentryService.clearScreenTag());
     // Restore the image cache budget BEFORE other dispose work.
     final cache = PaintingBinding.instance.imageCache;
     final stashed = _stashedImageCacheBytes;

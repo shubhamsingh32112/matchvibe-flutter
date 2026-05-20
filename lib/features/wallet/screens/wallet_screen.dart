@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../../core/services/sentry_service.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../creator/providers/creator_dashboard_provider.dart';
@@ -60,6 +62,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(SentryService.setScreenTag('wallet'));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _refreshUserData();
     });

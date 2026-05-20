@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../../core/services/sentry_service.dart';
 import '../../../core/api/api_client.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/ui_primitives.dart';
@@ -58,6 +59,15 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
         _isLoadingBlockedCount = false;
       });
     }
+  }
+
+  void _verifySentrySetup(BuildContext context) {
+    final blocked = SentryService.verifySetupBlockedReason;
+    if (blocked != null) {
+      AppToast.showInfo(context, blocked);
+      return;
+    }
+    SentryService.verifySetup();
   }
 
   Future<void> _openPrivacyPolicy() async {
@@ -125,6 +135,15 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                           );
                         },
                       ),
+                      if (SentryService.showVerifySetupUi) ...[
+                        _divider(scheme),
+                        _settingsTile(
+                          context: context,
+                          icon: Icons.bug_report_outlined,
+                          title: 'Verify Sentry Setup',
+                          onTap: () => _verifySentrySetup(context),
+                        ),
+                      ],
                     ],
                   ),
                 ),

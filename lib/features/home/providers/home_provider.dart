@@ -3,6 +3,7 @@ import 'dart:async' show unawaited;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/services/sentry_service.dart';
 import '../../../shared/models/creator_model.dart';
 import '../../../shared/models/profile_model.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -151,9 +152,11 @@ class CreatorFeedNotifier extends AsyncNotifier<List<CreatorModel>> {
   }
 
   Future<_CreatorPage> _fetchPage(int page) async {
-    final response = await ref.read(homeApiGetProvider)(
-      '/creator/feed?page=$page&limit=$homeFeedPageSize',
-    );
+    final txn = SentryService.startTransaction('home.feed_load', 'ui.load');
+    try {
+      final response = await ref.read(homeApiGetProvider)(
+        '/creator/feed?page=$page&limit=$homeFeedPageSize',
+      );
     if (response.statusCode != 200) {
       throw Exception('Failed to fetch creators: status ${response.statusCode}');
     }
@@ -218,6 +221,9 @@ class CreatorFeedNotifier extends AsyncNotifier<List<CreatorModel>> {
       total: total,
       hasMore: currentPage < totalPages,
     );
+    } finally {
+      await txn.finish();
+    }
   }
 
   void _publishMeta() {
