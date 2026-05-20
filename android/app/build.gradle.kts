@@ -4,6 +4,7 @@ plugins {
     id("com.google.gms.google-services")
     // END: FlutterFire Configuration
     id("kotlin-android")
+    id("io.sentry.android.gradle")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
@@ -139,4 +140,13 @@ dependencies {
 
 flutter {
     source = "../.."
+}
+
+sentry {
+    autoUploadProguardMapping.set(
+        System.getenv("SENTRY_AUTH_TOKEN")?.isNotBlank() == true,
+    )
+    org.set(System.getenv("SENTRY_ORG") ?: "yagati")
+    projectName.set(System.getenv("SENTRY_PROJECT") ?: "flutter")
+    authToken.set(System.getenv("SENTRY_AUTH_TOKEN") ?: "")
 }

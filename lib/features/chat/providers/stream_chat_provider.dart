@@ -2,9 +2,27 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stream_chat_flutter/stream_chat_flutter.dart';
-import 'package:logging/logging.dart';
 import '../services/chat_service.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../../core/services/sentry_service.dart';
+
+void _streamChatLogHandler(LogRecord record) {
+  if (kDebugMode) {
+    StreamChatClient.defaultLogHandler(record);
+  }
+  if (record.level >= Level.WARNING && record.error != null) {
+    unawaited(
+      SentryService.captureException(
+        record.error!,
+        stackTrace: record.stackTrace,
+        tags: {
+          'stream': 'chat',
+          'level': record.level.name,
+        },
+      ),
+    );
+  }
+}
 
 final chatServiceProvider = Provider<ChatService>((ref) {
   return ChatService();
@@ -23,7 +41,8 @@ class StreamChatNotifier extends StateNotifier<StreamChatClient?> {
     // This ensures StreamChat is in the widget tree from the start
     StreamChatClient(
       AppConstants.streamApiKey,
-      logLevel: kDebugMode ? Level.INFO : Level.OFF,
+      logLevel: kDebugMode ? Level.INFO : Level.WARNING,
+      logHandlerFunction: _streamChatLogHandler,
     ),
   );
 
@@ -43,6 +62,11 @@ class StreamChatNotifier extends StateNotifier<StreamChatClient?> {
       }
 
       debugPrint('🔌 [STREAM] Connecting user to Stream Chat...');
+      SentryService.addBreadcrumb(
+        category: 'stream.chat',
+        message: 'stream.chat.connect',
+        data: {'firebase_uid': firebaseUid},
+      );
       debugPrint('   User ID: $firebaseUid');
       debugPrint('   Username: $username');
       debugPrint('   App Role: $appRole');
@@ -79,6 +103,10 @@ class StreamChatNotifier extends StateNotifier<StreamChatClient?> {
     try {
       if (state != null && state!.state.currentUser != null) {
         debugPrint('🔌 [STREAM] Disconnecting user...');
+        SentryService.addBreadcrumb(
+          category: 'stream.chat',
+          message: 'stream.chat.disconnect',
+        );
         await state!.disconnectUser();
         debugPrint('✅ [STREAM] User disconnected');
         // Note: We keep the client instance (don't set state to null)

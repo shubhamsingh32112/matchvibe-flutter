@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../router/app_router.dart';
+import '../../core/services/sentry_service.dart';
 import '../../features/auth/providers/auth_provider.dart';
 import '../../features/home/providers/availability_provider.dart';
 import '../../core/services/availability_socket_service.dart'
@@ -495,6 +496,24 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     if (uri.scheme != 'zztherapy') return;
     if (uri.host != 'wallet') return;
 
+    final checkoutTxn =
+        SentryService.startTransaction('wallet.checkout_return', 'navigation');
+    try {
+      await _handleWalletPaymentDeepLink(uri);
+    } catch (e, stackTrace) {
+      unawaited(
+        SentryService.captureException(
+          e,
+          stackTrace: stackTrace,
+          tags: {'feature': 'wallet_checkout_return'},
+        ),
+      );
+    } finally {
+      unawaited(checkoutTxn.finish());
+    }
+  }
+
+  Future<void> _handleWalletPaymentDeepLink(Uri uri) async {
     final paymentStatus =
         uri.queryParameters['status'] ?? uri.queryParameters['payment'];
     if (paymentStatus == null || paymentStatus.isEmpty) return;

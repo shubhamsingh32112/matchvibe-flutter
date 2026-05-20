@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stream_chat_flutter/stream_chat_flutter.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/services/sentry_service.dart';
 import '../../../core/services/push_notification_service.dart';
 import '../../../core/services/in_app_feedback_service.dart';
 import '../../../core/api/api_client.dart';
@@ -146,6 +147,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(SentryService.setScreenTag('chat'));
     // Tell PushNotificationService which channel is currently open
     // so it suppresses notifications for this channel.
     PushNotificationService.activeChannelId = widget.channelId;
@@ -165,6 +167,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   void dispose() {
+    unawaited(SentryService.clearScreenTag());
     _callStateSub?.close();
     _channelPresentationSub?.cancel();
     _clientUserUpdatedSub?.cancel();

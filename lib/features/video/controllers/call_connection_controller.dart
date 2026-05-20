@@ -15,6 +15,7 @@ import '../utils/remote_avatar_lookup.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../home/providers/availability_provider.dart';
 import '../../../core/utils/user_message_mapper.dart';
+import '../../../core/services/sentry_service.dart';
 import '../../../shared/providers/coin_purchase_popup_provider.dart';
 import '../../wallet/providers/wallet_pricing_provider.dart';
 
@@ -185,6 +186,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
 
     // Outgoing call tone while dialing / connecting.
     CallRingtoneService.startOutgoingTone();
+    _sentryCallBreadcrumb('call.outgoing.start');
     state = CallConnectionState(
       phase: CallConnectionPhase.preparing,
       isOutgoing: true,
@@ -194,6 +196,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       outgoingCreatorCountry: creatorCountry,
     );
 
+    final joinTxn = SentryService.startTransaction('video.call_join', 'call');
     try {
       final authBeforePermCheck = _ref.read(authProvider);
       final stage = authBeforePermCheck.user?.onboardingStage;
@@ -306,7 +309,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       callService.joinCall(call);
       debugPrint('✅ [CALL CTRL] call.join() fired (fire-and-forget)');
       // Actual UI transition → connected happens in _listenForConnected.
-    } catch (e) {
+    } catch (e, stackTrace) {
       debugPrint('❌ [CALL CTRL] startUserCall error: $e');
       CallRingtoneService.stop();
       await _cleanupCall();
@@ -317,8 +320,15 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
           failureReason: CallFailureReason.sfuFailure,
           isOutgoing: true,
         );
+        _sentryReportCallFailure(
+          reason: CallFailureReason.sfuFailure,
+          error: e,
+          stackTrace: stackTrace,
+        );
         CallNavigationService.navigateToCallScreen();
       }
+    } finally {
+      unawaited(joinTxn.finish());
     }
   }
 
@@ -813,6 +823,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
 
           CallNavigationService.navigateToCallScreen();
           debugPrint('✅ [CALL CTRL] phase → connected — call is live');
+          _sentryCallBreadcrumb('call.connected', callId: call.id);
         }
       } else if (status is CallStatusDisconnected) {
         CallRingtoneService.stop();
@@ -961,6 +972,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
               error: 'Connection timed out. Please try again.',
               failureReason: CallFailureReason.joinTimeout,
             );
+            _sentryReportCallFailure(reason: CallFailureReason.joinTimeout);
           }
         }
       });
@@ -992,9 +1004,48 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
           if (wasOutgoing) {
             CallNavigationService.navigateToCallScreen();
           }
+          _sentryReportCallFailure(reason: CallFailureReason.joinTimeout);
         }
       }
     });
+  }
+
+  void _sentryCallBreadcrumb(String message, {String? callId}) {
+    SentryService.addBreadcrumb(
+      category: 'call',
+      message: message,
+      data: {
+        if (callId != null) 'call_id': callId,
+        'call_phase': state.phase.name,
+      },
+    );
+  }
+
+  void _sentryReportCallFailure({
+    required CallFailureReason? reason,
+    Object? error,
+    StackTrace? stackTrace,
+  }) {
+    _sentryCallBreadcrumb('call.failed', callId: _activeCallId);
+    if (reason == null ||
+        reason == CallFailureReason.permissionDenied ||
+        reason == CallFailureReason.rejected ||
+        reason == CallFailureReason.creatorNotPickedUp) {
+      return;
+    }
+    unawaited(
+      SentryService.captureException(
+        error ?? Exception('call_failed:${reason.name}'),
+        stackTrace: stackTrace,
+        tags: {
+          'stream': 'video',
+          'screen': 'video_call',
+          'failure_reason': reason.name,
+          'call_phase': state.phase.name,
+          if (_activeCallId != null) 'call_id': _activeCallId!,
+        },
+      ),
+    );
   }
 
   void _cancelWatchdog() {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:developer' as developer;
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -10,12 +11,14 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:stream_chat_flutter/stream_chat_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter/foundation.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 import 'app/router/app_router.dart';
 import 'app/widgets/app_lifecycle_wrapper.dart';
 import 'app/widgets/stream_chat_wrapper.dart';
 import 'core/api/api_client.dart';
 import 'core/services/memory_pressure_observer.dart';
 import 'core/services/push_notification_service.dart';
+import 'core/services/sentry_service.dart';
 import 'core/theme/app_theme.dart';
 import 'features/chat/providers/stream_chat_provider.dart';
 import 'features/video/services/security_service.dart';
@@ -24,25 +27,11 @@ import 'features/video/widgets/outgoing_call_overlay.dart';
 import 'shared/providers/image_service_degraded_provider.dart';
 import 'shared/widgets/image_service_degraded_banner.dart';
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+Future<void> main() async {
+  SentryWidgetsFlutterBinding.ensureInitialized();
 
-  // Bump default 100MB image cache to 150MB so feed grid + gallery + call
-  // backgrounds don't churn against each other on mid-range devices.
-  // Also lift the default 1000-image count cap a bit so a long scroll session
-  // doesn't evict warm avatars while the gallery hydrates.
-  // Plan §7.3 + §11.3 + §16: monitor low-mem Android closely once shipped.
-  PaintingBinding.instance.imageCache.maximumSizeBytes = 150 << 20;
-  PaintingBinding.instance.imageCache.maximumSize = 1500;
-
-  // Register the memory-pressure ladder + 30s cache-size telemetry. Runs for
-  // the full lifetime of the process — no dispose needed.
-  MemoryPressureObserver.instance.register();
-
-  // Load environment file based on build mode
-  // Detect build mode: kReleaseMode is true in release builds, false in debug/profile
   final bool isProduction = kReleaseMode;
-  final envFile = isProduction ? ".env.production" : ".env.development";
+  final envFile = isProduction ? '.env.production' : '.env.development';
 
   if (kDebugMode) {
     debugPrint('═══════════════════════════════════════════════════════');
@@ -57,78 +46,89 @@ void main() async {
 
   await dotenv.load(fileName: envFile);
 
-  // Release builds: debugPrint is stripped; use developer.log for adb logcat.
-  //   adb logcat | findstr MatchVibe
-  if (kReleaseMode) {
-    final api = (dotenv.env['API_BASE_URL'] ?? '').trim();
-    final socket = (dotenv.env['SOCKET_URL'] ?? '').trim();
-    final hasGoogleWeb = (dotenv.env['GOOGLE_WEB_CLIENT_ID'] ?? '')
-        .trim()
-        .isNotEmpty;
-    final apiHost = Uri.tryParse(api)?.host ?? '';
-    final socketHost = Uri.tryParse(socket)?.host ?? '';
-    developer.log(
-      'env=$envFile apiHost=$apiHost apiLen=${api.length} '
-      'socketHost=$socketHost GOOGLE_WEB_CLIENT_ID_set=$hasGoogleWeb',
-      name: 'MatchVibe',
-    );
-  }
+  await SentryService.init(() async {
+    // Bump default 100MB image cache to 150MB so feed grid + gallery + call
+    // backgrounds don't churn against each other on mid-range devices.
+    PaintingBinding.instance.imageCache.maximumSizeBytes = 150 << 20;
+    PaintingBinding.instance.imageCache.maximumSize = 1500;
 
-  if (kDebugMode) {
-    debugPrint('✅ [ENV] Environment loaded successfully');
-    debugPrint(
-      '   🌐 API_BASE_URL: ${dotenv.env['API_BASE_URL'] ?? "NOT SET"}',
-    );
-    debugPrint('   🔌 SOCKET_URL: ${dotenv.env['SOCKET_URL'] ?? "NOT SET"}');
-    final apiBase = (dotenv.env['API_BASE_URL'] ?? '').trim();
-    if (apiBase.contains('localhost') || apiBase.contains('127.0.0.1')) {
-      debugPrint(
-        '⚠️ [ENV] Debug/profile uses $envFile with a loopback API_BASE_URL. '
-        'A physical device cannot reach your PC. Use a LAN URL in .env.development, '
-        'adb reverse, or a release build to load .env.production.',
+    MemoryPressureObserver.instance.register();
+
+    if (kReleaseMode) {
+      final api = (dotenv.env['API_BASE_URL'] ?? '').trim();
+      final socket = (dotenv.env['SOCKET_URL'] ?? '').trim();
+      final hasGoogleWeb = (dotenv.env['GOOGLE_WEB_CLIENT_ID'] ?? '')
+          .trim()
+          .isNotEmpty;
+      final apiHost = Uri.tryParse(api)?.host ?? '';
+      final socketHost = Uri.tryParse(socket)?.host ?? '';
+      developer.log(
+        'env=$envFile apiHost=$apiHost apiLen=${api.length} '
+        'socketHost=$socketHost GOOGLE_WEB_CLIENT_ID_set=$hasGoogleWeb',
+        name: 'MatchVibe',
       );
     }
-  }
-  if (isProduction) {
-    // Fail-safe warnings: if these are missing, the app will silently fall back to localhost and break in production.
-    final requiredKeys = <String>[
-      'API_BASE_URL',
-      'SOCKET_URL',
-      'WEBSITE_BASE_URL',
-    ];
-    final missing = requiredKeys
-        .where((k) => (dotenv.env[k] ?? '').trim().isEmpty)
-        .toList();
-    final baseUrl = (dotenv.env['API_BASE_URL'] ?? '').trim();
-    if (missing.isNotEmpty || baseUrl.contains('localhost')) {
-      // Always print this warning, even in release builds
-      debugPrint('❌ [ENV] Production env sanity check failed.');
-      debugPrint('   Missing keys: $missing');
-      debugPrint('   API_BASE_URL: "${dotenv.env['API_BASE_URL']}"');
-      debugPrint('   ⚠️  App may be using wrong backend URL!');
-    } else {
-      if (kDebugMode) {
+
+    if (kDebugMode) {
+      debugPrint('✅ [ENV] Environment loaded successfully');
+      debugPrint(
+        '   🌐 API_BASE_URL: ${dotenv.env['API_BASE_URL'] ?? "NOT SET"}',
+      );
+      debugPrint('   🔌 SOCKET_URL: ${dotenv.env['SOCKET_URL'] ?? "NOT SET"}');
+      final apiBase = (dotenv.env['API_BASE_URL'] ?? '').trim();
+      if (apiBase.contains('localhost') || apiBase.contains('127.0.0.1')) {
+        debugPrint(
+          '⚠️ [ENV] Debug/profile uses $envFile with a loopback API_BASE_URL. '
+          'A physical device cannot reach your PC. Use a LAN URL in .env.development, '
+          'adb reverse, or a release build to load .env.production.',
+        );
+      }
+    }
+
+    if (isProduction) {
+      final requiredKeys = <String>[
+        'API_BASE_URL',
+        'SOCKET_URL',
+        'WEBSITE_BASE_URL',
+      ];
+      final missing = requiredKeys
+          .where((k) => (dotenv.env[k] ?? '').trim().isEmpty)
+          .toList();
+      final baseUrl = (dotenv.env['API_BASE_URL'] ?? '').trim();
+      if (missing.isNotEmpty || baseUrl.contains('localhost')) {
+        debugPrint('❌ [ENV] Production env sanity check failed.');
+        debugPrint('   Missing keys: $missing');
+        debugPrint('   API_BASE_URL: "${dotenv.env['API_BASE_URL']}"');
+        debugPrint('   ⚠️  App may be using wrong backend URL!');
+        unawaited(
+          SentryService.captureMessage(
+            'Production env sanity check failed',
+            tags: {'feature': 'startup', 'missing': missing.join(',')},
+          ),
+        );
+      } else if (kDebugMode) {
         debugPrint('✅ [ENV] Production environment validated');
         debugPrint('   🌐 Using production backend: $baseUrl');
       }
     }
-  }
 
-  final localNotifications = FlutterLocalNotificationsPlugin();
-  final initFutures = <Future<void>>[
-    SecurityService.initializeAppSecurity(),
-    _initializeFirebaseSafely(),
-    _initializeLocalNotifications(localNotifications),
-  ];
-  await Future.wait(initFutures);
+    final localNotifications = FlutterLocalNotificationsPlugin();
+    final initFutures = <Future<void>>[
+      SecurityService.initializeAppSecurity(),
+      _initializeFirebaseSafely(),
+      _initializeLocalNotifications(localNotifications),
+    ];
+    await Future.wait(initFutures);
 
-  // Inject the single instance into PushNotificationService
-  PushNotificationService().setNotificationsPlugin(localNotifications);
+    PushNotificationService().setNotificationsPlugin(localNotifications);
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
-  // Register FCM background message handler (must be top-level function)
-  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-
-  runApp(const ProviderScope(child: MyApp()));
+    runApp(
+      SentryWidget(
+        child: const ProviderScope(child: MyApp()),
+      ),
+    );
+  });
 }
 
 Future<void> _initializeFirebaseSafely() async {
@@ -137,10 +137,17 @@ Future<void> _initializeFirebaseSafely() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
     debugPrint('✅ Firebase initialized successfully');
-  } catch (e) {
+  } catch (e, stackTrace) {
     debugPrint('❌ Firebase initialization error: $e');
     debugPrint('⚠️  Please run: flutterfire configure');
     debugPrint('⚠️  App will continue but authentication will not work');
+    unawaited(
+      SentryService.captureException(
+        e,
+        stackTrace: stackTrace,
+        tags: {'feature': 'firebase_init'},
+      ),
+    );
   }
 }
 
@@ -191,16 +198,12 @@ class MyApp extends StatelessWidget {
         theme: AppTheme.lightTheme,
         routerConfig: appRouter,
         debugShowCheckedModeBanner: false,
-        // Localizations configuration (required by StreamChat)
         supportedLocales: const [Locale('en')],
         localizationsDelegates: [
           GlobalMaterialLocalizations.delegate,
           GlobalWidgetsLocalizations.delegate,
           GlobalCupertinoLocalizations.delegate,
         ],
-        // CRITICAL: All widgets that use Navigator/GoRouter/Material widgets MUST be inside MaterialApp
-        // This ensures Directionality, Navigator, Theme, and MediaQuery are available
-        // Order: StreamChat → AppLifecycleWrapper → IncomingCallListener → router child
         builder: (context, child) {
           return _StreamChatBuilder(
             child: AppLifecycleWrapper(
@@ -235,8 +238,6 @@ class _StreamChatBuilderState extends ConsumerState<_StreamChatBuilder> {
   @override
   void initState() {
     super.initState();
-    // Wire the Dio interceptor's degraded-mode hook to the Riverpod
-    // provider once the widget tree (and its ProviderScope) is alive.
     ApiClient.setImageServiceDegradedCallback((degraded) {
       final notifier = ref.read(imageServiceDegradedProvider.notifier);
       if (degraded) {
@@ -257,10 +258,6 @@ class _StreamChatBuilderState extends ConsumerState<_StreamChatBuilder> {
   Widget build(BuildContext context) {
     final streamClient = ref.watch(streamChatNotifierProvider);
 
-    // CRITICAL: Always wrap with StreamChat widget
-    // Client is initialized immediately in provider, so it's always available
-    // This ensures StreamChat is in the widget tree for ALL routes (including ChatScreen)
-    // AND it's inside MaterialApp so Localizations is available
     return StreamChat(
       client: streamClient!,
       child: Column(

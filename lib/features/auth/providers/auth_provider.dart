@@ -13,6 +13,7 @@ import '../../../core/api/api_client.dart';
 import '../../../core/images/image_asset_view.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../chat/services/chat_service.dart';
+import '../../../core/services/sentry_service.dart';
 import '../../../core/services/availability_socket_service.dart';
 import '../../../core/services/device_fingerprint_service.dart';
 import '../../../core/services/install_referrer_service.dart';
@@ -549,6 +550,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
           createdNow: createdNow,
           showWelcomeBackDialog: showWelcomeBackDialog,
         );
+        unawaited(
+          SentryService.setUserContext(
+            user: user,
+            firebaseUid: firebaseUser.uid,
+          ),
+        );
         debugPrint('✅ [AUTH] User authenticated and synced successfully');
         debugPrint('   🎉 Ready for app usage');
 
@@ -864,6 +871,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
     try {
       debugPrint('🚪 [AUTH] Starting sign out...');
 
+      await SentryService.clearUserContext();
+
       try {
         AvailabilitySocketService.instance.onLogout();
         debugPrint('✅ [AUTH] Availability socket disconnected');
@@ -1073,6 +1082,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
         // Update state with refreshed user data
         state = state.copyWith(user: user, isLoading: false);
+        unawaited(
+          SentryService.setUserContext(
+            user: user,
+            firebaseUid: firebaseUser.uid,
+          ),
+        );
         debugPrint('✅ [AUTH] User data updated in state');
       } else {
         debugPrint(

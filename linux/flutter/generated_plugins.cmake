@@ -9,6 +9,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   gtk
   media_kit_video
   record_linux
+  sentry_flutter
   stream_webrtc_flutter
   url_launcher_linux
 )

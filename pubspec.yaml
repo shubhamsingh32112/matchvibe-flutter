@@ -91,6 +91,10 @@ dependencies:
   # Fonts
   google_fonts: ^6.2.1
 
+  # Error monitoring
+  sentry_flutter: ^8.14.0
+  sentry_dio: ^8.14.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

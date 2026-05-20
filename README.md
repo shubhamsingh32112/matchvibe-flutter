@@ -38,6 +38,14 @@ flutter run
 
 Release signing is loaded from `android/key.properties` (ignored by git). See Flutter docs: `https://docs.flutter.dev/deployment/android`.
 
+## Documentation
+
+Full reference for everything in this Flutter app (architecture, routes, APIs, sockets, all 162 `lib/` files, providers, assets, native config):
+
+**[docs/FLUTTER_FRONTEND_COMPREHENSIVE.md](docs/FLUTTER_FRONTEND_COMPREHENSIVE.md)**
+
+Other docs in `docs/` cover Sentry, performance refactors, iOS build, and capacity audits.
+
 ## Project Structure
 
 ```

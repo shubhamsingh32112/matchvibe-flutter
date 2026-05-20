@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/app_constants.dart';
+import 'sentry_service.dart';
 import '../../features/user/providers/user_availability_provider.dart';
 import '../../features/auth/providers/auth_provider.dart';
 // 🔥 CRITICAL FIX: Import home provider to update it as well
@@ -202,6 +203,10 @@ class AvailabilitySocketService {
     _socket!.onConnect((_) {
       _isConnected = true;
       debugPrint('✅ [SOCKET] Connected to $socketUrl');
+      SentryService.addBreadcrumb(
+        category: 'socket',
+        message: 'availability.connect',
+      );
       
       // 🔥 AUTOMATIC ONLINE: Creators are automatically online when app opens
       // Backend socket handler will also set online on connect
@@ -255,6 +260,10 @@ class AvailabilitySocketService {
     _socket!.onDisconnect((reason) {
       _isConnected = false;
       debugPrint('🔌 [SOCKET] Disconnected: $reason');
+      SentryService.addBreadcrumb(
+        category: 'socket',
+        message: 'availability.disconnect',
+      );
       
       // IMPORTANT:
       // Socket disconnects can be transient (wifi switch, background jitter, etc.).

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../constants/app_constants.dart';
 import '../api/api_client.dart';
+import 'sentry_service.dart';
 
 /// Singleton Socket.IO service for real-time creator availability
 /// and per-second call billing.
@@ -119,6 +120,10 @@ class SocketService {
 
     _socket!.onConnect((_) {
       debugPrint('✅ [SOCKET] Connected to ${AppConstants.socketUrl}');
+      SentryService.addBreadcrumb(
+        category: 'socket',
+        message: 'socket.connect',
+      );
       _isConnected = true;
       _isConnecting = false;
       if (_connectCompleter != null && !_connectCompleter!.isCompleted) {
@@ -196,6 +201,7 @@ class SocketService {
     // ── Billing events ──────────────────────────────────────────────────
     _socket!.on('billing:started', (data) {
       debugPrint('💰 [SOCKET] billing:started: $data');
+      _socketEventBreadcrumb('billing:started', data);
       if (data is Map) {
         onBillingStarted?.call(Map<String, dynamic>.from(data));
       }
@@ -209,6 +215,7 @@ class SocketService {
 
     _socket!.on('billing:settled', (data) {
       debugPrint('💰 [SOCKET] billing:settled: $data');
+      _socketEventBreadcrumb('billing:settled', data);
       if (data is Map) {
         onBillingSettled?.call(Map<String, dynamic>.from(data));
       }
@@ -223,6 +230,7 @@ class SocketService {
 
     _socket!.on('billing:error', (data) {
       debugPrint('❌ [SOCKET] billing:error: $data');
+      _socketEventBreadcrumb('billing:error', data);
       if (data is Map) {
         onBillingError?.call(Map<String, dynamic>.from(data));
       }
@@ -267,12 +275,21 @@ class SocketService {
 
     _socket!.onDisconnect((_) {
       debugPrint('🔌 [SOCKET] Disconnected');
+      SentryService.addBreadcrumb(
+        category: 'socket',
+        message: 'socket.disconnect',
+      );
       _isConnected = false;
       _isConnecting = false;
     });
 
     _socket!.onReconnect((_) {
       debugPrint('🔌 [SOCKET] Reconnected');
+      SentryService.addBreadcrumb(
+        category: 'socket',
+        message: 'socket.reconnect',
+        data: {'socket.reconnect': 'true'},
+      );
       _isConnected = true;
 
       // Re-hydrate availability after reconnect
@@ -490,6 +507,21 @@ class SocketService {
       _socket!.emit('billing:recover-state');
       _pendingBillingRecoverState = false;
     }
+  }
+
+  void _socketEventBreadcrumb(String event, dynamic data) {
+    String? callId;
+    if (data is Map) {
+      callId = data['callId']?.toString() ?? data['call_id']?.toString();
+    }
+    SentryService.addBreadcrumb(
+      category: 'socket',
+      message: event,
+      data: {
+        'event': event,
+        if (callId != null) 'callId': callId,
+      },
+    );
   }
 
   // ── Disconnect ──────────────────────────────────────────────────────────

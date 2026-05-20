@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sentry_dio/sentry_dio.dart';
 import 'dart:io';
 import '../constants/app_constants.dart';
+import '../services/sentry_service.dart';
 import '../../shared/providers/image_service_degraded_provider.dart';
 
 /// Callback installed by the Riverpod-aware root widget so the Dio
@@ -76,6 +79,8 @@ class ApiClient {
         validateStatus: (status) => status != null && status >= 200 && status < 300,
       ),
     );
+
+    _dio.addSentry(captureFailedRequests: false);
 
     _dio.interceptors.add(
       InterceptorsWrapper(
@@ -189,10 +194,20 @@ class ApiClient {
                   final response = await _dio.fetch(opts);
                   return handler.resolve(response);
                 }
-              } catch (e) {
+              } catch (e, stackTrace) {
                 if (kDebugMode) {
                   debugPrint('   ⚠️ Token refresh failed: $e');
                 }
+                unawaited(
+                  SentryService.captureException(
+                    e,
+                    stackTrace: stackTrace,
+                    tags: {
+                      'http.path': error.requestOptions.path,
+                      'feature': 'token_refresh',
+                    },
+                  ),
+                );
               } finally {
                 _tokenRefreshFuture = null;
               }
@@ -302,7 +317,22 @@ class ApiClient {
           if (kDebugMode) {
             debugPrint('═══════════════════════════════════════════════════════');
           }
-          
+
+          if (SentryService.shouldReportApiError(error)) {
+            final requestId = _extractBackendRequestId(error.response?.data);
+            unawaited(
+              SentryService.captureException(
+                error,
+                stackTrace: error.stackTrace,
+                tags: {
+                  'http.path': error.requestOptions.path,
+                  'http.status': '${error.response?.statusCode ?? ''}',
+                  if (requestId != null) 'backend_request_id': requestId,
+                },
+              ),
+            );
+          }
+
           return handler.next(error);
         },
       ),
@@ -496,6 +526,13 @@ class ApiClient {
     if (isSuccess && isImageHealthRevealingPath(path)) {
       cb(false);
     }
+  }
+
+  static String? _extractBackendRequestId(dynamic data) {
+    if (data is! Map) return null;
+    final id = data['requestId'] ?? data['request_id'];
+    if (id == null) return null;
+    return id.toString();
   }
 
   static String _latencyCategory(String path) {
