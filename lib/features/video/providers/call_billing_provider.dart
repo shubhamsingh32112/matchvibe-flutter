@@ -34,6 +34,9 @@ class CallBillingState {
   /// Rate from `billing:started` (user: coin/sec; creator: display rate from server).
   final num? pricePerSecond;
 
+  /// Welcome intro promo session — spend intro bucket only (server flag).
+  final bool introPromoActive;
+
   /// Last `serverTimestamp` from billing event (ms since epoch).
   final int? lastServerTimestampMs;
 
@@ -80,6 +83,7 @@ class CallBillingState {
     this.remainingSeconds,
     this.durationLimit,
     this.pricePerSecond,
+    this.introPromoActive = false,
     this.lastServerTimestampMs,
     this.callStartTimeMs,
     this.forceEnded = false,
@@ -100,6 +104,7 @@ class CallBillingState {
     int? remainingSeconds,
     int? durationLimit,
     num? pricePerSecond,
+    bool? introPromoActive,
     int? lastServerTimestampMs,
     int? callStartTimeMs,
     bool? forceEnded,
@@ -119,6 +124,7 @@ class CallBillingState {
       remainingSeconds: remainingSeconds ?? this.remainingSeconds,
       durationLimit: durationLimit ?? this.durationLimit,
       pricePerSecond: pricePerSecond ?? this.pricePerSecond,
+      introPromoActive: introPromoActive ?? this.introPromoActive,
       lastServerTimestampMs:
           lastServerTimestampMs ?? this.lastServerTimestampMs,
       callStartTimeMs: callStartTimeMs ?? this.callStartTimeMs,
@@ -149,6 +155,7 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
   Timer? _billingRecoveryRetryTimer;
   int _billingRecoveryAttempts = 0;
   static const int _maxBillingRecoveryAttempts = 10;
+  static const Duration _billingStuckEndGrace = Duration(seconds: 20);
   Timer? _connectedWithoutBillingTimer;
   DateTime? _connectedStuckSince;
   DateTime? _lastOrphanRecoveryEmit;
@@ -199,7 +206,8 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
   }
 
   void _onConnectedWithoutBillingWatchTick() {
-    final phase = _ref.read(callConnectionControllerProvider).phase;
+    final conn = _ref.read(callConnectionControllerProvider);
+    final phase = conn.phase;
     if (phase != CallConnectionPhase.connected) {
       _connectedStuckSince = null;
       _stuckEndRequested = false;
@@ -212,6 +220,14 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
       _lastOrphanRecoveryEmit = null;
       return;
     }
+
+    final activeCallId = conn.call?.id;
+    if (activeCallId != null &&
+        activeCallId.isNotEmpty &&
+        state.callId != activeCallId) {
+      state = state.copyWith(callId: activeCallId);
+    }
+
     _connectedStuckSince ??= DateTime.now();
     final stuckFor = DateTime.now().difference(_connectedStuckSince!);
 
@@ -220,33 +236,43 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
       if (_lastOrphanRecoveryEmit == null ||
           now.difference(_lastOrphanRecoveryEmit!) > const Duration(seconds: 2)) {
         _lastOrphanRecoveryEmit = now;
-        final socketService = _ref.read(socketServiceProvider);
-        socketService.requestBillingStateRecovery();
-
-        // If the call is already connected but the billing socket isn't, try to
-        // reconnect immediately so `billing:started` / recover-state can land
-        // within the 8s safety window.
-        if (!socketService.isConnected) {
-          final firebaseUser = _ref.read(authProvider).firebaseUser;
-          if (firebaseUser != null) {
-            unawaited(() async {
-              try {
-                final token = await firebaseUser.getIdToken();
-                if (token != null) {
-                  await socketService.ensureConnected(token);
-                }
-              } catch (_) {}
-            }());
-          }
-        }
+        requestBillingRecoveryForActiveCall();
       }
     }
-    if (stuckFor > const Duration(seconds: 8) && !_stuckEndRequested) {
+    if (stuckFor > _billingStuckEndGrace && !_stuckEndRequested) {
       _stuckEndRequested = true;
       debugPrint(
         '💰 [BILLING] billing_stuck_ending_call no_active_billing after ${stuckFor.inSeconds}s',
       );
       unawaited(_ref.read(callConnectionControllerProvider.notifier).endCall());
+    } else if (stuckFor > const Duration(seconds: 8) &&
+        _billingRecoveryAttempts < _maxBillingRecoveryAttempts) {
+      _startBillingRecoveryRetry();
+    }
+  }
+
+  /// Ask the server for Redis billing snapshot (uses active call id when known).
+  void requestBillingRecoveryForActiveCall() {
+    final conn = _ref.read(callConnectionControllerProvider);
+    final activeCallId = conn.call?.id;
+    if (activeCallId != null && activeCallId.isNotEmpty) {
+      state = state.copyWith(callId: activeCallId);
+    }
+    final socketService = _ref.read(socketServiceProvider);
+    socketService.requestBillingStateRecovery();
+
+    if (!socketService.isConnected) {
+      final firebaseUser = _ref.read(authProvider).firebaseUser;
+      if (firebaseUser != null) {
+        unawaited(() async {
+          try {
+            final token = await firebaseUser.getIdToken();
+            if (token != null) {
+              await socketService.ensureConnected(token);
+            }
+          } catch (_) {}
+        }());
+      }
     }
   }
 
@@ -255,32 +281,13 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
     socketService.onReconnected = _onSocketReconnected;
 
     socketService.onBillingStarted = (data) {
-      debugPrint('💰 [BILLING] Started: $data');
-      _stopBillingRecoveryRetry();
-      final callId = data['callId'] as String?;
-      final coins = (data['coins'] as num?)?.toInt();
-      final earnings = (data['earnings'] as num?)?.toDouble();
-      final maxSeconds = (data['maxSeconds'] as num?)?.toInt();
-      final elapsed = (data['elapsedSeconds'] as num?)?.toInt() ?? 0;
-      final remainingFromPayload =
-          (data['remainingSeconds'] as num?)?.toInt();
-      final pricePerSecond = data['pricePerSecond'] as num?;
-      final serverTs = _readIntMs(data['serverTimestamp']);
-      final startMs = _readIntMs(data['callStartTime']);
-      final durationLimit = (data['durationLimit'] as num?)?.toInt();
+      applyBillingStartedPayload(data);
+    };
 
-      state = CallBillingState(
-        isActive: true,
-        callId: callId,
-        userCoins: coins ?? 0,
-        creatorEarnings: earnings ?? 0,
-        elapsedSeconds: elapsed,
-        remainingSeconds: remainingFromPayload ?? maxSeconds,
-        durationLimit: durationLimit,
-        pricePerSecond: pricePerSecond,
-        lastServerTimestampMs: serverTs,
-        callStartTimeMs: startMs,
-      );
+    socketService.onBillingError = (data) {
+      debugPrint('❌ [BILLING] billing:error: $data');
+      requestBillingRecoveryForActiveCall();
+      _startBillingRecoveryRetry();
     };
 
     socketService.onBillingUpdate = (data) {
@@ -345,6 +352,36 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
     };
 
     socketService.onBillingRecoverState = _onBillingRecoverState;
+  }
+
+  void applyBillingStartedPayload(Map<String, dynamic> data) {
+    debugPrint('💰 [BILLING] Started: $data');
+    _stopBillingRecoveryRetry();
+    final callId = data['callId'] as String?;
+    final coins = (data['coins'] as num?)?.toInt();
+    final earnings = (data['earnings'] as num?)?.toDouble();
+    final maxSeconds = (data['maxSeconds'] as num?)?.toInt();
+    final elapsed = (data['elapsedSeconds'] as num?)?.toInt() ?? 0;
+    final remainingFromPayload = (data['remainingSeconds'] as num?)?.toInt();
+    final pricePerSecond = data['pricePerSecond'] as num?;
+    final introPromoActive = data['introPromoActive'] == true;
+    final serverTs = _readIntMs(data['serverTimestamp']);
+    final startMs = _readIntMs(data['callStartTime']);
+    final durationLimit = (data['durationLimit'] as num?)?.toInt();
+
+    state = CallBillingState(
+      isActive: true,
+      callId: callId,
+      userCoins: coins ?? 0,
+      creatorEarnings: earnings ?? 0,
+      elapsedSeconds: elapsed,
+      remainingSeconds: remainingFromPayload ?? maxSeconds,
+      durationLimit: durationLimit,
+      pricePerSecond: pricePerSecond,
+      introPromoActive: introPromoActive,
+      lastServerTimestampMs: serverTs,
+      callStartTimeMs: startMs,
+    );
   }
 
   void _onBillingRecoverState(Map<String, dynamic> data) {
@@ -441,6 +478,7 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
       socketService.onBillingSettled = null;
       socketService.onCallForceEnd = null;
       socketService.onBillingRecoverState = null;
+      socketService.onBillingError = null;
     } catch (_) {}
     super.dispose();
   }

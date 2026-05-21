@@ -1,7 +1,7 @@
 import '../providers/call_billing_provider.dart';
 
 class CallOverlayPolicy {
-  static const Duration maxBillingSyncHintDuration = Duration(seconds: 8);
+  static const Duration maxBillingSyncHintDuration = Duration(seconds: 12);
 
   static bool shouldShowBillingSyncHint({
     required bool isConnected,
@@ -13,6 +13,8 @@ class CallOverlayPolicy {
     return connectedFor <= maxBillingSyncHintDuration;
   }
 
+  static const Duration maxBillingConnectionIssueBeforeEnd = Duration(seconds: 20);
+
   /// Shown when still connected but server billing never activated after the sync window.
   static bool shouldShowBillingConnectionIssue({
     required bool isConnected,
@@ -21,7 +23,8 @@ class CallOverlayPolicy {
   }) {
     if (!isConnected) return false;
     if (billing.isActive || billing.callStartTimeMs != null) return false;
-    return connectedFor > maxBillingSyncHintDuration;
+    return connectedFor > maxBillingSyncHintDuration &&
+        connectedFor <= maxBillingConnectionIssueBeforeEnd;
   }
 
   static bool shouldShowSecurityBlock({

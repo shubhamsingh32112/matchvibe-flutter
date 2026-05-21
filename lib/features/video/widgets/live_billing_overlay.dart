@@ -110,9 +110,19 @@ class _LiveBillingOverlayState extends State<LiveBillingOverlay> {
                 const SizedBox(width: 6),
                 Text(_formatEarnings(b.estimatedCreatorEarningsDisplay)),
               ] else ...[
-                Icon(Icons.monetization_on_outlined, size: 18, color: accent),
+                Icon(
+                  b.introPromoActive
+                      ? Icons.card_giftcard_outlined
+                      : Icons.monetization_on_outlined,
+                  size: 18,
+                  color: accent,
+                ),
                 const SizedBox(width: 6),
-                Text('${b.estimatedUserCoins}'),
+                Text(
+                  b.introPromoActive
+                      ? 'FREE · ${b.estimatedUserCoins}'
+                      : '${b.estimatedUserCoins}',
+                ),
                 if (b.remainingSeconds != null) ...[
                   const SizedBox(width: 8),
                   Text(
@@ -161,8 +171,11 @@ class _LiveBillingOverlayState extends State<LiveBillingOverlay> {
 
     final semanticsLabel = widget.isCreator
         ? 'Billed time $timeLabel, earnings ${_formatEarnings(b.estimatedCreatorEarningsDisplay)} coins'
-        : 'Billed time $timeLabel, ${b.estimatedUserCoins} coins in wallet'
-              '${b.remainingSeconds != null ? ', about ${b.remainingSeconds} seconds of call time remaining' : ''}';
+        : b.introPromoActive
+            ? 'Billed time $timeLabel, welcome free call, ${b.estimatedUserCoins} promo credits remaining'
+                  '${b.remainingSeconds != null ? ', about ${b.remainingSeconds} seconds of call time remaining' : ''}'
+            : 'Billed time $timeLabel, ${b.estimatedUserCoins} coins in wallet'
+                  '${b.remainingSeconds != null ? ', about ${b.remainingSeconds} seconds of call time remaining' : ''}';
 
     return RepaintBoundary(
       child: Semantics(label: semanticsLabel, child: child),

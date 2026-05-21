@@ -401,12 +401,13 @@ class SocketService {
   ///
   /// [userFirebaseUid] - Optional. For creator-initiated calls, specifies the user who pays.
   ///                     For user-initiated calls, this is null and the socket owner pays.
-  void emitCallStarted({
+  /// Returns true when billing was started via HTTP and a snapshot was applied.
+  Future<bool> emitCallStarted({
     required String callId,
     required String creatorFirebaseUid,
     required String creatorMongoId,
     String? userFirebaseUid,
-  }) {
+  }) async {
     final data = <String, dynamic>{
       'callId': callId,
       'creatorFirebaseUid': creatorFirebaseUid,
@@ -420,14 +421,14 @@ class SocketService {
       debugPrint('💰 [SOCKET] Emitting call:started for $callId');
       _socket!.emit('call:started', data);
       _pendingCallStarted = null;
-      return;
+      return false;
     }
 
     // Socket not connected → use REST API fallback
     debugPrint(
         '⚠️ [SOCKET] Cannot emit call:started — not connected. Using REST API fallback for $callId');
     _pendingCallStarted = data;
-    _billingViaHttp('call-started', data);
+    return _billingViaHttp('call-started', data);
   }
 
   /// Notify the backend that a call has ended (triggers settlement).
@@ -467,7 +468,8 @@ class SocketService {
   }
 
   /// REST API fallback for billing events when the socket is down.
-  Future<void> _billingViaHttp(String event, Map<String, dynamic> data) async {
+  /// For `call-started`, returns true when the response includes a billing snapshot.
+  Future<bool> _billingViaHttp(String event, Map<String, dynamic> data) async {
     try {
       debugPrint('🌐 [BILLING HTTP] POST /billing/$event with data: $data');
       final response = await ApiClient().post('/billing/$event', data: data);
@@ -475,12 +477,23 @@ class SocketService {
       // Clear the pending event on success
       if (event == 'call-started') {
         _pendingCallStarted = null;
+        final body = response.data;
+        if (body is Map) {
+          final billing = body['billing'];
+          if (billing is Map) {
+            onBillingStarted?.call(Map<String, dynamic>.from(billing));
+            return true;
+          }
+        }
+        return false;
       } else if (event == 'call-ended') {
         _pendingCallEnded = null;
       }
+      return false;
     } catch (e) {
       debugPrint('❌ [BILLING HTTP] $event failed: $e');
       // Keep the pending event so it can be flushed on socket reconnect
+      return false;
     }
   }
 

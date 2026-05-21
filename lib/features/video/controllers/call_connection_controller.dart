@@ -925,17 +925,32 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     }
 
     final socketService = _ref.read(socketServiceProvider);
+    final billingNotifier = _ref.read(callBillingProvider.notifier);
+    final callId = _activeCallId!;
 
-    // Emit immediately — SocketService handles fallback to REST API
-    // For creator-initiated calls, pass userFirebaseUid so the user (not creator) pays
+    // Emit immediately — SocketService handles fallback to REST API and may
+    // hydrate billing from the HTTP response when the socket missed `billing:started`.
     debugPrint('💰 [CALL CTRL] Emitting call:started');
-    socketService.emitCallStarted(
-      callId: _activeCallId!,
-      creatorFirebaseUid: _activeCreatorFirebaseUid!,
-      creatorMongoId: _activeCreatorMongoId!,
-      userFirebaseUid:
-          _activeUserFirebaseUid, // null for user-initiated, set for creator-initiated
-    );
+    unawaited(() async {
+      final hydratedViaHttp = await socketService.emitCallStarted(
+        callId: callId,
+        creatorFirebaseUid: _activeCreatorFirebaseUid!,
+        creatorMongoId: _activeCreatorMongoId!,
+        userFirebaseUid:
+            _activeUserFirebaseUid, // null for user-initiated, set for creator-initiated
+      );
+      final billing = _ref.read(callBillingProvider);
+      if (!billing.isActive && billing.callStartTimeMs == null) {
+        billingNotifier.requestBillingRecoveryForActiveCall();
+        if (!hydratedViaHttp) {
+          await Future<void>.delayed(const Duration(milliseconds: 600));
+          final after = _ref.read(callBillingProvider);
+          if (!after.isActive && after.callStartTimeMs == null) {
+            billingNotifier.requestBillingRecoveryForActiveCall();
+          }
+        }
+      }
+    }());
   }
 
   // ──── Two-phase watchdog ────

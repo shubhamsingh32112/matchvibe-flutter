@@ -58,7 +58,7 @@ void main() {
       expect(show, isFalse);
     });
 
-    test('returns true after 8s when billing still not active', () {
+    test('returns true after sync window when billing still not active', () {
       final billing = const CallBillingState(
         isActive: false,
         callStartTimeMs: null,
@@ -66,7 +66,7 @@ void main() {
       final show = CallOverlayPolicy.shouldShowBillingConnectionIssue(
         isConnected: true,
         billing: billing,
-        connectedFor: const Duration(seconds: 9),
+        connectedFor: const Duration(seconds: 15),
       );
       expect(show, isTrue);
     });
