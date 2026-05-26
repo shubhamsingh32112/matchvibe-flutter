@@ -8,6 +8,7 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 
 import '../constants/app_constants.dart';
 import '../../shared/models/user_model.dart';
+import 'sentry_error_classifier.dart';
 
 /// Centralized Sentry configuration and helpers for Match Vibe.
 class SentryService {
@@ -22,6 +23,9 @@ class SentryService {
 
   static final _recentFingerprintCache = <String, DateTime>{};
   static const _dedupWindow = Duration(seconds: 30);
+  static const _breadcrumbDebounce = Duration(seconds: 15);
+
+  static final _lastBreadcrumbAt = <String, DateTime>{};
 
   static const _breadcrumbMessageMax = 512;
   static const _breadcrumbDataValueMax = 256;
@@ -149,7 +153,7 @@ class SentryService {
 
         options.beforeSend = enabled
             ? (event, hint) {
-                final scrubbed = _scrubEvent(event);
+                final scrubbed = _scrubEvent(event, hint: hint);
                 if (scrubbed == null) return null;
                 final truncated = _truncateEventPayloads(scrubbed);
                 return _shouldDropDuplicateEvent(truncated) ? null : truncated;
@@ -214,6 +218,39 @@ class SentryService {
     });
   }
 
+  @visibleForTesting
+  static bool isBreadcrumbThrottled(String category, {DateTime? now}) {
+    final at = now ?? DateTime.now();
+    final last = _lastBreadcrumbAt[category];
+    return last != null && at.difference(last) < _breadcrumbDebounce;
+  }
+
+  @visibleForTesting
+  static void recordBreadcrumbTimestampForTests(String category, DateTime at) {
+    _lastBreadcrumbAt[category] = at;
+  }
+
+  static void addThrottledBreadcrumb({
+    required String category,
+    required String message,
+    SentryLevel level = SentryLevel.info,
+    Map<String, dynamic>? data,
+  }) {
+    if (!isEnabled) return;
+    final now = DateTime.now();
+    final last = _lastBreadcrumbAt[category];
+    if (last != null && now.difference(last) < _breadcrumbDebounce) {
+      return;
+    }
+    _lastBreadcrumbAt[category] = now;
+    addBreadcrumb(
+      category: category,
+      message: message,
+      level: level,
+      data: data,
+    );
+  }
+
   static void addBreadcrumb({
     required String category,
     required String message,
@@ -238,6 +275,13 @@ class SentryService {
     Map<String, String>? extra,
   }) async {
     if (!isEnabled) return;
+    if (!SentryErrorClassifier.shouldReportCapture(exception)) {
+      _recordClassifierBreadcrumb(
+        exception,
+        disposition: SentryErrorClassifier.classifyError(exception),
+      );
+      return;
+    }
     await Sentry.captureException(
       exception,
       stackTrace: stackTrace,
@@ -299,6 +343,57 @@ class SentryService {
     return false;
   }
 
+  static Object? _extractThrowableFromEvent(SentryEvent event) {
+    final exceptions = event.exceptions;
+    if (exceptions == null || exceptions.isEmpty) return null;
+    final value = exceptions.first.value;
+    if (value == null || value.isEmpty) return null;
+    return Exception(value);
+  }
+
+  static bool _shouldAlwaysReport(Object error, SentryEvent event) {
+    if (error is StateError &&
+        error.message.contains('Cannot use "ref" after the widget was disposed')) {
+      return true;
+    }
+    if (error is TypeError) return true;
+
+    final text = error.toString().toLowerCase();
+    if (text.contains('cannot use "ref" after the widget was disposed')) {
+      return true;
+    }
+    if (text.contains('null check operator used on a null value')) {
+      return true;
+    }
+    if (text.contains('syscall: abort') ||
+        text.contains('flutterjni is not attached')) {
+      return true;
+    }
+
+    final tags = event.tags ?? const {};
+    if (tags['failure_reason'] == 'joinTimeout') return true;
+
+    return false;
+  }
+
+  static void _recordClassifierBreadcrumb(
+    Object error, {
+    required SentryErrorDisposition disposition,
+    bool sampledOut = false,
+  }) {
+    final category = SentryErrorClassifier.breadcrumbCategoryFor(error);
+    final host = SentryErrorClassifier.tryExtractHost(error);
+    addThrottledBreadcrumb(
+      category: category,
+      message: _truncateString(error.toString(), _breadcrumbMessageMax),
+      data: {
+        'disposition': disposition.name,
+        if (sampledOut) 'sampled_out': true,
+        if (host != null) 'host': host,
+      },
+    );
+  }
+
   static Breadcrumb? _scrubBreadcrumb(Breadcrumb? breadcrumb, Hint hint) {
     if (breadcrumb == null) return null;
     final data = breadcrumb.data;
@@ -315,7 +410,42 @@ class SentryService {
     );
   }
 
-  static SentryEvent? _scrubEvent(SentryEvent event) {
+  static SentryEvent? _scrubEvent(SentryEvent event, {Hint? hint}) {
+    final throwable = event.throwable ?? _extractThrowableFromEvent(event);
+    if (throwable != null) {
+      if (_shouldAlwaysReport(throwable, event)) {
+        // keep reporting real bugs
+      } else {
+        final disposition = SentryErrorClassifier.classifyError(throwable);
+        switch (disposition) {
+          case SentryErrorDisposition.drop:
+            return null;
+          case SentryErrorDisposition.breadcrumbOnly:
+            _recordClassifierBreadcrumb(throwable, disposition: disposition);
+            return null;
+          case SentryErrorDisposition.sample:
+            final fp = SentryErrorClassifier.buildSampleFingerprint(
+              throwable,
+              host: SentryErrorClassifier.tryExtractHost(throwable),
+            );
+            if (!SentryErrorClassifier.shouldSample(
+              fp,
+              SentryErrorClassifier.sampleRateFor(throwable),
+            )) {
+              _recordClassifierBreadcrumb(
+                throwable,
+                disposition: disposition,
+                sampledOut: true,
+              );
+              return null;
+            }
+            break;
+          case SentryErrorDisposition.report:
+            break;
+        }
+      }
+    }
+
     final exceptions = event.exceptions;
     if (exceptions != null && exceptions.isNotEmpty) {
       final first = exceptions.first;

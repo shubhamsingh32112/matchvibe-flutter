@@ -25,17 +25,18 @@ class StreamChatWrapper extends ConsumerStatefulWidget {
 class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
   static const int _presenceBatchSize = 100;
   bool _isConnecting = false;
-  bool _socketInitialized = false; // ⚠️ Guard: prevent re-init on every rebuild
+  bool _socketInitialized = false;
+  int _connectGeneration = 0;
+
+  bool _isConnectGenerationCurrent(int generation) =>
+      mounted && generation == _connectGeneration;
 
   Future<void> _connectToStreamChat(AuthState authState) async {
-    // Extract variables at method level so they're accessible to both try-catch blocks
+    final generation = _connectGeneration;
     final firebaseUser = authState.firebaseUser!;
     final user = authState.user!;
-    // Post Phase E: only the Cloudflare-Images avatarAsset is the source of
-    // truth. Stream Chat / Video expect a single CDN URL — pick `md`.
     final creatorSafeAvatar = user.avatarAsset?.avatarUrls.md;
 
-    // Calculate display name once (used by both Stream Chat and Stream Video)
     final displayName =
         (user.username != null && user.username!.trim().isNotEmpty)
         ? user.username!
@@ -45,29 +46,33 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
         ? user.phone!
         : 'User';
 
+    final streamChatNotifier = ref.read(streamChatNotifierProvider.notifier);
+    final streamVideoNotifier = ref.read(streamVideoProvider.notifier);
+    final pushService = PushNotificationService();
+
     final chatFuture = () async {
       try {
         debugPrint('🔌 [STREAM WRAPPER] Connecting to Stream Chat...');
-        debugPrint('   User ID: ${firebaseUser.uid}');
-        debugPrint('   Display Name: $displayName');
         final chatService = ChatService();
         final streamToken = await chatService.getChatToken();
-        await ref
-            .read(streamChatNotifierProvider.notifier)
-            .connectUser(
-              firebaseUid: firebaseUser.uid,
-              username: displayName,
-              avatarUrl: creatorSafeAvatar,
-              streamToken: streamToken,
-              mongoId: user.id,
-              appRole: user.role,
-              available: user.role == 'creator' || user.role == 'admin'
-                  ? true
-                  : null,
-            );
+        if (!_isConnectGenerationCurrent(generation)) return;
+
+        await streamChatNotifier.connectUser(
+          firebaseUid: firebaseUser.uid,
+          username: displayName,
+          avatarUrl: creatorSafeAvatar,
+          streamToken: streamToken,
+          mongoId: user.id,
+          appRole: user.role,
+          available: user.role == 'creator' || user.role == 'admin'
+              ? true
+              : null,
+        );
+        if (!_isConnectGenerationCurrent(generation)) return;
+
         final currentClient = ref.read(streamChatNotifierProvider);
         if (currentClient != null) {
-          await PushNotificationService().initialize(currentClient);
+          await pushService.initialize(currentClient);
         }
         debugPrint('✅ [STREAM WRAPPER] Stream Chat connected');
       } catch (e) {
@@ -82,13 +87,12 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
     final videoFuture = () async {
       try {
         debugPrint('🎥 [STREAM WRAPPER] Initializing Stream Video...');
-        await ref
-            .read(streamVideoProvider.notifier)
-            .initialize(
-              userId: firebaseUser.uid,
-              userName: displayName,
-              userImage: creatorSafeAvatar,
-            );
+        await streamVideoNotifier.initialize(
+          userId: firebaseUser.uid,
+          userName: displayName,
+          userImage: creatorSafeAvatar,
+        );
+        if (!_isConnectGenerationCurrent(generation)) return;
         debugPrint('✅ [STREAM WRAPPER] Stream Video initialized');
       } catch (e) {
         debugPrint('❌ [STREAM WRAPPER] Failed to initialize Stream Video: $e');
@@ -96,12 +100,8 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
     }();
 
     await Future.wait([chatFuture, videoFuture]);
-
-    // 🔥 Presence + billing Socket.IO bootstrap happens in build() after getIdToken.
   }
 
-  /// Connects [SocketService] as soon as the user is authenticated (not only on HomeScreen)
-  /// so creator/user presence and billing stay real-time on every tab.
   void _bootstrapPresenceSockets(String? token) {
     if (token == null || token.isEmpty) {
       debugPrint(
@@ -109,51 +109,51 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
       );
       return;
     }
+
+    final generation = _connectGeneration;
+    final socketService = ref.read(socketServiceProvider);
+    final user = ref.read(authProvider).user;
+    final role = user?.role;
+    final presenceHydration = ref.read(presenceHydrationServiceProvider);
+
     try {
-      ref.read(socketServiceProvider).connect(token);
+      socketService.connect(token);
     } catch (e) {
       debugPrint('⚠️  [STREAM WRAPPER] SocketService.connect failed: $e');
     }
 
-    final user = ref.read(authProvider).user;
-    final role = user?.role;
-
-    // Fans / admins: hydrate creator Redis map via one batch (then live creator:status).
     if (role != 'creator') {
       Future<void>(() async {
         try {
           await Future<void>.delayed(const Duration(milliseconds: 200));
-          if (!mounted) return;
-          final ids = await ref
-              .read(presenceHydrationServiceProvider)
-              .collectCreatorFirebaseUids();
-          if (!mounted) return;
+          if (!_isConnectGenerationCurrent(generation)) return;
+          final ids = await presenceHydration.collectCreatorFirebaseUids();
+          if (!_isConnectGenerationCurrent(generation)) return;
           _requestCreatorAvailabilityInChunks(ids);
         } catch (e) {
           debugPrint(
             '⚠️  [STREAM WRAPPER] Creator sweep hydration failed, falling back to first page: $e',
           );
-          await _fallbackCreatorHydration();
+          if (!_isConnectGenerationCurrent(generation)) return;
+          await _fallbackCreatorHydration(generation);
         }
       });
     }
 
-    // Creators / admins: hydrate fan Redis map (then live user:status on SocketService).
     if (role == 'creator' || role == 'admin') {
       Future<void>(() async {
         try {
           await Future<void>.delayed(const Duration(milliseconds: 200));
-          if (!mounted) return;
-          final ids = await ref
-              .read(presenceHydrationServiceProvider)
-              .collectUserFirebaseUids();
-          if (!mounted) return;
+          if (!_isConnectGenerationCurrent(generation)) return;
+          final ids = await presenceHydration.collectUserFirebaseUids();
+          if (!_isConnectGenerationCurrent(generation)) return;
           _requestUserAvailabilityInChunks(ids);
         } catch (e) {
           debugPrint(
             '⚠️  [STREAM WRAPPER] User sweep hydration failed, falling back to first page: $e',
           );
-          await _fallbackUserHydration();
+          if (!_isConnectGenerationCurrent(generation)) return;
+          await _fallbackUserHydration(generation);
         }
       });
     }
@@ -181,9 +181,9 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
     }
   }
 
-  Future<void> _fallbackCreatorHydration() async {
+  Future<void> _fallbackCreatorHydration(int generation) async {
     final creators = await ref.read(creatorsProvider.future);
-    if (!mounted) return;
+    if (!_isConnectGenerationCurrent(generation)) return;
     final ids = creators
         .where((c) => c.firebaseUid != null && c.firebaseUid!.isNotEmpty)
         .map((c) => c.firebaseUid!)
@@ -191,9 +191,9 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
     _requestCreatorAvailabilityInChunks(ids);
   }
 
-  Future<void> _fallbackUserHydration() async {
+  Future<void> _fallbackUserHydration(int generation) async {
     final users = await ref.read(usersProvider.future);
-    if (!mounted) return;
+    if (!_isConnectGenerationCurrent(generation)) return;
     final ids = users
         .where((u) => u.firebaseUid != null && u.firebaseUid!.isNotEmpty)
         .map((u) => u.firebaseUid!)
@@ -215,13 +215,8 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
     );
     final streamClient = ref.watch(streamChatNotifierProvider);
 
-    // 🔥 FIX 1 & 3: Initialize Socket.IO when authenticated (with auth token for authentication)
-    // ⚠️ Guard: only init once – do NOT re-init on every widget rebuild,
-    // because that would re-seed and could fire getIdToken() on every frame.
     if (!_socketInitialized && authReady && firebaseUser != null) {
       _socketInitialized = true;
-      // Get Firebase ID token for socket authentication
-      // This runs asynchronously but socket service handles pending auth gracefully
       firebaseUser
           .getIdToken()
           .then((token) {
@@ -246,11 +241,8 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
           });
     }
 
-    // React to auth state changes (using ref.listen in build - this is the correct place)
     ref.listen<AuthState>(authProvider, (prev, next) {
-      // If user is authenticated but Stream Chat is not connected
       if (next.isAuthenticated && !_isConnecting) {
-        // Check if user is already connected (read fresh value inside callback)
         final currentClient = ref.read(streamChatNotifierProvider);
         if (currentClient?.state.currentUser == null) {
           _isConnecting = true;
@@ -262,49 +254,46 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
         }
       }
 
-      // If user logged out, disconnect Stream Chat, Stream Video, and Availability Socket
       if (!next.isAuthenticated) {
-        // Remove FCM device from Stream before disconnecting
+        _connectGeneration++;
         PushNotificationService().dispose();
 
+        final streamChatNotifier = ref.read(streamChatNotifierProvider.notifier);
         final currentClient = ref.read(streamChatNotifierProvider);
         if (currentClient?.state.currentUser != null) {
-          ref.read(streamChatNotifierProvider.notifier).disconnectUser();
+          streamChatNotifier.disconnectUser();
         }
 
-        // Disconnect Stream Video
         final videoClient = ref.read(streamVideoProvider);
         if (videoClient != null) {
           ref.read(streamVideoProvider.notifier).disconnect();
         }
 
-        // Disconnect billing/presence SocketService
         ref.read(socketServiceProvider).disconnect();
-        _socketInitialized = false; // ⚠️ Reset so next login can re-init
+        _socketInitialized = false;
       }
     });
 
-    // Handle initial state: if user is already authenticated on first build
     if (authReady &&
         streamClient?.state.currentUser == null &&
         !_isConnecting) {
-      // Use post-frame callback to avoid calling async in build
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted &&
-            ref.read(authProvider).isAuthenticated &&
-            ref.read(streamChatNotifierProvider)?.state.currentUser == null &&
-            !_isConnecting) {
-          _isConnecting = true;
-          _connectToStreamChat(ref.read(authProvider)).whenComplete(() {
-            if (mounted) {
-              _isConnecting = false;
-            }
-          });
+        if (!mounted ||
+            !ref.read(authProvider).isAuthenticated ||
+            ref.read(streamChatNotifierProvider)?.state.currentUser != null ||
+            _isConnecting) {
+          return;
         }
+        _isConnecting = true;
+        final authState = ref.read(authProvider);
+        _connectToStreamChat(authState).whenComplete(() {
+          if (mounted) {
+            _isConnecting = false;
+          }
+        });
       });
     }
 
-    // Just return child - StreamChat wrapping happens in MaterialApp.router builder
     return widget.child;
   }
 }

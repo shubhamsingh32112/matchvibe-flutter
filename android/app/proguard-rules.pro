@@ -4,3 +4,9 @@
 
 -keepattributes SourceFile,LineNumberTable
 -keep class io.sentry.** { *; }
+
+# Meta Facebook SDK (facebook_app_events)
+-keep class com.facebook.** { *; }
+-keepattributes Signature
+-keepattributes *Annotation*
+-dontwarn com.facebook.**

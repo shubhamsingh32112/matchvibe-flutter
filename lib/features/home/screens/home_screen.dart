@@ -6,6 +6,7 @@ import 'package:permission_handler/permission_handler.dart' as ph;
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/services/meta_app_events_service.dart';
 import '../../../core/services/sentry_service.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/utils/user_message_mapper.dart';
@@ -141,7 +142,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         if (userBecameReady) {
           unawaited(_maybeShowLoginPromoOnce());
           if (next.user?.role == 'user') {
-            unawaited(ref.read(creatorsProvider.notifier).refreshFeed());
+            final creatorsNotifier = ref.read(creatorsProvider.notifier);
+            unawaited(creatorsNotifier.refreshFeed());
           }
         }
         unawaited(_checkAndShowWelcomeBackDialog());
@@ -427,7 +429,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           .read(modalCoordinatorProvider.notifier)
           .setOnboardingInProgress(false);
       // Feed may not have loaded while onboarding modals were up — refresh now.
-      unawaited(ref.read(creatorsProvider.notifier).refreshFeed());
+      final creatorsNotifier = ref.read(creatorsProvider.notifier);
+      unawaited(creatorsNotifier.refreshFeed());
       return;
     }
     ref.read(modalCoordinatorProvider.notifier).setOnboardingInProgress(true);
@@ -579,9 +582,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// ✅ TASK 2: Mark welcome as seen with retry mechanism for reliability
   /// Scalable: Uses efficient SharedPreferences (cached) with timeout
   Future<void> _markWelcomeAsSeenWithRetry({int maxRetries = 2}) async {
+    final firebaseUid = ref.read(authProvider).firebaseUser?.uid;
     for (int attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        final firebaseUid = ref.read(authProvider).firebaseUser?.uid;
         await WelcomeService.markWelcomeAsSeen(firebaseUid);
         // Verify it was saved
         final hasSeen = await WelcomeService.hasSeenWelcome();
@@ -665,25 +668,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   barrierDismissible: false,
                   builder: (dialogContext) => WelcomeBottomSheet(
                     onPresented: () async {
-                      final uid = ref.read(authProvider).firebaseUser?.uid;
-                      if (uid == null) return;
+                      if (firebaseUid == null) return;
                       await OnboardingPopupStateService.markShown(
-                        uid: uid,
+                        uid: firebaseUid,
                         step: OnboardingStep.welcome,
                       );
                       if (!dialogContext.mounted) return;
                       debugPrint(
-                        '[ONBOARDING_POPUP] popup_rendered uid=$uid step=welcome',
+                        '[ONBOARDING_POPUP] popup_rendered uid=$firebaseUid step=welcome',
                       );
                       _startOnboardingWatchdog(
                         sheetContext: dialogContext,
-                        firebaseUid: uid,
+                        firebaseUid: firebaseUid,
                         step: OnboardingStep.welcome,
                       );
                       watchdog = _onboardingPopupWatchdog;
                     },
                     onAgree: () async {
-                      final firebaseUid = ref.read(authProvider).firebaseUser?.uid;
                       if (firebaseUid != null) {
                         try {
                           OnboardingFlowService.setLocalStageOverride(
@@ -713,7 +714,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       }
                     },
                     onNotNow: () async {
-                      final firebaseUid = ref.read(authProvider).firebaseUser?.uid;
                       if (firebaseUid != null) {
                         try {
                           OnboardingFlowService.setLocalStageOverride(
@@ -827,10 +827,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }) async {
     if (!mounted) return;
 
+    final authNotifier = ref.read(authProvider.notifier);
+    final modalCoordinator = ref.read(modalCoordinatorProvider.notifier);
+    final authStateSnapshot = ref.read(authProvider);
+
     final completer = Completer<bool>();
-    final id = ref
-        .read(modalCoordinatorProvider.notifier)
-        .nextRequestId('permissions');
+    final id = modalCoordinator.nextRequestId('permissions');
     unawaited(
       OnboardingPopupStateService.markSeen(uid: userId, step: OnboardingStep.permission),
     );
@@ -838,9 +840,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       OnboardingPopupStateService.markEnqueued(uid: userId, step: OnboardingStep.permission),
     );
     debugPrint('[ONBOARDING_POPUP] popup_enqueued uid=$userId step=permission');
-    ref
-        .read(modalCoordinatorProvider.notifier)
-        .enqueue<bool>(
+    modalCoordinator.enqueue<bool>(
           AppModalRequest<bool>(
             id: id,
             priority: priority,
@@ -909,15 +909,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           cameraMicStatus: await PermissionService.cameraMicStatusForApi(),
           notificationStatus: 'unknown',
           sessionId: _onboardingSessionId,
-          serverStage: ref.read(authProvider).user?.onboardingStage,
+          serverStage: authStateSnapshot.user?.onboardingStage,
         );
-        unawaited(ref.read(authProvider.notifier).refreshUser());
+        unawaited(authNotifier.refreshUser());
       } catch (_) {
         OnboardingFlowService.clearLocalStageOverride(userId);
       }
-      ref
-          .read(modalCoordinatorProvider.notifier)
-          .setOnboardingInProgress(false);
+      modalCoordinator.setOnboardingInProgress(false);
       return;
     }
 
@@ -930,6 +928,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Future<void> _requestBundledPermissions(String userId) async {
     if (_isRequestingBundledPermissions) return;
     _isRequestingBundledPermissions = true;
+    final authNotifier = ref.read(authProvider.notifier);
+    final modalCoordinator = ref.read(modalCoordinatorProvider.notifier);
+    final authStateSnapshot = ref.read(authProvider);
     try {
       // Order matches the "Permissions Required" sheet: camera, mic, then alerts.
       final videoGranted =
@@ -968,12 +969,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         cameraMicStatus: cameraMicStatus,
         notificationStatus: notificationStatus,
         sessionId: _onboardingSessionId,
-        serverStage: ref.read(authProvider).user?.onboardingStage,
+        serverStage: authStateSnapshot.user?.onboardingStage,
       );
-      unawaited(ref.read(authProvider.notifier).refreshUser());
-      ref
-          .read(modalCoordinatorProvider.notifier)
-          .setOnboardingInProgress(false);
+      unawaited(MetaAppEventsService.logTutorialCompletion());
+      unawaited(authNotifier.refreshUser());
+      modalCoordinator.setOnboardingInProgress(false);
 
       if (!mounted) return;
 

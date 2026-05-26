@@ -50,6 +50,8 @@ class PushNotificationService {
   bool _initialized = false;
   StreamChatClient? _streamClient;
   StreamSubscription<Event>? _messageSubscription;
+  Timer? _previewDismissTimer;
+  OverlayEntry? _activePreviewEntry;
 
   /// The channel ID the user is currently viewing.
   /// Set by ChatScreen on open, cleared on dispose.
@@ -139,6 +141,11 @@ class PushNotificationService {
   /// Remove the device from Stream and reset state.
   /// Call this when the user disconnects / logs out.
   Future<void> dispose() async {
+    _previewDismissTimer?.cancel();
+    _previewDismissTimer = null;
+    _safeRemoveOverlayEntry(_activePreviewEntry);
+    _activePreviewEntry = null;
+
     // Cancel the WebSocket event subscription
     await _messageSubscription?.cancel();
     _messageSubscription = null;
@@ -308,6 +315,15 @@ class PushNotificationService {
     );
   }
 
+  void _safeRemoveOverlayEntry(OverlayEntry? entry) {
+    if (entry == null) return;
+    try {
+      if (entry.mounted) {
+        entry.remove();
+      }
+    } catch (_) {}
+  }
+
   /// Display an in-app popup preview with notification sound.
   Future<void> _showInAppNotificationPreview({
     required String title,
@@ -328,6 +344,9 @@ class PushNotificationService {
     
     final mediaQuery = MediaQuery.of(context);
     final topPadding = mediaQuery.padding.top;
+
+    _previewDismissTimer?.cancel();
+    _safeRemoveOverlayEntry(_activePreviewEntry);
 
     // Create overlay entry for top-positioned notification
     OverlayEntry? overlayEntry;
@@ -372,7 +391,9 @@ class PushNotificationService {
                 child: InkWell(
                   onTap: channelId != null
                       ? () {
-                          overlayEntry?.remove();
+                          _previewDismissTimer?.cancel();
+                          _safeRemoveOverlayEntry(overlayEntry);
+                          overlayEntry = null;
                           appRouter.push('/chat/$channelId');
                         }
                       : null,
@@ -423,7 +444,9 @@ class PushNotificationService {
                         if (channelId != null)
                           TextButton(
                             onPressed: () {
-                              overlayEntry?.remove();
+                              _previewDismissTimer?.cancel();
+                              _safeRemoveOverlayEntry(overlayEntry);
+                              overlayEntry = null;
                               appRouter.push('/chat/$channelId');
                             },
                             child: Text(
@@ -442,11 +465,15 @@ class PushNotificationService {
       ),
     );
 
-    overlay.insert(overlayEntry);
+    final entry = overlayEntry!;
+    overlay.insert(entry);
+    _activePreviewEntry = entry;
 
-    // Auto-dismiss after 2 seconds
-    Future.delayed(const Duration(seconds: 2), () {
-      overlayEntry?.remove();
+    _previewDismissTimer = Timer(const Duration(seconds: 2), () {
+      _safeRemoveOverlayEntry(overlayEntry);
+      if (identical(_activePreviewEntry, overlayEntry)) {
+        _activePreviewEntry = null;
+      }
     });
 
     debugPrint('🔔 [PUSH] In-app preview shown: "$title" — "$body"');

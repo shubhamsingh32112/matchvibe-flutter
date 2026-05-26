@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/services/meta_app_events_service.dart';
 import '../models/support_ticket_model.dart';
 
 class SupportService {
@@ -39,6 +40,7 @@ class SupportService {
         final ticketJson = data['ticket'] as Map<String, dynamic>?;
         if (ticketJson != null) {
           debugPrint('✅ [SUPPORT] Ticket created: ${ticketJson['id']}');
+          await MetaAppEventsService.logContact();
           return SupportTicket.fromJson(ticketJson);
         }
 
@@ -56,6 +58,7 @@ class SupportService {
           'updatedAt': data['createdAt'] ?? DateTime.now().toIso8601String(),
         };
         debugPrint('✅ [SUPPORT] Ticket created: ${normalized['id']}');
+        await MetaAppEventsService.logContact();
         return SupportTicket.fromJson(normalized);
       } else {
         final error = response.data['error'] ?? 'Unknown error';
@@ -107,6 +110,7 @@ class SupportService {
         },
       );
       debugPrint('✅ [SUPPORT] Call feedback submitted');
+      await MetaAppEventsService.logRated(rating: rating);
     } catch (e) {
       debugPrint('❌ [SUPPORT] Error submitting call feedback: $e');
       rethrow;

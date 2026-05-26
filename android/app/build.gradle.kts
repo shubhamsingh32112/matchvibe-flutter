@@ -104,6 +104,35 @@ android {
 
         // Default: do not allow HTTP cleartext in release unless you explicitly need it.
         manifestPlaceholders["usesCleartextTraffic"] = "false"
+
+        val facebookPropertiesFile = rootProject.file("facebook.properties")
+        var facebookAppId = ""
+        var facebookClientToken = ""
+        if (facebookPropertiesFile.exists()) {
+            val facebookProperties = Properties()
+            FileInputStream(facebookPropertiesFile).use { fis ->
+                InputStreamReader(fis, StandardCharsets.UTF_8).use { reader ->
+                    facebookProperties.load(reader)
+                }
+            }
+            facebookAppId =
+                facebookProperties.getProperty("facebook_app_id")?.trim().orEmpty()
+                    .ifEmpty {
+                        facebookProperties.getProperty("META_APP_ID")?.trim().orEmpty()
+                    }
+            facebookClientToken =
+                facebookProperties.getProperty("facebook_client_token")?.trim().orEmpty()
+                    .ifEmpty {
+                        facebookProperties.getProperty("META_CLIENT_TOKEN")?.trim().orEmpty()
+                    }
+        }
+        resValue("string", "facebook_app_id", facebookAppId.ifEmpty { "0" })
+        resValue("string", "facebook_client_token", facebookClientToken.ifEmpty { "unused" })
+        resValue(
+            "string",
+            "fb_login_protocol_scheme",
+            if (facebookAppId.isNotEmpty()) "fb$facebookAppId" else "fb0",
+        )
     }
 
     buildTypes {

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:developer' as developer;
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,6 +19,7 @@ import 'app/widgets/stream_chat_wrapper.dart';
 import 'core/api/api_client.dart';
 import 'core/services/memory_pressure_observer.dart';
 import 'core/services/push_notification_service.dart';
+import 'core/services/meta_app_events_service.dart';
 import 'core/services/sentry_service.dart';
 import 'core/theme/app_theme.dart';
 import 'features/chat/providers/stream_chat_provider.dart';
@@ -29,6 +31,7 @@ import 'shared/widgets/image_service_degraded_banner.dart';
 
 Future<void> main() async {
   SentryWidgetsFlutterBinding.ensureInitialized();
+  GoogleFonts.config.allowRuntimeFetching = false;
 
   final bool isProduction = kReleaseMode;
   final envFile = isProduction ? '.env.production' : '.env.development';
@@ -45,6 +48,7 @@ Future<void> main() async {
   }
 
   await dotenv.load(fileName: envFile);
+  await MetaAppEventsService.init();
 
   await SentryService.init(() async {
     // Bump default 100MB image cache to 150MB so feed grid + gallery + call

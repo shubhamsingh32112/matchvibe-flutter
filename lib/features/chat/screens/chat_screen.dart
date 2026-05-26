@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stream_chat_flutter/stream_chat_flutter.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/services/meta_app_events_service.dart';
 import '../../../core/services/sentry_service.dart';
 import '../../../core/services/push_notification_service.dart';
 import '../../../core/services/in_app_feedback_service.dart';
@@ -13,6 +14,7 @@ import '../../../shared/widgets/app_avatar.dart';
 import '../../../shared/widgets/app_network_image.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../services/chat_service.dart';
+import '../exceptions/chat_send_exceptions.dart';
 import '../utils/chat_utils.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../home/providers/availability_provider.dart';
@@ -490,14 +492,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Non-creators are not allowed to send media attachments.
     if (!_isCreator && _containsMediaAttachment(message)) {
       _showAttachmentBlockedDialog();
-      throw Exception('Only creators can send media attachments');
+      throw const MediaAttachmentBlockedException();
     }
 
     // ── Content filter (both users & creators) ──────────────────────
     final text = message.text ?? '';
     if (_containsRestrictedContent(text)) {
       _showRestrictedContentDialog();
-      throw Exception('Message contains restricted content');
+      throw const RestrictedContentException();
     }
 
     // Creators always send free
@@ -562,8 +564,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       }
 
       // Refresh auth to sync coin balance in AppBar
-      if ((result['coinsCharged'] as num?)?.toInt() != null &&
-          (result['coinsCharged'] as num).toInt() > 0) {
+      final coinsCharged = (result['coinsCharged'] as num?)?.toInt() ?? 0;
+      if (coinsCharged > 0) {
+        unawaited(
+          MetaAppEventsService.logSpendCredits(
+            contentId: widget.channelId,
+            amount: coinsCharged.toDouble(),
+            contentType: 'chat_message',
+          ),
+        );
         ref.read(authProvider.notifier).refreshUser();
       }
 

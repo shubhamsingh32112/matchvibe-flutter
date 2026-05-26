@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/services/meta_app_events_service.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../core/services/image_presets_service.dart';
@@ -118,6 +119,7 @@ class _GenderSelectionScreenState extends ConsumerState<GenderSelectionScreen> {
 
       if (response.statusCode == 200) {
         debugPrint('✅ [ONBOARDING] Profile saved successfully');
+        await MetaAppEventsService.logCustomizeProduct();
 
         // Refresh user data in auth provider
         await ref.read(authProvider.notifier).refreshUser();

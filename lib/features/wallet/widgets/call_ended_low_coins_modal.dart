@@ -67,11 +67,15 @@ class _CallEndedLowCoinsModalState extends ConsumerState<CallEndedLowCoinsModal>
     }
   }
 
-  Future<void> _onBuy(int coins) async {
+  Future<void> _onBuy(int coins, {int? priceInr}) async {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      await WalletCheckoutLauncher.startCheckoutForCoins(context, coins);
+      await WalletCheckoutLauncher.startCheckoutForCoins(
+        context,
+        coins,
+        priceInr: priceInr,
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -331,13 +335,19 @@ class _CallEndedLowCoinsModalState extends ConsumerState<CallEndedLowCoinsModal>
                                     tierArt: _tierArt(i),
                                     isBestValue: i == 0,
                                     busy: _busy,
-                                    onTap: () => _onBuy(packs[i].coins),
+                                    onTap: () => _onBuy(
+                                      packs[i].coins,
+                                      priceInr: packs[i].priceInr,
+                                    ),
                                   ),
                                 ),
                               const SizedBox(height: 4),
                               _ContinueCta(
                                 busy: _busy,
-                                onPressed: () => _onBuy(primaryPack.coins),
+                                onPressed: () => _onBuy(
+                                  primaryPack.coins,
+                                  priceInr: primaryPack.priceInr,
+                                ),
                               ),
                             ],
                           );

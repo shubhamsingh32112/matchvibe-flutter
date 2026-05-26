@@ -1,0 +1,6 @@
+# Copy to android/facebook.properties (gitignored) and fill in from Meta Developer dashboard.
+# Keys must be facebook_app_id / facebook_client_token (not META_APP_ID — that is for .env only).
+# App ID: Settings > Basic > App ID
+# Client token: Settings > Advanced > Security > Client token
+facebook_app_id=YOUR_META_APP_ID
+facebook_client_token=YOUR_META_CLIENT_TOKEN

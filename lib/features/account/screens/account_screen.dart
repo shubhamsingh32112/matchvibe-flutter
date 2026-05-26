@@ -22,10 +22,7 @@ import '../../referral/screens/referral_screen.dart';
 import '../../referral/utils/host_onboarding_routes.dart';
 import '../../support/screens/support_screen.dart';
 import '../../video/providers/call_billing_provider.dart';
-import '../../wallet/screens/transactions_screen.dart';
-import '../widgets/become_creator_bottom_sheet.dart';
 import 'account_settings_screen.dart';
-import 'help_support_screen.dart';
 
 class AccountScreen extends ConsumerStatefulWidget {
   const AccountScreen({super.key});
@@ -128,18 +125,12 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     }
   }
 
-  void _showTransactionsBottomSheet(BuildContext context) {
-    showAppModalBottomSheet(
-      context: context,
-      builder: (context) => const TransactionsBottomSheet(),
-    );
+  void _openTransactions(BuildContext context) {
+    context.push('/transactions');
   }
 
-  void _showHelpSupportBottomSheet(BuildContext context) {
-    showAppModalBottomSheet(
-      context: context,
-      builder: (context) => const HelpSupportBottomSheet(),
-    );
+  void _openHelpSupport(BuildContext context) {
+    context.push('/help-support');
   }
 
   void _showSupportBottomSheet(BuildContext context) {
@@ -163,11 +154,8 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     );
   }
 
-  void _showBecomeCreatorBottomSheet(BuildContext context) {
-    showAppModalBottomSheet(
-      context: context,
-      builder: (context) => const BecomeCreatorBottomSheet(),
-    );
+  void _openBecomeCreator(BuildContext context) {
+    context.push('/account/become-creator');
   }
 
   String _displayName(UserModel? user) {
@@ -609,14 +597,14 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         icon: Icons.headset_mic_outlined,
         title: 'Help & Support',
         subtitle: 'FAQs & guides',
-        onTap: () => _showHelpSupportBottomSheet(context),
+        onTap: () => _openHelpSupport(context),
       ),
       _exploreTile(
         context: context,
         icon: Icons.receipt_long_outlined,
         title: 'Transactions',
         subtitle: 'Payment history',
-        onTap: () => _showTransactionsBottomSheet(context),
+        onTap: () => _openTransactions(context),
       ),
       _exploreTile(
         context: context,
@@ -653,7 +641,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
           icon: Icons.auto_awesome_outlined,
           title: 'Become a Creator',
           subtitle: 'We\'ll contact you',
-          onTap: () => _showBecomeCreatorBottomSheet(context),
+          onTap: () => _openBecomeCreator(context),
         ),
       );
     }

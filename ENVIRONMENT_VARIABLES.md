@@ -131,6 +131,25 @@ These are local storage keys (not environment variables, but listed for complete
 
 **Location**: `lib/core/constants/app_constants.dart` (lines 154-158)
 
+## Meta App Events (Android)
+
+### `META_APP_ID` / `META_CLIENT_TOKEN`
+- **Type**: `String`
+- **Usage**: Enables Dart-side Meta App Events when set (with release build or debug verify flag)
+- **Location**: `.env.development` / `.env.production`, `lib/core/services/meta_app_events_service.dart`
+- **Native SDK**: `android/facebook.properties` (copy from `android/facebook.properties.example`)
+- **Docs**: `docs/META_APP_EVENTS_ANDROID.md`
+
+### `META_ALLOW_DEBUG_EVENTS` (build-time)
+- **Type**: `bool` via `--dart-define`
+- **Default**: `false`
+- **Usage**: Log Meta events in debug/profile builds for testing
+- **Example**: `flutter run --dart-define=META_ALLOW_DEBUG_EVENTS=true`
+
+### `META_APP_EVENTS_DEBUG` (build-time)
+- **Type**: `bool` via `--dart-define`
+- **Usage**: Verbose Facebook SDK app-event logging (development only)
+
 ## Payment Gateway Configuration
 
 ### Razorpay

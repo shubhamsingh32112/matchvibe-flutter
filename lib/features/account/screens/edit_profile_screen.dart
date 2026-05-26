@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:dio/dio.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/services/meta_app_events_service.dart';
 import '../../../core/images/image_asset_view.dart';
 import '../../../core/images/image_cache_managers.dart';
 import '../../../core/utils/user_message_mapper.dart';
@@ -667,6 +668,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       }
 
       debugPrint('✅ [EDIT PROFILE] Profile saved successfully');
+      await MetaAppEventsService.logCustomizeProduct(
+        contentId: user?.id,
+      );
 
       await ref.read(authProvider.notifier).refreshUser();
       final savedAsCreator =

@@ -104,6 +104,7 @@ app.*.map.json
 **/*.keystore
 **/*.jks
 **/key.properties
+**/facebook.properties
 **/google-services.json
 
 # Environment files (never commit secrets)

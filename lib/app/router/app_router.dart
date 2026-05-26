@@ -16,6 +16,7 @@ import '../../features/referral/screens/host_application_pending_screen.dart';
 import '../../features/wallet/screens/wallet_screen.dart';
 import '../../features/wallet/screens/payment_status_screen.dart';
 import '../../features/wallet/screens/transactions_screen.dart';
+import '../../features/account/screens/become_creator_screen.dart';
 import '../../features/account/screens/help_support_screen.dart';
 import '../../features/creator/screens/creator_tasks_screen.dart';
 import '../../features/chat/screens/chat_screen.dart';
@@ -135,6 +136,10 @@ final appRouter = GoRouter(
           GoRoute(
             path: '/account/settings/delete-account',
             builder: (context, state) => const DeleteAccountScreen(),
+          ),
+          GoRoute(
+            path: '/account/become-creator',
+            builder: (context, state) => const BecomeCreatorScreen(),
           ),
           GoRoute(
             path: '/creator/tasks',

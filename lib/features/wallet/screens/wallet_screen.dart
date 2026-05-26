@@ -78,13 +78,17 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
     }
   }
 
-  Future<void> _addCoins(int coins) async {
+  Future<void> _addCoins(int coins, int priceInr) async {
     if (_isAddingCoins) return;
     setState(() {
       _isAddingCoins = true;
     });
     try {
-      await WalletCheckoutLauncher.startCheckoutForCoins(context, coins);
+      await WalletCheckoutLauncher.startCheckoutForCoins(
+        context,
+        coins,
+        priceInr: priceInr,
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -577,7 +581,7 @@ class _UserBuyCoinsBody extends StatelessWidget {
   final List<WalletCoinPack> packages;
   final Future<void> Function() onRefresh;
   final VoidCallback onRetry;
-  final void Function(int coins) onAddCoins;
+  final void Function(int coins, int priceInr) onAddCoins;
 
   const _UserBuyCoinsBody({
     required this.isAddingCoins,
@@ -656,7 +660,7 @@ class _UserBuyCoinsBody extends StatelessWidget {
                       accentColor: accent,
                       onTap: isAddingCoins
                           ? null
-                          : () => onAddCoins(pack.coins),
+                          : () => onAddCoins(pack.coins, pack.priceInr),
                     ),
                   );
                 },

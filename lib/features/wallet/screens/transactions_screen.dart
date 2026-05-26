@@ -1,59 +1,94 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../auth/providers/auth_provider.dart';
-import '../services/transaction_service.dart';
-import '../models/transaction_model.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../../app/widgets/main_layout.dart';
+import '../../../core/constants/app_spacing.dart';
 import '../../../core/utils/user_message_mapper.dart';
+import '../../../shared/styles/app_brand_styles.dart';
+import '../../../shared/widgets/app_modal_bottom_sheet.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/widgets/ui_primitives.dart';
-import '../../../shared/styles/app_brand_styles.dart';
-import '../../../shared/widgets/brand_app_chrome.dart';
-import '../../../shared/widgets/app_modal_bottom_sheet.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../../support/screens/payment_complaint_screen.dart';
-
-/// Bottom sheet wrapper for transactions screen
-class TransactionsBottomSheet extends StatelessWidget {
-  const TransactionsBottomSheet({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return DraggableScrollableSheet(
-      initialChildSize: 0.75,
-      minChildSize: 0.5,
-      maxChildSize: 0.95,
-      builder: (context, scrollController) => const TransactionsScreen(),
-    );
-  }
-}
+import '../models/transaction_model.dart';
+import '../models/wallet_pricing_model.dart';
+import '../providers/wallet_pricing_provider.dart';
+import '../services/transaction_service.dart';
+import '../utils/transaction_ui_mapper.dart';
+import '../widgets/transactions_balance_card.dart';
+import '../widgets/transactions_history_section.dart';
+import '../widgets/transactions_overview_row.dart';
+import '../widgets/transactions_page_header.dart';
 
 class TransactionsScreen extends ConsumerStatefulWidget {
   const TransactionsScreen({super.key});
 
   @override
-  ConsumerState<TransactionsScreen> createState() => _TransactionsScreenState();
+  ConsumerState<TransactionsScreen> createState() =>
+      _TransactionsScreenState();
 }
 
 class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
   final TransactionService _transactionService = TransactionService();
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _historySectionKey = GlobalKey();
+
   TransactionResponse? _transactionData;
   bool _isLoading = false;
+  bool _isLoadingMore = false;
   String? _error;
   int _currentPage = 1;
   final int _limit = 50;
+  TransactionFilter _filter = TransactionFilter.all;
 
   @override
   void initState() {
     super.initState();
     _loadTransactions();
+    _scrollController.addListener(_onScroll);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(walletPricingProvider);
+    });
   }
 
-  Future<void> _loadTransactions({bool refresh = false}) async {
+  @override
+  void dispose() {
+    _scrollController
+      ..removeListener(_onScroll)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_isLoadingMore || _isLoading || _transactionData == null) return;
+    final pagination = _transactionData!.pagination;
+    if (pagination == null) return;
+
+    final totalPages = pagination['totalPages'] as int? ?? 1;
+    if (_currentPage >= totalPages) return;
+
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
+      _loadMore();
+    }
+  }
+
+  Future<void> _loadTransactions({
+    bool refresh = false,
+    bool loadMore = false,
+  }) async {
     if (refresh) {
       _currentPage = 1;
     }
 
     setState(() {
-      _isLoading = true;
+      if (loadMore) {
+        _isLoadingMore = true;
+      } else {
+        _isLoading = true;
+      }
       _error = null;
     });
 
@@ -62,22 +97,31 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
       final isCreator = user?.role == 'creator' || user?.role == 'admin';
 
       final response = isCreator
-          ? await _transactionService.getCreatorTransactions(page: _currentPage, limit: _limit)
-          : await _transactionService.getUserTransactions(page: _currentPage, limit: _limit);
+          ? await _transactionService.getCreatorTransactions(
+              page: _currentPage,
+              limit: _limit,
+            )
+          : await _transactionService.getUserTransactions(
+              page: _currentPage,
+              limit: _limit,
+            );
 
       if (mounted) {
         setState(() {
           if (refresh || _transactionData == null) {
             _transactionData = response;
           } else {
-            // Append new transactions for pagination
             _transactionData = TransactionResponse(
-              transactions: [..._transactionData!.transactions, ...response.transactions],
+              transactions: [
+                ..._transactionData!.transactions,
+                ...response.transactions,
+              ],
               summary: response.summary ?? _transactionData!.summary,
               pagination: response.pagination,
             );
           }
           _isLoading = false;
+          _isLoadingMore = false;
         });
       }
     } catch (e) {
@@ -88,253 +132,31 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
             fallback: 'Couldn\'t load transactions. Please try again.',
           );
           _isLoading = false;
+          _isLoadingMore = false;
         });
       }
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final user = ref.watch(authProvider.select((s) => s.user));
-    final isCreator = user?.role == 'creator' || user?.role == 'admin';
-    final coins = user?.coins ?? 0;
+  Future<void> _loadMore() async {
+    if (_isLoadingMore || _isLoading) return;
+    final pagination = _transactionData?.pagination;
+    if (pagination == null) return;
+    final totalPages = pagination['totalPages'] as int? ?? 1;
+    if (_currentPage >= totalPages) return;
 
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      child: ColoredBox(
-        color: AppBrandGradients.accountMenuPageBackground,
-        child: SafeArea(
-          top: false,
-          child: Column(
-            children: [
-              BrandSheetHeader(
-                title: 'Transactions',
-                trailing: !isCreator
-                    ? [BrandHeaderCoinsChip(coins: coins)]
-                    : null,
-              ),
-
-            // Summary Card (for users)
-            if (!isCreator && _transactionData?.summary != null)
-              _buildSummaryCard(_transactionData!.summary!),
-            // Transactions List
-            Expanded(
-              child: _isLoading && _transactionData == null
-                  ? const Center(child: LoadingIndicator())
-                  : _error != null
-                      ? ErrorState(
-                          title: 'Failed to load transactions',
-                          message: _error ?? 'Unknown error',
-                          actionLabel: 'Retry',
-                          onAction: () => _loadTransactions(refresh: true),
-                        )
-                      : _transactionData == null || _transactionData!.transactions.isEmpty
-                          ? _buildEmptyView(isCreator)
-                          : _buildTransactionsList(isCreator),
-            ),
-          ],
-        ),
-        ),
-      ),
-    );
+    _currentPage += 1;
+    await _loadTransactions(loadMore: true);
   }
 
-  Widget _buildSummaryCard(TransactionSummary summary) {
-    return AppCard(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _buildSummaryItem('Credits', summary.totalCredits, Theme.of(context).colorScheme.primary),
-          _buildSummaryItem('Debits', summary.totalDebits, Theme.of(context).colorScheme.error),
-          _buildSummaryItem('Balance', summary.currentBalance, Theme.of(context).colorScheme.primary),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSummaryItem(String label, int value, Color color) {
-    final scheme = Theme.of(context).colorScheme;
-    return Column(
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            color: scheme.onSurfaceVariant,
-            fontSize: 12,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          '$value',
-          style: TextStyle(
-            color: color,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildEmptyView(bool isCreator) {
-    return EmptyState(
-      icon: isCreator ? Icons.account_balance_wallet_outlined : Icons.receipt_long_outlined,
-      title: isCreator ? 'No earnings yet' : 'No transactions yet',
-      message: isCreator
-          ? 'Your earnings from video calls will appear here'
-          : 'Your coin transactions will appear here',
-    );
-  }
-
-  Widget _buildTransactionsList(bool isCreator) {
-    return RefreshIndicator(
-      onRefresh: () => _loadTransactions(refresh: true),
-      child: ListView.builder(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        itemCount: _transactionData!.transactions.length + (_isLoading ? 1 : 0),
-        itemBuilder: (context, index) {
-          if (index == _transactionData!.transactions.length) {
-            return const Center(
-              child: Padding(
-                padding: EdgeInsets.all(16.0),
-                child: LoadingIndicator(),
-              ),
-            );
-          }
-
-          final transaction = _transactionData!.transactions[index];
-          return _buildTransactionCard(transaction, isCreator);
-        },
-      ),
-    );
-  }
-
-  Widget _buildTransactionCard(TransactionModel transaction, bool isCreator) {
-    final scheme = Theme.of(context).colorScheme;
-    final isCredit = transaction.type == 'credit';
-    final color = isCredit ? scheme.primary : scheme.error;
-    final icon = isCredit ? Icons.add_circle : Icons.remove_circle;
-    final prefix = isCredit ? '+' : '-';
-
-    // Allow complaints for all transactions (not just payment transactions)
-    final canComplain = !isCreator;
-
-    return AppCard(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      onTap: canComplain
-          ? () => _showPaymentComplaintBottomSheet(transaction)
-          : null,
-      child: Row(
-        children: [
-          // Icon
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.2),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, color: color, size: 24),
-          ),
-          const SizedBox(width: 12),
-          // Details
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  transaction.description ?? (isCreator ? 'Video call earnings' : 'Transaction'),
-                  style: TextStyle(
-                    color: scheme.onSurface,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    if (isCreator && transaction.callerUsername != null) ...[
-                      Text(
-                        'With ${transaction.callerUsername}',
-                        style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
-                      ),
-                      const SizedBox(width: 8),
-                    ],
-                    if (transaction.durationFormatted != null) ...[
-                      Text(
-                        '• ${transaction.durationFormatted}',
-                        style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
-                      ),
-                      const SizedBox(width: 8),
-                    ],
-                    Text(
-                      _formatDate(transaction.createdAt),
-                      style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
-                    ),
-                    if (canComplain) ...[
-                      const SizedBox(width: 8),
-                      Text(
-                        '• Tap to complain',
-                        style: TextStyle(
-                          color: scheme.error,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ],
-            ),
-          ),
-          // Amount
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                '$prefix${transaction.amount}',
-                style: TextStyle(
-                  color: color,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                isCredit ? 'Earned' : 'Spent',
-                style: TextStyle(
-                  color: scheme.onSurfaceVariant,
-                  fontSize: 10,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final difference = now.difference(date);
-
-    if (difference.inDays == 0) {
-      if (difference.inHours == 0) {
-        if (difference.inMinutes == 0) {
-          return 'Just now';
-        }
-        return '${difference.inMinutes}m ago';
-      }
-      return '${difference.inHours}h ago';
-    } else if (difference.inDays == 1) {
-      return 'Yesterday';
-    } else if (difference.inDays < 7) {
-      return '${difference.inDays}d ago';
-    } else {
-      return '${date.day}/${date.month}/${date.year}';
+  void _scrollToHistory() {
+    final context = _historySectionKey.currentContext;
+    if (context != null) {
+      Scrollable.ensureVisible(
+        context,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeInOut,
+      );
     }
   }
 
@@ -344,5 +166,151 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
       builder: (context) =>
           PaymentComplaintBottomSheet(transaction: transaction),
     );
+  }
+
+  List<WalletCoinPack> _coinPacks() {
+    final pricing = ref.watch(walletPricingProvider).valueOrNull;
+    return pricing?.packages ?? const [];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = ref.watch(authProvider.select((s) => s.user));
+    final isCreator = user?.role == 'creator' || user?.role == 'admin';
+    final coins = user?.coins ?? 0;
+    final transactions = _transactionData?.transactions ?? const [];
+    final overviewStats = TransactionUiMapper.computeOverviewStats(transactions);
+    final todayNet = TransactionUiMapper.computeTodayNet(transactions);
+    final inrEstimate = TransactionUiMapper.estimateInrValue(
+      coins,
+      _coinPacks(),
+    );
+    final creatorTotalEarned = transactions
+        .where((t) => t.type == 'credit')
+        .fold<int>(0, (sum, t) => sum + t.amount);
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.dark.copyWith(
+        statusBarColor: Colors.transparent,
+      ),
+      child: MainLayout(
+        selectedIndex: 3,
+        accountMenuStyle: true,
+        child: ColoredBox(
+          color: AppBrandGradients.accountMenuPageBackground,
+          child: _isLoading && _transactionData == null
+              ? const Center(child: LoadingIndicator())
+              : _error != null && _transactionData == null
+                  ? ErrorState(
+                      title: 'Failed to load transactions',
+                      message: _error ?? 'Unknown error',
+                      actionLabel: 'Retry',
+                      onAction: () => _loadTransactions(refresh: true),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: () => _loadTransactions(refresh: true),
+                      child: CustomScrollView(
+                        controller: _scrollController,
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        slivers: [
+                          const SliverToBoxAdapter(
+                            child: TransactionsPageHeader(),
+                          ),
+                          SliverToBoxAdapter(
+                            child: SizedBox(height: AppSpacing.sm),
+                          ),
+                          if (!isCreator) ...[
+                            SliverToBoxAdapter(
+                              child: TransactionsBalanceCard(
+                                coins: coins,
+                                todayNet: todayNet,
+                                inrEstimate: inrEstimate,
+                                onScrollToHistory: _scrollToHistory,
+                              ),
+                            ),
+                            const SliverToBoxAdapter(
+                              child: SizedBox(height: AppSpacing.md),
+                            ),
+                            SliverToBoxAdapter(
+                              child: TransactionsOverviewRow(
+                                stats: overviewStats,
+                              ),
+                            ),
+                          ] else ...[
+                            SliverToBoxAdapter(
+                              child: TransactionsCreatorBalanceCard(
+                                totalEarned: creatorTotalEarned,
+                              ),
+                            ),
+                            const SliverToBoxAdapter(
+                              child: SizedBox(height: AppSpacing.lg),
+                            ),
+                          ],
+                          if (_transactionData == null ||
+                              _transactionData!.transactions.isEmpty)
+                            SliverFillRemaining(
+                              hasScrollBody: false,
+                              child: _buildEmptyView(isCreator),
+                            )
+                          else ...[
+                            ...TransactionsHistorySection.buildSlivers(
+                              context: context,
+                              historySectionKey: _historySectionKey,
+                              transactions: transactions,
+                              filter: _filter,
+                              onFilterChanged: (value) {
+                                setState(() => _filter = value);
+                              },
+                              isCreator: isCreator,
+                              coinPacks: _coinPacks(),
+                              onTransactionTap: isCreator
+                                  ? null
+                                  : _showPaymentComplaintBottomSheet,
+                            ),
+                            if (_isLoadingMore)
+                              const SliverToBoxAdapter(
+                                child: Padding(
+                                  padding: EdgeInsets.all(AppSpacing.lg),
+                                  child: Center(child: LoadingIndicator()),
+                                ),
+                              ),
+                            const SliverToBoxAdapter(
+                              child: TransactionsFooterDecoration(),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyView(bool isCreator) {
+    return EmptyState(
+      icon: isCreator
+          ? Icons.account_balance_wallet_outlined
+          : Icons.receipt_long_outlined,
+      title: isCreator ? 'No earnings yet' : 'No transactions yet',
+      message: isCreator
+          ? 'Your earnings from video calls will appear here'
+          : 'Your coin transactions will appear here',
+    );
+  }
+}
+
+/// Legacy wrapper — redirects to full-screen route if still invoked.
+class TransactionsBottomSheet extends StatelessWidget {
+  const TransactionsBottomSheet({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (context.mounted) {
+        Navigator.of(context).pop();
+        context.push('/transactions');
+      }
+    });
+    return const SizedBox.shrink();
   }
 }

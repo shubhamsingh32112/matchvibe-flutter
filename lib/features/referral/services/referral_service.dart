@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../../../core/api/api_client.dart';
+import '../../../core/services/meta_app_events_service.dart';
 import '../../../core/utils/referral_apply_messages.dart';
 import '../../../core/utils/referral_code_format.dart';
 import '../models/referral_model.dart';
@@ -104,6 +105,9 @@ class ReferralService {
         data: {'referralCode': c},
       );
       if (response.statusCode == 200 && response.data['success'] == true) {
+        await MetaAppEventsService.logSubmitApplication(
+          applicationType: 'user_referral',
+        );
         return;
       }
       final data = response.data;
@@ -183,6 +187,9 @@ class ReferralService {
         data: {'referralCode': c},
       );
       if (response.statusCode == 200 && response.data['success'] == true) {
+        await MetaAppEventsService.logSubmitApplication(
+          applicationType: 'agency_host_referral',
+        );
         return;
       }
       final data = response.data;

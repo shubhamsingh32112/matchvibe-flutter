@@ -4,6 +4,11 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+// Design tokens
+const _neonPurple = Color(0xFF8A2BE2);
+const _neonGreen = Color(0xFF7CFF40);
+const _goldBadge = Color(0xFFFFD700);
+
 /// Welcome free-call promo shown after onboarding welcome (and login promo when ineligible for wallet intro).
 class WelcomeFreeCallPromoPopup extends StatelessWidget {
   const WelcomeFreeCallPromoPopup({super.key});
@@ -13,7 +18,7 @@ class WelcomeFreeCallPromoPopup extends StatelessWidget {
     final size = MediaQuery.sizeOf(context);
     final maxW =
         math.min(size.width * 0.94, 520.0).clamp(0.0, size.width - 24);
-    final bannerH = (maxW * 0.58).clamp(210.0, 310.0);
+    final maxH = size.height * 0.82;
 
     return Material(
       type: MaterialType.transparency,
@@ -27,10 +32,14 @@ class WelcomeFreeCallPromoPopup extends StatelessWidget {
           Center(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-              child: SizedBox(
-                width: maxW,
-                height: bannerH,
-                child: const _WelcomeFreeCallPromoBanner(),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: maxW,
+                  maxHeight: maxH,
+                ),
+                child: SingleChildScrollView(
+                  child: _WelcomeFreeCallPromoBanner(maxWidth: maxW),
+                ),
               ),
             ),
           ),
@@ -40,130 +49,251 @@ class WelcomeFreeCallPromoPopup extends StatelessWidget {
   }
 }
 
+double _promoScale(double maxW) => (maxW / 360).clamp(0.85, 1.15);
+
+BoxDecoration _neonBorderDecoration({
+  required Color glowColor,
+  required double radius,
+  Color? fillColor,
+  Gradient? fillGradient,
+  double borderWidth = 2,
+}) {
+  return BoxDecoration(
+    borderRadius: BorderRadius.circular(radius),
+    color: fillGradient == null ? fillColor : null,
+    gradient: fillGradient,
+    border: Border.all(color: glowColor, width: borderWidth),
+    boxShadow: [
+      BoxShadow(
+        color: glowColor.withValues(alpha: 0.55),
+        blurRadius: 14,
+        spreadRadius: 0.5,
+      ),
+      BoxShadow(
+        color: glowColor.withValues(alpha: 0.32),
+        blurRadius: 28,
+        spreadRadius: 1.5,
+      ),
+    ],
+  );
+}
+
+TextStyle _promoDisplayStyle({
+  required double fontSize,
+  Color color = Colors.white,
+  FontStyle fontStyle = FontStyle.italic,
+  List<Shadow>? shadows,
+}) {
+  return GoogleFonts.archivoBlack(
+    fontSize: fontSize,
+    fontWeight: FontWeight.w400,
+    fontStyle: fontStyle,
+    height: 0.95,
+    letterSpacing: -0.5,
+    color: color,
+    shadows: shadows,
+  );
+}
+
 class _WelcomeFreeCallPromoBanner extends StatelessWidget {
-  const _WelcomeFreeCallPromoBanner();
+  const _WelcomeFreeCallPromoBanner({required this.maxWidth});
 
-  static const _violet = Color(0xFF8A2BE2);
-
-  TextStyle _headlineStyle(double size) => GoogleFonts.inter(
-        fontSize: size,
-        fontWeight: FontWeight.w900,
-        fontStyle: FontStyle.italic,
-        height: 1.0,
-        letterSpacing: -0.5,
-      );
+  final double maxWidth;
 
   @override
   Widget build(BuildContext context) {
+    final s = _promoScale(maxWidth);
+    final padH = 16.0 * s;
+    final padV = 18.0 * s;
+    final gapSm = 10.0 * s;
+    final gapMd = 14.0 * s;
+    final gapLg = 16.0 * s;
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(22),
       child: Stack(
         clipBehavior: Clip.none,
         children: [
           const Positioned.fill(child: _PromoBackground()),
-          const Positioned(
-            top: 18,
-            right: 28,
-            child: _FloatingCoin(size: 34, blur: 0),
+          // Portrait-oriented floating decorations
+          Positioned(
+            top: -6 * s,
+            left: -10 * s,
+            child: _FloatingChip(size: 48 * s, angle: 0.45, blur: 3),
           ),
-          const Positioned(
-            bottom: 22,
-            left: 42,
-            child: _FloatingCoin(size: 28, blur: 2),
+          Positioned(
+            top: 4 * s,
+            right: -6 * s,
+            child: _FloatingChip(size: 40 * s, angle: -0.35, blur: 2),
           ),
-          const Positioned(
-            top: 8,
-            right: 120,
-            child: _FloatingChip(size: 44, angle: -0.35, blur: 3),
+          Positioned(
+            bottom: 28 * s,
+            left: -14 * s,
+            child: _FloatingChip(size: 44 * s, angle: -0.2, blur: 4),
           ),
-          const Positioned(
-            bottom: 6,
-            right: 8,
-            child: _FloatingChip(size: 52, angle: 0.25, blur: 1),
+          Positioned(
+            top: 52 * s,
+            right: 12 * s,
+            child: _FloatingCoin(size: 36 * s, blur: 0),
           ),
-          const Positioned(
-            top: 52,
-            left: 6,
-            child: _FloatingChip(size: 36, angle: 0.5, blur: 4),
+          Positioned(
+            top: 140 * s,
+            left: 8 * s,
+            child: _FloatingCoin(size: 30 * s, blur: 3),
           ),
-          const Positioned(
-            top: 14,
-            left: 180,
-            child: _Sparkle(size: 14, color: Colors.white),
+          Positioned(
+            bottom: 64 * s,
+            right: 10 * s,
+            child: _FloatingCoin(size: 32 * s, blur: 2),
           ),
-          const Positioned(
-            top: 72,
-            right: 96,
-            child: _Sparkle(size: 10, color: _violet),
+          Positioned(
+            top: 28 * s,
+            left: maxWidth * 0.42,
+            child: _Sparkle(size: 14 * s, color: Colors.white),
           ),
-          const Positioned(
-            bottom: 48,
-            left: 120,
-            child: _Sparkle(size: 12, color: Colors.white70),
+          Positioned(
+            top: 118 * s,
+            right: 48 * s,
+            child: _Sparkle(size: 11 * s, color: _neonPurple),
+          ),
+          Positioned(
+            top: 200 * s,
+            left: 24 * s,
+            child: _Sparkle(size: 10 * s, color: Colors.white70),
+          ),
+          Positioned(
+            bottom: 120 * s,
+            right: 36 * s,
+            child: _Sparkle(size: 12 * s, color: Colors.white),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 14, 12, 12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
+            padding: EdgeInsets.fromLTRB(padH, padV, padH, padV),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(
-                  flex: 52,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const _FirstCallBadge(),
-                      const SizedBox(height: 10),
-                      ShaderMask(
-                        blendMode: BlendMode.srcIn,
-                        shaderCallback: (bounds) => const LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Color(0xFFFFFFFF),
-                            Color(0xFFE8FFE8),
-                            Color(0xFF7CFF40),
-                          ],
-                          stops: [0.0, 0.42, 1.0],
-                        ).createShader(bounds),
-                        child: Text(
-                          'FIRST CALL IS\nON US!',
-                          style: _headlineStyle(25).copyWith(
-                            color: Colors.white,
-                            height: 0.98,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'TALK. CONNECT. HAVE FUN.',
-                        style: GoogleFonts.inter(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 1.0,
-                          color: Colors.white.withValues(alpha: 0.94),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  flex: 48,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: const [
-                      _NeonGreenCallCard(),
-                      SizedBox(height: 8),
-                      _PurpleInfoBar(),
-                    ],
-                  ),
-                ),
+                _FirstCallBadge(scale: s),
+                SizedBox(height: gapMd),
+                _HeadlineBlock(scale: s),
+                SizedBox(height: gapSm),
+                _TaglineWithRule(scale: s, maxWidth: maxWidth),
+                SizedBox(height: gapLg),
+                _NeonGreenCallCard(scale: s),
+                SizedBox(height: gapMd),
+                _PurpleInfoBar(scale: s),
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _HeadlineBlock extends StatelessWidget {
+  const _HeadlineBlock({required this.scale});
+
+  final double scale;
+
+  @override
+  Widget build(BuildContext context) {
+    final headlineSize = 34.0 * scale;
+    final gradientSize = 32.0 * scale;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Text(
+          'FIRST CALL',
+          textAlign: TextAlign.center,
+          style: _promoDisplayStyle(
+            fontSize: headlineSize,
+            shadows: [
+              Shadow(
+                color: Colors.black.withValues(alpha: 0.65),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+              Shadow(
+                color: _neonPurple.withValues(alpha: 0.45),
+                blurRadius: 16,
+              ),
+            ],
+          ),
+        ),
+        ShaderMask(
+          blendMode: BlendMode.srcIn,
+          shaderCallback: (bounds) => const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFF7CFF40),
+              Color(0xFFB8FF6A),
+              Color(0xFFFFE566),
+              Color(0xFFFFD700),
+            ],
+            stops: [0.0, 0.35, 0.72, 1.0],
+          ).createShader(bounds),
+          child: Text(
+            'IS ON US!',
+            textAlign: TextAlign.center,
+            style: _promoDisplayStyle(
+              fontSize: gradientSize,
+              color: Colors.white,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TaglineWithRule extends StatelessWidget {
+  const _TaglineWithRule({required this.scale, required this.maxWidth});
+
+  final double scale;
+  final double maxWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(
+          'TALK. CONNECT. HAVE FUN.',
+          textAlign: TextAlign.center,
+          style: GoogleFonts.inter(
+            fontSize: 12.5 * scale,
+            fontWeight: FontWeight.w700,
+            fontStyle: FontStyle.italic,
+            letterSpacing: 1.2,
+            color: Colors.white.withValues(alpha: 0.94),
+          ),
+        ),
+        SizedBox(height: 10 * scale),
+        Center(
+          child: Container(
+            width: maxWidth * 0.78,
+            height: 2,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(1),
+              gradient: LinearGradient(
+                colors: [
+                  _neonPurple.withValues(alpha: 0.0),
+                  _neonPurple.withValues(alpha: 0.9),
+                  _neonPurple.withValues(alpha: 0.0),
+                ],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: _neonPurple.withValues(alpha: 0.65),
+                  blurRadius: 10,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -175,15 +305,15 @@ class _PromoBackground extends StatelessWidget {
   Widget build(BuildContext context) {
     return CustomPaint(
       painter: _PromoBackgroundPainter(),
-      child: DecoratedBox(
+      child: const DecoratedBox(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
             colors: [
-              const Color(0xFF0A0214),
-              const Color(0xFF1A0033),
-              const Color(0xFF12001F).withValues(alpha: 0.95),
+              Color(0xFF0A0214),
+              Color(0xFF1A0033),
+              Color(0xFF12001F),
             ],
           ),
         ),
@@ -195,61 +325,76 @@ class _PromoBackground extends StatelessWidget {
 class _PromoBackgroundPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
+    // Strong diagonal streak from top-right through center (portrait focal)
     final streakPaint = Paint()
       ..shader = ui.Gradient.linear(
-        Offset(size.width * 0.55, 0),
-        Offset(size.width, size.height * 0.7),
+        Offset(size.width * 0.85, 0),
+        Offset(size.width * 0.25, size.height * 0.75),
         [
-          const Color(0xFF6A0DAD).withValues(alpha: 0.0),
-          const Color(0xFF9B30FF).withValues(alpha: 0.45),
-          const Color(0xFF4B0082).withValues(alpha: 0.15),
+          const Color(0xFF9B30FF).withValues(alpha: 0.55),
+          const Color(0xFF6A0DAD).withValues(alpha: 0.25),
+          const Color(0xFF4B0082).withValues(alpha: 0.0),
         ],
-        [0.0, 0.55, 1.0],
+        [0.0, 0.5, 1.0],
       )
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18);
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 22);
 
-    final path = Path()
-      ..moveTo(size.width * 0.35, 0)
-      ..lineTo(size.width, 0)
-      ..lineTo(size.width, size.height)
-      ..lineTo(size.width * 0.15, size.height)
-      ..close();
-    canvas.drawPath(path, streakPaint);
+    canvas.drawPath(
+      Path()
+        ..moveTo(size.width * 0.2, 0)
+        ..lineTo(size.width, 0)
+        ..lineTo(size.width, size.height * 0.85)
+        ..lineTo(size.width * 0.05, size.height * 0.55)
+        ..close(),
+      streakPaint,
+    );
 
     final streak2 = Paint()
       ..shader = ui.Gradient.linear(
-        Offset(size.width * 0.7, size.height),
-        Offset(size.width * 0.2, 0),
+        Offset(size.width, size.height * 0.3),
+        Offset(0, size.height * 0.9),
         [
           const Color(0xFF7B39FD).withValues(alpha: 0.0),
-          const Color(0xFF8A2BE2).withValues(alpha: 0.35),
+          const Color(0xFF8A2BE2).withValues(alpha: 0.4),
         ],
       )
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 22);
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 24);
     canvas.drawRect(
-      Rect.fromLTWH(size.width * 0.4, 0, size.width * 0.6, size.height),
+      Rect.fromLTWH(size.width * 0.35, 0, size.width * 0.65, size.height),
       streak2,
     );
 
     final streak3 = Paint()
       ..shader = ui.Gradient.linear(
-        Offset(0, size.height * 0.35),
-        Offset(size.width * 0.45, size.height * 0.85),
+        Offset(0, size.height * 0.15),
+        Offset(size.width * 0.5, size.height * 0.55),
         [
           const Color(0xFF5A189A).withValues(alpha: 0.0),
-          const Color(0xFF9333EA).withValues(alpha: 0.22),
+          const Color(0xFF9333EA).withValues(alpha: 0.28),
         ],
       )
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14);
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16);
     canvas.drawPath(
       Path()
-        ..moveTo(0, size.height * 0.2)
-        ..lineTo(size.width * 0.35, 0)
-        ..lineTo(size.width * 0.5, size.height * 0.15)
-        ..lineTo(0, size.height * 0.55)
+        ..moveTo(0, size.height * 0.08)
+        ..lineTo(size.width * 0.4, 0)
+        ..lineTo(size.width * 0.55, size.height * 0.2)
+        ..lineTo(0, size.height * 0.45)
         ..close(),
       streak3,
     );
+
+    // Subtle radial vignette for depth
+    final vignette = Paint()
+      ..shader = ui.Gradient.radial(
+        Offset(size.width * 0.5, size.height * 0.45),
+        size.width * 0.75,
+        [
+          Colors.transparent,
+          Colors.black.withValues(alpha: 0.35),
+        ],
+      );
+    canvas.drawRect(Offset.zero & size, vignette);
   }
 
   @override
@@ -257,63 +402,73 @@ class _PromoBackgroundPainter extends CustomPainter {
 }
 
 class _FirstCallBadge extends StatelessWidget {
-  const _FirstCallBadge();
+  const _FirstCallBadge({required this.scale});
+
+  final double scale;
 
   @override
   Widget build(BuildContext context) {
+    final h = 34.0 * scale;
+    final iconSize = 18.0 * scale;
+
     return Container(
-      height: 30,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        color: const Color(0xFF2A0F45),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      height: h,
+      decoration: _neonBorderDecoration(
+        glowColor: _neonPurple,
+        radius: 20 * scale,
+        fillColor: const Color(0xFF2A0F45),
+        borderWidth: 2,
       ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
-            width: 30,
-            height: 30,
+            width: h,
+            height: h,
             decoration: const BoxDecoration(
               color: Color(0xFF1E0A30),
               shape: BoxShape.circle,
             ),
-            child: const Icon(
+            child: Icon(
               Icons.phone_in_talk_rounded,
               color: Colors.white,
-              size: 16,
+              size: iconSize,
             ),
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
+            padding: EdgeInsets.symmetric(horizontal: 10 * scale),
             child: Text(
               '1ST CALL',
               style: GoogleFonts.inter(
-                fontSize: 10,
+                fontSize: 11 * scale,
                 fontWeight: FontWeight.w800,
                 color: Colors.white,
-                letterSpacing: 0.3,
+                letterSpacing: 0.4,
               ),
             ),
           ),
           Transform.rotate(
-            angle: -0.08,
+            angle: -0.12,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              padding: EdgeInsets.symmetric(
+                horizontal: 11 * scale,
+                vertical: 7 * scale,
+              ),
               decoration: BoxDecoration(
-                color: const Color(0xFFFFD700),
-                borderRadius: BorderRadius.circular(6),
+                color: _goldBadge,
+                borderRadius: BorderRadius.circular(6 * scale),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFFFFD700).withValues(alpha: 0.4),
-                    blurRadius: 8,
+                    color: _goldBadge.withValues(alpha: 0.55),
+                    blurRadius: 10,
+                    spreadRadius: 0.5,
                   ),
                 ],
               ),
               child: Text(
                 'ON US!',
                 style: GoogleFonts.inter(
-                  fontSize: 10,
+                  fontSize: 11 * scale,
                   fontWeight: FontWeight.w900,
                   fontStyle: FontStyle.italic,
                   color: Colors.black,
@@ -322,7 +477,7 @@ class _FirstCallBadge extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 4),
+          SizedBox(width: 6 * scale),
         ],
       ),
     );
@@ -330,76 +485,84 @@ class _FirstCallBadge extends StatelessWidget {
 }
 
 class _NeonGreenCallCard extends StatelessWidget {
-  const _NeonGreenCallCard();
+  const _NeonGreenCallCard({required this.scale});
+
+  final double scale;
 
   @override
   Widget build(BuildContext context) {
-    const neon = Color(0xFF7CFF40);
+    final radius = 18.0 * scale;
+    final phoneSize = 54.0 * scale;
+
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(radius),
         boxShadow: [
           BoxShadow(
-            color: neon.withValues(alpha: 0.6),
-            blurRadius: 20,
+            color: _neonGreen.withValues(alpha: 0.7),
+            blurRadius: 22 * scale,
             spreadRadius: 1,
           ),
           BoxShadow(
-            color: neon.withValues(alpha: 0.28),
-            blurRadius: 36,
-            spreadRadius: 2,
+            color: _neonGreen.withValues(alpha: 0.35),
+            blurRadius: 40 * scale,
+            spreadRadius: 2.5,
           ),
         ],
       ),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          gradient: const LinearGradient(
+        padding: EdgeInsets.symmetric(
+          horizontal: 16 * scale,
+          vertical: 16 * scale,
+        ),
+        decoration: _neonBorderDecoration(
+          glowColor: _neonGreen,
+          radius: radius,
+          fillGradient: const LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [Color(0xFF0D3B12), Color(0xFF062010)],
           ),
-          border: Border.all(color: neon, width: 2.4),
+          borderWidth: 2.6,
         ),
         child: Stack(
           clipBehavior: Clip.none,
           children: [
-            const Positioned(
-              top: -4,
-              right: -2,
-              child: _Sparkle(size: 12, color: Colors.white),
+            Positioned(
+              top: -4 * scale,
+              right: -2 * scale,
+              child: _Sparkle(size: 13 * scale, color: Colors.white),
             ),
-            const Positioned(
-              bottom: -2,
-              right: 8,
-              child: _Sparkle(size: 10, color: Colors.white70),
+            Positioned(
+              bottom: -2 * scale,
+              right: 10 * scale,
+              child: _Sparkle(size: 10 * scale, color: Colors.white70),
             ),
             Row(
               children: [
                 Transform.rotate(
                   angle: -0.35,
                   child: Container(
-                    width: 42,
-                    height: 42,
+                    width: phoneSize,
+                    height: phoneSize,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: Colors.white.withValues(alpha: 0.12),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.white.withValues(alpha: 0.25),
-                          blurRadius: 12,
+                          color: Colors.white.withValues(alpha: 0.3),
+                          blurRadius: 14,
                         ),
                       ],
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.phone_in_talk_rounded,
                       color: Colors.white,
-                      size: 26,
+                      size: 30 * scale,
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
+                SizedBox(width: 12 * scale),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -407,27 +570,29 @@ class _NeonGreenCallCard extends StatelessWidget {
                       Text(
                         'EVERY CALL IS',
                         style: GoogleFonts.inter(
-                          fontSize: 9,
+                          fontSize: 11 * scale,
                           fontWeight: FontWeight.w700,
                           fontStyle: FontStyle.italic,
                           color: Colors.white,
-                          letterSpacing: 0.4,
+                          letterSpacing: 0.5,
                         ),
                       ),
                       ShaderMask(
                         blendMode: BlendMode.srcIn,
                         shaderCallback: (bounds) => const LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [Color(0xFF7CFF40), Color(0xFFB8FF6A)],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Color(0xFF7CFF40),
+                            Color(0xFFB8FF6A),
+                            Color(0xFFFFE566),
+                          ],
                         ).createShader(bounds),
                         child: Text(
                           'FREE FREE!',
-                          style: GoogleFonts.inter(
-                            fontSize: 19,
-                            fontWeight: FontWeight.w900,
-                            fontStyle: FontStyle.italic,
-                            height: 1.0,
+                          style: _promoDisplayStyle(
+                            fontSize: 26 * scale,
+                            color: Colors.white,
                           ),
                         ),
                       ),
@@ -444,24 +609,24 @@ class _NeonGreenCallCard extends StatelessWidget {
 }
 
 class _PurpleInfoBar extends StatelessWidget {
-  const _PurpleInfoBar();
+  const _PurpleInfoBar({required this.scale});
+
+  final double scale;
 
   @override
   Widget build(BuildContext context) {
+    final h = 38.0 * scale;
+    final radius = 20.0 * scale;
+
     return Container(
-      height: 32,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        gradient: const LinearGradient(
+      height: h,
+      decoration: _neonBorderDecoration(
+        glowColor: _neonPurple,
+        radius: radius,
+        fillGradient: const LinearGradient(
           colors: [Color(0xFF5C1A8A), Color(0xFF3D0F66)],
         ),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF8A2BE2).withValues(alpha: 0.25),
-            blurRadius: 10,
-          ),
-        ],
+        borderWidth: 1.8,
       ),
       child: Row(
         children: [
@@ -469,42 +634,56 @@ class _PurpleInfoBar extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(
-                  Icons.bolt_rounded,
-                  size: 16,
-                  color: Colors.white,
-                ),
-                const SizedBox(width: 4),
+                Icon(Icons.bolt_rounded, size: 18 * scale, color: Colors.white),
+                SizedBox(width: 5 * scale),
                 Text(
                   'CALL ANYONE',
                   style: GoogleFonts.inter(
-                    fontSize: 8.5,
+                    fontSize: 10.5 * scale,
                     fontWeight: FontWeight.w800,
+                    fontStyle: FontStyle.italic,
                     color: Colors.white,
-                    letterSpacing: 0.3,
+                    letterSpacing: 0.35,
                   ),
                 ),
               ],
             ),
           ),
           Container(
-            width: 1,
-            height: 18,
-            color: Colors.white.withValues(alpha: 0.35),
+            width: 1.5,
+            height: 22 * scale,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.white.withValues(alpha: 0.1),
+                  Colors.white.withValues(alpha: 0.45),
+                  Colors.white.withValues(alpha: 0.1),
+                ],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: _neonPurple.withValues(alpha: 0.5),
+                  blurRadius: 6,
+                ),
+              ],
+            ),
           ),
           Expanded(
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const _RupeeCycleIcon(size: 16),
-                const SizedBox(width: 4),
+                _RupeeCycleIcon(size: 18 * scale),
+                SizedBox(width: 5 * scale),
                 Text(
                   'NO COST',
                   style: GoogleFonts.inter(
-                    fontSize: 8.5,
+                    fontSize: 10.5 * scale,
                     fontWeight: FontWeight.w800,
+                    fontStyle: FontStyle.italic,
                     color: Colors.white,
-                    letterSpacing: 0.3,
+                    letterSpacing: 0.35,
                   ),
                 ),
               ],

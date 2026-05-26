@@ -5,15 +5,55 @@ import 'package:stream_chat_flutter/stream_chat_flutter.dart';
 import '../services/chat_service.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/sentry_service.dart';
+import '../../../core/services/sentry_error_classifier.dart';
 
 void _streamChatLogHandler(LogRecord record) {
   if (kDebugMode) {
     StreamChatClient.defaultLogHandler(record);
   }
-  if (record.level >= Level.WARNING && record.error != null) {
+  if (record.error == null) return;
+
+  final error = record.error!;
+  final disposition = SentryErrorClassifier.classifyError(error);
+
+  if (disposition == SentryErrorDisposition.drop ||
+      disposition == SentryErrorDisposition.breadcrumbOnly) {
+    SentryService.addThrottledBreadcrumb(
+      category: SentryErrorClassifier.breadcrumbCategoryFor(error),
+      message: record.message,
+      data: {
+        'level': record.level.name,
+        'disposition': disposition.name,
+      },
+    );
+    return;
+  }
+
+  if (disposition == SentryErrorDisposition.sample) {
+    final fp = SentryErrorClassifier.buildSampleFingerprint(
+      error,
+      host: SentryErrorClassifier.tryExtractHost(error),
+    );
+    if (!SentryErrorClassifier.shouldSample(
+      fp,
+      SentryErrorClassifier.sampleRateFor(error),
+    )) {
+      SentryService.addThrottledBreadcrumb(
+        category: SentryErrorClassifier.breadcrumbCategoryFor(error),
+        message: record.message,
+        data: {
+          'level': record.level.name,
+          'disposition': 'sampled_out',
+        },
+      );
+      return;
+    }
+  }
+
+  if (record.level >= Level.WARNING) {
     unawaited(
       SentryService.captureException(
-        record.error!,
+        error,
         stackTrace: record.stackTrace,
         tags: {
           'stream': 'chat',

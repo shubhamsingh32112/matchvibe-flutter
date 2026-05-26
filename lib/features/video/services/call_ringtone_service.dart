@@ -37,7 +37,13 @@ class CallRingtoneService {
   static void stop() {
     _timer?.cancel();
     _timer = null;
-    _incomingPlayer?.stop();
+    try {
+      _incomingPlayer?.stop();
+    } on PlayerInterruptedException {
+      // Expected when a new source starts or stop races with play().
+    } catch (error) {
+      debugPrint('⚠️ [CALL TONE] Stop error: $error');
+    }
     _activeMode = null;
     debugPrint('🔕 [CALL TONE] Stopped');
   }
@@ -74,6 +80,8 @@ class CallRingtoneService {
       await _incomingPlayer!.setAsset(_incomingRingtoneAssetPath);
       await _incomingPlayer!.play();
       debugPrint('🔔 [CALL TONE] Started (incoming bundled ringtone)');
+    } on PlayerInterruptedException {
+      debugPrint('🔕 [CALL TONE] Bundled ringtone interrupted (expected)');
     } catch (error) {
       debugPrint(
         '⚠️ [CALL TONE] Asset ringtone failed, will try URL/fallback: $error',
@@ -92,6 +100,8 @@ class CallRingtoneService {
         if (_activeMode != _CallToneMode.incoming) return;
         await _incomingPlayer!.play();
         debugPrint('🔔 [CALL TONE] Upgraded to incoming custom ringtone URL');
+      } on PlayerInterruptedException {
+        // Expected when stop() races with URL upgrade.
       } catch (_) {
         // Keep bundled ringtone if playing; otherwise fallback timer below.
       }
@@ -105,6 +115,9 @@ class CallRingtoneService {
       await _incomingPlayer!.play();
       debugPrint('🔔 [CALL TONE] Started (incoming custom ringtone)');
       return;
+    } on PlayerInterruptedException {
+      debugPrint('🔕 [CALL TONE] URL ringtone interrupted (expected)');
+      return;
     } catch (error) {
       debugPrint(
         '⚠️ [CALL TONE] URL ringtone failed, trying bundled asset: $error',
@@ -117,6 +130,9 @@ class CallRingtoneService {
       await _incomingPlayer!.setAsset(_incomingRingtoneAssetPath);
       await _incomingPlayer!.play();
       debugPrint('🔔 [CALL TONE] Started (incoming bundled ringtone)');
+      return;
+    } on PlayerInterruptedException {
+      debugPrint('🔕 [CALL TONE] Asset ringtone interrupted (expected)');
       return;
     } catch (error) {
       debugPrint(

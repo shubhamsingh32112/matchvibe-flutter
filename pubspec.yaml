@@ -2,7 +2,7 @@ name: zztherapy
 description: "Match Vibe - Flutter mobile app"
 publish_to: 'none'
 
-version: 1.0.0+38
+version: 1.0.0+39
 
 
 environment:
@@ -70,6 +70,7 @@ dependencies:
   connectivity_plus: ^7.0.0
   
   # Stream Chat
+  stream_chat: ^9.0.0
   stream_chat_flutter: ^9.0.0
   
   # Stream Video
@@ -79,6 +80,7 @@ dependencies:
 
   # Socket.IO (real-time creator availability)
   socket_io_client: ^3.0.2
+  web_socket_channel: ^3.0.3
 
   # Keep screen on during calls
   wakelock_plus: ^1.3.3
@@ -94,6 +96,9 @@ dependencies:
   # Error monitoring
   sentry_flutter: ^8.14.0
   sentry_dio: ^8.14.0
+
+  # Meta App Events (Android)
+  facebook_app_events: ^0.26.0
 
 dev_dependencies:
   flutter_test:
@@ -117,11 +122,35 @@ flutter:
     - lib/assets/addpopup-bg.jpeg
     - lib/assets/app_logo.png
     - lib/assets/wallet_icons/
+    - lib/assets/transactions/
+    - lib/assets/help_support/
     - lib/assets/call_ended_images/
     - lib/assets/loader_bg.png
     - lib/assets/loginpage_video.mp4
     - .env.development
     - .env.production
+
+  fonts:
+    - family: Montserrat
+      fonts:
+        - asset: assets/fonts/Montserrat-wght.ttf
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-opsz-wght.ttf
+    - family: Poppins
+      fonts:
+        - asset: assets/fonts/Poppins-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Poppins-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Poppins-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Poppins-ExtraBold.ttf
+          weight: 800
+    - family: Archivo Black
+      fonts:
+        - asset: assets/fonts/ArchivoBlack-Regular.ttf
+          weight: 400
 
 flutter_launcher_icons:
   android: true

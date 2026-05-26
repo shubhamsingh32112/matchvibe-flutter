@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../router/app_router.dart';
+import '../../core/services/meta_app_events_service.dart';
 import '../../core/services/sentry_service.dart';
 import '../../features/auth/providers/auth_provider.dart';
 import '../../features/home/providers/availability_provider.dart';
@@ -533,6 +534,15 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     final deepLinkMessage = uri.queryParameters['message'];
 
     if (paymentStatus == 'success') {
+      final dedupeId = uri.queryParameters['session'] ??
+          uri.queryParameters['sessionId'] ??
+          uri.queryParameters['orderId'];
+      unawaited(
+        MetaAppEventsService.logPurchaseFromPending(
+          dedupeId: dedupeId,
+          coinsAddedFromDeepLink: coinsAdded > 0 ? coinsAdded : null,
+        ),
+      );
       ref.read(authProvider.notifier).refreshUser();
       final params = <String, String>{
         'payment': 'success',

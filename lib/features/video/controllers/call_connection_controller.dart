@@ -16,6 +16,7 @@ import '../../auth/providers/auth_provider.dart';
 import '../../home/providers/availability_provider.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../core/services/sentry_service.dart';
+import '../../../core/services/sentry_error_classifier.dart';
 import '../../../shared/providers/coin_purchase_popup_provider.dart';
 import '../../wallet/providers/wallet_pricing_provider.dart';
 
@@ -132,6 +133,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
   _activeUserFirebaseUid; // For creator-initiated calls: the user who pays
   bool _wasConnected = false;
   bool _isReconnecting = false;
+  int _postCallGeneration = 0;
 
   CallConnectionController(this._ref) : super(const CallConnectionState.idle());
 
@@ -1059,9 +1061,22 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
         reason == CallFailureReason.creatorNotPickedUp) {
       return;
     }
+
+    final resolvedError = error ?? Exception('call_failed:${reason.name}');
+    if (error != null &&
+        SentryErrorClassifier.classifyError(error) ==
+            SentryErrorDisposition.sample) {
+      SentryService.addThrottledBreadcrumb(
+        category: 'call.network',
+        message: error.toString(),
+        data: {'failure_reason': reason.name, 'disposition': 'sampled_ice'},
+      );
+      return;
+    }
+
     unawaited(
       SentryService.captureException(
-        error ?? Exception('call_failed:${reason.name}'),
+        resolvedError,
         stackTrace: stackTrace,
         tags: {
           'stream': 'video',
@@ -1087,6 +1102,15 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     _cancelWatchdog();
   }
 
+  @override
+  void dispose() {
+    _postCallGeneration++;
+    CallRingtoneService.stop();
+    _isReconnecting = false;
+    _cancelSubscriptions();
+    super.dispose();
+  }
+
   /// Cancel subscriptions **and** try to leave the current call.
   Future<void> _cleanupCall() async {
     CallRingtoneService.stop();
@@ -1109,22 +1133,21 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     final userSnapshot = _ref.read(authProvider).user;
     final hadWelcomeFreeCallUi = userSnapshot?.role == 'user' &&
         (userSnapshot?.welcomeFreeCallEligible ?? false);
+    final postCallGeneration = ++_postCallGeneration;
+    final authNotifier = _ref.read(authProvider.notifier);
 
-    // Settlement updates `introFreeCallCredits` / `welcomeFreeCallEligible` in Mongo.
-    // Without a refresh, home still shows the welcome-free affordance until the next
-    // lifecycle refresh. Delay slightly so `/user/me` usually reads post-commit state.
     if (wasConnected && endedCallId != null && endedCallId.isNotEmpty) {
       unawaited(() async {
         await Future<void>.delayed(const Duration(milliseconds: 700));
+        if (!mounted || postCallGeneration != _postCallGeneration) return;
         try {
-          await _ref.read(authProvider.notifier).refreshUser();
+          await authNotifier.refreshUser();
         } catch (_) {}
-        // Second pass only when they were still eligible at hang-up — settlement can lag
-        // `/user/me` briefly; avoids stale free-call icon without extra traffic for others.
         if (hadWelcomeFreeCallUi) {
           await Future<void>.delayed(const Duration(milliseconds: 2000));
+          if (!mounted || postCallGeneration != _postCallGeneration) return;
           try {
-            await _ref.read(authProvider.notifier).refreshUser();
+            await authNotifier.refreshUser();
           } catch (_) {}
         }
       }());
@@ -1148,8 +1171,9 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     }
 
     if (wasConnected && isRegularUser && mounted) {
+      final coinPopupNotifier = _ref.read(coinPurchasePopupProvider.notifier);
       Future.delayed(const Duration(milliseconds: 500), () async {
-        if (!mounted) return;
+        if (!mounted || postCallGeneration != _postCallGeneration) return;
         final uid = _ref.read(authProvider).firebaseUser?.uid;
         final creatorName = _extractRemoteCreatorName(call);
         final photo = resolveRemoteImageUrl(
@@ -1158,8 +1182,8 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
           fallbackImageUrl: null,
         );
         await prefetchWalletPricing(_ref, forceRefresh: true);
-        if (!mounted) return;
-        _ref.read(coinPurchasePopupProvider.notifier).state = CoinPopupIntent(
+        if (!mounted || postCallGeneration != _postCallGeneration) return;
+        coinPopupNotifier.state = CoinPopupIntent(
               reason: 'post_call',
               dedupeKey: 'coin-post-call-$endedCallId',
               remoteDisplayName: creatorName,
@@ -1215,13 +1239,5 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       // Best-effort only.
     }
     return null;
-  }
-
-  @override
-  void dispose() {
-    CallRingtoneService.stop();
-    _isReconnecting = false;
-    _cancelSubscriptions();
-    super.dispose();
   }
 }

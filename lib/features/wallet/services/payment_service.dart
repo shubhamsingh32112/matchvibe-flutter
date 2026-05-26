@@ -21,6 +21,8 @@ class PaymentService {
         final data = response.data['data'];
         return {
           'checkoutUrl': data['checkoutUrl'] as String,
+          'sessionId': data['sessionId'] as String? ?? '',
+          'packageId': data['packageId'] as String? ?? 'coins_${data['coins']}',
           'coins': data['coins'] as int,
           'amount': data['amount'] as int,
           'priceInr': data['priceInr'] as int,

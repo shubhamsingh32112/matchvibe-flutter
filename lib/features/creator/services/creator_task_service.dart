@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/services/meta_app_events_service.dart';
 import '../models/creator_task_model.dart';
 
 class CreatorTaskService {
@@ -31,6 +32,7 @@ class CreatorTaskService {
       
       if (response.statusCode == 200 && response.data['success'] == true) {
         debugPrint('✅ [CREATOR TASKS] Reward claimed successfully');
+        await MetaAppEventsService.logUnlockAchievement(description: taskKey);
       } else {
         throw Exception('Failed to claim reward: ${response.data['error']}');
       }

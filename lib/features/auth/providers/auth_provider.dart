@@ -13,6 +13,7 @@ import '../../../core/api/api_client.dart';
 import '../../../core/images/image_asset_view.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../chat/services/chat_service.dart';
+import '../../../core/services/meta_app_events_service.dart';
 import '../../../core/services/sentry_service.dart';
 import '../../../core/services/availability_socket_service.dart';
 import '../../../core/services/device_fingerprint_service.dart';
@@ -556,6 +557,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
             firebaseUid: firebaseUser.uid,
           ),
         );
+        unawaited(MetaAppEventsService.setUserId(user.id));
+        if (createdNow) {
+          unawaited(
+            MetaAppEventsService.logCompleteRegistration(
+              registrationMethod: 'google',
+            ),
+          );
+        }
         debugPrint('✅ [AUTH] User authenticated and synced successfully');
         debugPrint('   🎉 Ready for app usage');
 
@@ -872,6 +881,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       debugPrint('🚪 [AUTH] Starting sign out...');
 
       await SentryService.clearUserContext();
+      await MetaAppEventsService.clearUserId();
 
       try {
         AvailabilitySocketService.instance.onLogout();
@@ -1088,6 +1098,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
             firebaseUid: firebaseUser.uid,
           ),
         );
+        unawaited(MetaAppEventsService.setUserId(user.id));
         debugPrint('✅ [AUTH] User data updated in state');
       } else {
         debugPrint(

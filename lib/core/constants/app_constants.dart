@@ -27,6 +27,11 @@ class AppConstants {
   /// Required for reliable Google Sign-In → Firebase [idToken] on Android/iOS.
   static String get googleWebClientId =>
       (dotenv.env['GOOGLE_WEB_CLIENT_ID'] ?? '').trim();
+
+  /// Digits-only WhatsApp number for creator applications (e.g. 919876543210).
+  static String get creatorWhatsappNumber =>
+      (dotenv.env['CREATOR_WHATSAPP_NUMBER'] ?? '').replaceAll(RegExp(r'\D'), '');
+
   static bool get enableServerOnboardingFlow =>
       (dotenv.env['ENABLE_SERVER_ONBOARDING_FLOW'] ?? 'true').toLowerCase() ==
       'true';

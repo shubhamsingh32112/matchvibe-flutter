@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:go_router/go_router.dart';
@@ -5,6 +7,7 @@ import '../../../core/constants/app_spacing.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/images/image_cache_managers.dart';
 import '../../../core/services/image_precache_service.dart';
+import '../../../core/services/meta_app_events_service.dart';
 import '../../../shared/models/creator_model.dart';
 import '../../../shared/models/profile_model.dart';
 import '../../../shared/styles/app_brand_styles.dart';
@@ -101,6 +104,13 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
 
   void _openCreatorProfileModal({required bool isCreatorOnline}) {
     if (widget.creator == null) return;
+    final creatorId = widget.creator!.id;
+    unawaited(
+      MetaAppEventsService.logViewContent(
+        contentId: creatorId,
+        contentType: 'creator_profile',
+      ),
+    );
     final u = ref.read(authProvider).user;
     final modalCallVariant = u?.welcomeFreeCallEligible == true
         ? CallButtonVariant.welcomeFree

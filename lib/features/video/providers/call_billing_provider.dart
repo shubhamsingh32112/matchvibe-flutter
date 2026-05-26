@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/services/meta_app_events_service.dart';
 import '../../home/providers/availability_provider.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../controllers/call_connection_controller.dart';
@@ -327,14 +328,22 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
             '💰 [BILLING] Ignoring billing:settled for different call: event=$eventCallId current=${state.callId}');
         return;
       }
+      final totalDeducted = (data['totalDeducted'] as num?)?.toInt() ?? 0;
       state = state.copyWith(
         isActive: false,
         settled: true,
         finalCoins: (data['finalCoins'] as num?)?.toInt(),
-        totalDeducted: (data['totalDeducted'] as num?)?.toInt(),
+        totalDeducted: totalDeducted,
         totalEarned: (data['totalEarned'] as num?)?.toInt(),
         durationSeconds: (data['durationSeconds'] as num?)?.toInt(),
       );
+      if (totalDeducted > 0) {
+        MetaAppEventsService.logSpendCredits(
+          contentId: eventCallId,
+          amount: totalDeducted.toDouble(),
+          contentType: 'video_call',
+        );
+      }
     };
 
     socketService.onCallForceEnd = (data) {
