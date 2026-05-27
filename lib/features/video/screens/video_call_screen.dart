@@ -7,6 +7,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../../core/services/sentry_service.dart';
 import '../controllers/call_connection_controller.dart';
 import '../providers/call_billing_provider.dart';
+import '../providers/call_billing_selectors.dart';
 import '../widgets/live_billing_overlay.dart';
 import '../services/permission_service.dart';
 import '../services/security_service.dart';
@@ -627,7 +628,7 @@ class _VideoCallScreenContentState
 
     // ── Force-end handling (billing is server-driven; UI only reacts) ──
     ref.listen<CallBillingState>(callBillingProvider, (prev, next) {
-      if ((prev?.isActive != true && next.isActive) ||
+      if (((prev == null || !prev.isBillingLive) && next.isBillingLive) ||
           (prev?.callStartTimeMs == null && next.callStartTimeMs != null)) {
         final ms = DateTime.now().difference(_connectedMountedAt).inMilliseconds;
         debugPrint(
@@ -640,7 +641,10 @@ class _VideoCallScreenContentState
           next.durationLimit != prevLimit) {
         _startDurationLimitWatchdog();
       }
-      if (next.forceEnded && !_forceEndDialogShown) {
+      final movedToEnding =
+          prev?.runtimeState != BillingRuntimeState.ending &&
+          next.runtimeState == BillingRuntimeState.ending;
+      if (movedToEnding && !_forceEndDialogShown) {
         final forceEndCallId = next.callId;
         if (forceEndCallId != null &&
             forceEndCallId == _lastHandledForceEndCallId) {

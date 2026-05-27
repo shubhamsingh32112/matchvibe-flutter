@@ -7,9 +7,6 @@ import '../../wallet/providers/wallet_pricing_provider.dart';
 import '../../user/providers/user_availability_provider.dart';
 import '../../../shared/models/app_update_model.dart';
 import '../../../shared/providers/app_update_popup_provider.dart';
-// 🔥 CRITICAL FIX: Import socket service provider to update creator's own status
-import '../../../core/services/availability_socket_service.dart'
-    as socket_service;
 
 // ── Enum ──────────────────────────────────────────────────────────────────
 enum CreatorAvailability { online, busy }
@@ -37,20 +34,36 @@ class _AvailabilityPerfProbe {
 class CreatorAvailabilityNotifier
     extends StateNotifier<Map<String, CreatorAvailability>> {
   CreatorAvailabilityNotifier() : super({});
+  final Map<String, int> _versions = <String, int>{};
 
   /// Bulk-update from an [availability:batch] socket event (Redis snapshot).
-  /// Socket batch is authoritative snapshot and should overwrite stale seeded values.
-  void updateBatch(Map<String, String> data) {
+  /// Merge is strictly version-gated: incoming.version must be greater.
+  void updateBatch(Map<String, String> data, {Map<String, int>? versions}) {
+    if (versions == null) {
+      if (!kReleaseMode) {
+        debugPrint(
+          '⚠️ [AVAILABILITY] Ignoring unversioned availability:batch payload',
+        );
+      }
+      return;
+    }
     Map<String, CreatorAvailability>? newState;
     var changes = 0;
     for (final entry in data.entries) {
+      final currentVersion = _versions[entry.key] ?? 0;
+      final incomingVersion = versions[entry.key] ?? 0;
+      if (incomingVersion <= currentVersion) {
+        continue;
+      }
       final v = entry.value == 'online'
           ? CreatorAvailability.online
           : CreatorAvailability.busy;
-      if (state[entry.key] == v) continue;
-      newState ??= Map<String, CreatorAvailability>.from(state);
-      newState[entry.key] = v;
-      changes++;
+      if (state[entry.key] != v) {
+        newState ??= Map<String, CreatorAvailability>.from(state);
+        newState[entry.key] = v;
+        changes++;
+      }
+      _versions[entry.key] = incomingVersion;
     }
     if (newState != null) {
       state = newState;
@@ -58,13 +71,39 @@ class CreatorAvailabilityNotifier
     }
   }
 
+  void updateBatchV2(Map<String, Map<String, dynamic>> data) {
+    final statusMap = <String, String>{};
+    final versions = <String, int>{};
+    data.forEach((creatorId, payload) {
+      final status = payload['status']?.toString() == 'online'
+          ? 'online'
+          : 'busy';
+      statusMap[creatorId] = status;
+      versions[creatorId] = (payload['version'] as num?)?.toInt() ?? 0;
+    });
+    updateBatch(statusMap, versions: versions);
+  }
+
   /// Single update from a [creator:status] socket event.
-  void updateSingle(String creatorId, String status) {
+  void updateSingle(String creatorId, String status, {int? version}) {
+    if (version == null) {
+      if (!kReleaseMode) {
+        debugPrint(
+          '⚠️ [AVAILABILITY] Ignoring unversioned creator:status for $creatorId',
+        );
+      }
+      return;
+    }
+    final incomingVersion = version;
+    final currentVersion = _versions[creatorId] ?? 0;
+    if (incomingVersion <= currentVersion) {
+      return;
+    }
     final newAvailability = status == 'online'
         ? CreatorAvailability.online
         : CreatorAvailability.busy;
 
-    // Only update if status actually changed (prevents unnecessary rebuilds)
+    // Always advance monotonic version even when status stays unchanged.
     if (state[creatorId] != newAvailability) {
       final newState = Map<String, CreatorAvailability>.from(state);
       newState[creatorId] = newAvailability;
@@ -78,6 +117,7 @@ class CreatorAvailabilityNotifier
         '📡 [AVAILABILITY] Creator status unchanged: $creatorId → $status (skipping update)',
       );
     }
+    _versions[creatorId] = incomingVersion;
   }
 
   /// Seed from REST (Redis-backed API). Never overwrites live socket map entries.
@@ -135,67 +175,29 @@ final socketServiceProvider = Provider<SocketService>((ref) {
 
   // Wire socket callbacks → Riverpod state
   service.onAvailabilityBatch = (data) {
-    // Update provider from availability_provider.dart (for user homepage)
-    ref.read(creatorAvailabilityProvider.notifier).updateBatch(data);
-
-    // 🔥 CRITICAL FIX: Also update provider from availability_socket_service.dart
-    // This ensures creator's own status updates instantly when SocketService receives batch events
-    try {
-      final batchMap = <String, socket_service.CreatorAvailability>{};
-      for (final entry in data.entries) {
-        batchMap[entry.key] = entry.value == 'online'
-            ? socket_service.CreatorAvailability.online
-            : socket_service.CreatorAvailability.busy;
-      }
-      ref
-          .read(socket_service.creatorAvailabilityProvider.notifier)
-          .updateAll(batchMap);
+    // Ignore unversioned v1 batch to prevent stale overwrite paths.
+    if (!kReleaseMode) {
       debugPrint(
-        '✅ [SOCKET→PROVIDER] Successfully updated socket service provider with batch',
+        '⚠️ [SOCKET→PROVIDER] Ignoring unversioned availability:batch payload',
       );
-    } catch (e) {
-      debugPrint(
-        '⚠️  [SOCKET→PROVIDER] Could not update socket service provider batch: $e',
-      );
-      // Non-critical - AvailabilitySocketService will also handle the event if connected
     }
+  };
+  service.onAvailabilityBatchV2 = (data) {
+    ref.read(creatorAvailabilityProvider.notifier).updateBatchV2(data);
   };
   service.onCreatorStatus = (creatorId, status) {
-    debugPrint(
-      '📡 [SOCKET→PROVIDER] Received creator:status event: $creatorId → $status',
-    );
-    try {
-      // Update provider from availability_provider.dart (for user homepage)
-      ref
-          .read(creatorAvailabilityProvider.notifier)
-          .updateSingle(creatorId, status);
+    if (!kReleaseMode) {
       debugPrint(
-        '✅ [SOCKET→PROVIDER] Successfully updated home provider for $creatorId',
+        '⚠️ [SOCKET→PROVIDER] Ignoring unversioned creator:status for $creatorId',
       );
-
-      // 🔥 CRITICAL FIX: Also update provider from availability_socket_service.dart
-      // This ensures creator's own status updates instantly when SocketService receives events
-      // This is especially important if AvailabilitySocketService is not connected or initialized
-      try {
-        final statusEnum = status == 'online'
-            ? socket_service.CreatorAvailability.online
-            : socket_service.CreatorAvailability.busy;
-        ref
-            .read(socket_service.creatorAvailabilityProvider.notifier)
-            .update(creatorId, statusEnum);
-        debugPrint(
-          '✅ [SOCKET→PROVIDER] Successfully updated socket service provider for $creatorId',
-        );
-      } catch (e) {
-        debugPrint(
-          '⚠️  [SOCKET→PROVIDER] Could not update socket service provider: $e',
-        );
-        // Non-critical - AvailabilitySocketService will also handle the event if connected
-      }
-    } catch (e) {
-      debugPrint('❌ [SOCKET→PROVIDER] Failed to update provider: $e');
     }
   };
+  service.onCreatorStatusV2 =
+      (creatorId, status, {int? version, int? updatedAt}) {
+        ref
+            .read(creatorAvailabilityProvider.notifier)
+            .updateSingle(creatorId, status, version: version);
+      };
 
   /// Fan presence — same payloads as [AvailabilitySocketService] (`user:status` / batch).
   service.onUserStatus = (firebaseUid, status) {
@@ -268,10 +270,9 @@ final socketServiceProvider = Provider<SocketService>((ref) {
       );
       return;
     }
-    ref.read(appUpdatePopupProvider.notifier).setPendingUpdate(
-          AppUpdateModel.fromJson(data),
-          source: 'socket',
-        );
+    ref
+        .read(appUpdatePopupProvider.notifier)
+        .setPendingUpdate(AppUpdateModel.fromJson(data), source: 'socket');
   };
 
   ref.onDispose(() {

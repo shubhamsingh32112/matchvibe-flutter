@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/images/image_cache_managers.dart';
+import '../../../core/services/sentry_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 import '../../../shared/widgets/app_network_image.dart';
@@ -122,7 +123,7 @@ class CallDialCard extends StatelessWidget {
                                   style: Theme.of(context).textTheme.bodyMedium
                                       ?.copyWith(
                                         color: Colors.white,
-                                      fontWeight: FontWeight.w700,
+                                        fontWeight: FontWeight.w700,
                                       ),
                                 ),
                               ),
@@ -207,15 +208,42 @@ class CallDialCard extends StatelessWidget {
 }
 
 /// Large rounded photo, center-right emphasis (reference layout).
-class CallDialProfilePhoto extends StatelessWidget {
+class CallDialProfilePhoto extends StatefulWidget {
   final double size;
   final String? imageUrl;
+  final String? imageSourceTag;
 
-  const CallDialProfilePhoto({super.key, required this.size, this.imageUrl});
+  const CallDialProfilePhoto({
+    super.key,
+    required this.size,
+    this.imageUrl,
+    this.imageSourceTag,
+  });
+
+  @override
+  State<CallDialProfilePhoto> createState() => _CallDialProfilePhotoState();
+}
+
+class _CallDialProfilePhotoState extends State<CallDialProfilePhoto> {
+  bool _failed = false;
+
+  @override
+  void didUpdateWidget(covariant CallDialProfilePhoto oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.imageUrl != widget.imageUrl) {
+      _failed = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final size = widget.size;
     final radius = (size * 0.16).clamp(16.0, 22.0);
+    final trimmedUrl = widget.imageUrl?.trim();
+    final imageUrl = (trimmedUrl == null || trimmedUrl.isEmpty)
+        ? null
+        : trimmedUrl;
+
     return SizedBox(
       width: size,
       height: size,
@@ -231,29 +259,112 @@ class CallDialProfilePhoto extends StatelessWidget {
             ),
           ],
         ),
-        child: imageUrl != null && imageUrl!.isNotEmpty
+        child: imageUrl != null
             ? AppNetworkImage(
+                key: ValueKey('dial-photo-$imageUrl'),
                 imageUrl: imageUrl,
                 width: size,
                 height: size,
                 fit: BoxFit.cover,
                 borderRadius: BorderRadius.circular(radius - 1),
                 cacheManager: avatarCacheManager,
-                errorFallback: _placeholder(size),
+                placeholder: _placeholder(size, state: _PhotoState.loading),
+                onImageDecoded: () {
+                  if (!mounted) return;
+                  setState(() {
+                    _failed = false;
+                  });
+                },
+                errorFallback: _PhotoErrorFallback(
+                  size: size,
+                  onShown: () {
+                    if (!mounted || _failed) return;
+                    _logImageFailure(imageUrl);
+                    setState(() {
+                      _failed = true;
+                    });
+                  },
+                ),
                 variantTag: 'callPhoto',
               )
             : ClipRRect(
                 borderRadius: BorderRadius.circular(radius - 1),
-                child: _placeholder(size),
+                child: _placeholder(size, state: _PhotoState.empty),
               ),
       ),
     );
   }
 
-  Widget _placeholder(double s) {
+  void _logImageFailure(String imageUrl) {
+    final uri = Uri.tryParse(imageUrl);
+    final firstPath = uri == null || uri.pathSegments.isEmpty
+        ? ''
+        : uri.pathSegments.first;
+    SentryService.addBreadcrumb(
+      category: 'call.avatar',
+      message: 'incoming_avatar_image_load_failed',
+      data: {
+        'source': widget.imageSourceTag ?? 'unknown',
+        'url_host': uri?.host ?? '',
+        'url_path_hint': firstPath,
+      },
+    );
+  }
+
+  Widget _placeholder(double s, {required _PhotoState state}) {
+    final icon = switch (state) {
+      _PhotoState.loading => Icons.hourglass_top_rounded,
+      _PhotoState.error => Icons.broken_image_outlined,
+      _PhotoState.empty => Icons.person,
+    };
     return ColoredBox(
       color: AppPalette.beige,
-      child: Icon(Icons.person, size: s * 0.45, color: AppPalette.subtitle),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Icon(icon, size: s * 0.45, color: AppPalette.subtitle),
+          if (state == _PhotoState.loading)
+            SizedBox(
+              width: s * 0.24,
+              height: s * 0.24,
+              child: const CircularProgressIndicator(strokeWidth: 2.2),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+enum _PhotoState { loading, error, empty }
+
+class _PhotoErrorFallback extends StatefulWidget {
+  final double size;
+  final VoidCallback onShown;
+
+  const _PhotoErrorFallback({required this.size, required this.onShown});
+
+  @override
+  State<_PhotoErrorFallback> createState() => _PhotoErrorFallbackState();
+}
+
+class _PhotoErrorFallbackState extends State<_PhotoErrorFallback> {
+  bool _reported = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_reported) {
+      _reported = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        widget.onShown();
+      });
+    }
+    return ColoredBox(
+      color: AppPalette.beige,
+      child: Icon(
+        Icons.broken_image_outlined,
+        size: widget.size * 0.45,
+        color: AppPalette.subtitle,
+      ),
     );
   }
 }

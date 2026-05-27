@@ -25,6 +25,7 @@ class SocketService {
   bool _isConnected = false;
   bool _isConnecting = false;
   List<String> _lastRequestedIds = [];
+
   /// Fan UIDs last requested via [user:availability:get] (creators) — re-sent on reconnect.
   List<String> _lastRequestedUserIds = [];
   Completer<bool>? _connectCompleter;
@@ -32,10 +33,20 @@ class SocketService {
   Map<String, dynamic>? _pendingCallStarted;
   Map<String, dynamic>? _pendingCallEnded;
   bool _pendingBillingRecoverState = false;
+  final Set<String> _billingStartedSeenCallIds = <String>{};
 
   // ── Availability callbacks ──────────────────────────────────────────────
   void Function(Map<String, String>)? onAvailabilityBatch;
+  void Function(Map<String, Map<String, dynamic>> data)? onAvailabilityBatchV2;
   void Function(String creatorId, String status)? onCreatorStatus;
+  void Function(
+    String creatorId,
+    String status, {
+    int? version,
+    int? updatedAt,
+  })?
+  onCreatorStatusV2;
+
   /// Fan online/offline — server emits to `creators` room only.
   void Function(String firebaseUid, String status)? onUserStatus;
 
@@ -48,6 +59,7 @@ class SocketService {
   void Function(Map<String, dynamic>)? onBillingSettled;
   void Function(Map<String, dynamic>)? onCallForceEnd;
   void Function(Map<String, dynamic>)? onBillingError;
+
   /// Response to [requestBillingStateRecovery] — same shape as server recover payload.
   void Function(Map<String, dynamic>)? onBillingRecoverState;
 
@@ -70,6 +82,7 @@ class SocketService {
   // ── Wallet pricing callback ────────────────────────────────────────────
   /// Fired when admin updates wallet package pricing.
   void Function(Map<String, dynamic>)? onWalletPricingUpdated;
+
   /// Fired when admin publishes a global app update popup payload.
   void Function(Map<String, dynamic>)? onAppUpdatePublished;
 
@@ -96,7 +109,9 @@ class SocketService {
 
     // Socket exists but is NOT connected → dispose stale socket first
     if (_socket != null) {
-      debugPrint('🔌 [SOCKET] Stale socket detected (not connected). Disposing and reconnecting...');
+      debugPrint(
+        '🔌 [SOCKET] Stale socket detected (not connected). Disposing and reconnecting...',
+      );
       _socket!.disconnect();
       _socket!.dispose();
       _socket = null;
@@ -158,24 +173,54 @@ class SocketService {
       }
     });
 
+    _socket!.on('availability:batch:v2', (data) {
+      debugPrint('📡 [SOCKET] Received availability:batch:v2');
+      if (data is Map) {
+        final mapped = <String, Map<String, dynamic>>{};
+        data.forEach((key, value) {
+          if (key == null || value is! Map) return;
+          mapped[key.toString()] = Map<String, dynamic>.from(
+            value.map((k, v) => MapEntry(k.toString(), v)),
+          );
+        });
+        onAvailabilityBatchV2?.call(mapped);
+      }
+    });
+
     _socket!.on('creator:status', (data) {
       debugPrint('📡 [SOCKET] Received creator:status event: $data');
       if (data is Map) {
         final creatorId = data['creatorId']?.toString();
         final status = data['status']?.toString();
         if (creatorId != null && status != null) {
-          debugPrint('📡 [SOCKET] Calling onCreatorStatus callback: $creatorId → $status');
-          if (onCreatorStatus != null) {
+          debugPrint(
+            '📡 [SOCKET] Calling onCreatorStatus callback: $creatorId → $status',
+          );
+          final version = (data['version'] as num?)?.toInt();
+          final updatedAt = (data['updatedAt'] as num?)?.toInt();
+          if (onCreatorStatus != null && version == null) {
             onCreatorStatus!(creatorId, status);
             debugPrint('✅ [SOCKET] onCreatorStatus callback executed');
           } else {
-            debugPrint('⚠️  [SOCKET] onCreatorStatus callback is null! Provider might not be initialized.');
+            debugPrint(
+              '⚠️  [SOCKET] onCreatorStatus callback skipped (prefer v2/versioned path).',
+            );
           }
+          onCreatorStatusV2?.call(
+            creatorId,
+            status,
+            version: version,
+            updatedAt: updatedAt,
+          );
         } else {
-          debugPrint('⚠️  [SOCKET] Invalid creator:status data: creatorId=$creatorId, status=$status');
+          debugPrint(
+            '⚠️  [SOCKET] Invalid creator:status data: creatorId=$creatorId, status=$status',
+          );
         }
       } else {
-        debugPrint('⚠️  [SOCKET] creator:status data is not a Map: ${data.runtimeType}');
+        debugPrint(
+          '⚠️  [SOCKET] creator:status data is not a Map: ${data.runtimeType}',
+        );
       }
     });
 
@@ -203,6 +248,10 @@ class SocketService {
       debugPrint('💰 [SOCKET] billing:started: $data');
       _socketEventBreadcrumb('billing:started', data);
       if (data is Map) {
+        final callId = data['callId']?.toString();
+        if (callId != null && callId.isNotEmpty) {
+          _billingStartedSeenCallIds.add(callId);
+        }
         onBillingStarted?.call(Map<String, dynamic>.from(data));
       }
     });
@@ -330,7 +379,9 @@ class SocketService {
   Future<bool> ensureConnected(String token) async {
     if (_isConnected) return true;
 
-    debugPrint('🔄 [SOCKET] ensureConnected — socket is NOT connected, reconnecting...');
+    debugPrint(
+      '🔄 [SOCKET] ensureConnected — socket is NOT connected, reconnecting...',
+    );
     _connectCompleter ??= Completer<bool>();
     connect(token);
 
@@ -343,7 +394,8 @@ class SocketService {
         debugPrint('✅ [SOCKET] ensureConnected — connected');
       } else {
         debugPrint(
-            '⚠️ [SOCKET] ensureConnected — timed out/failed, continuing without socket');
+          '⚠️ [SOCKET] ensureConnected — timed out/failed, continuing without socket',
+        );
       }
       return connected;
     } finally {
@@ -421,12 +473,20 @@ class SocketService {
       debugPrint('💰 [SOCKET] Emitting call:started for $callId');
       _socket!.emit('call:started', data);
       _pendingCallStarted = null;
-      return false;
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      if (_billingStartedSeenCallIds.contains(callId)) {
+        return false;
+      }
+      debugPrint(
+        '⚠️ [SOCKET] call:started emitted but billing:started not seen quickly. Triggering HTTP fallback for $callId',
+      );
+      return _billingViaHttp('call-started', data);
     }
 
     // Socket not connected → use REST API fallback
     debugPrint(
-        '⚠️ [SOCKET] Cannot emit call:started — not connected. Using REST API fallback for $callId');
+      '⚠️ [SOCKET] Cannot emit call:started — not connected. Using REST API fallback for $callId',
+    );
     _pendingCallStarted = data;
     return _billingViaHttp('call-started', data);
   }
@@ -445,9 +505,7 @@ class SocketService {
     }
     // Socket not connected → queue for next reconnect.
     _pendingBillingRecoverState = true;
-    debugPrint(
-      '⏳ [SOCKET] Not connected — billing:recover-state queued',
-    );
+    debugPrint('⏳ [SOCKET] Not connected — billing:recover-state queued');
   }
 
   void emitCallEnded({required String callId}) {
@@ -457,14 +515,37 @@ class SocketService {
       debugPrint('💰 [SOCKET] Emitting call:ended for $callId');
       _socket!.emit('call:ended', data);
       _pendingCallEnded = null;
+      _billingStartedSeenCallIds.remove(callId);
       return;
     }
 
     // Socket not connected → use REST API fallback
     debugPrint(
-        '⚠️ [SOCKET] Cannot emit call:ended — not connected. Using REST API fallback for $callId');
+      '⚠️ [SOCKET] Cannot emit call:ended — not connected. Using REST API fallback for $callId',
+    );
     _pendingCallEnded = data;
     _billingViaHttp('call-ended', data);
+  }
+
+  /// Report prolonged "Syncing billing..." state to backend logs.
+  void emitBillingSyncWarning({
+    required String callId,
+    required int stuckSeconds,
+    required String phase,
+  }) {
+    final data = <String, dynamic>{
+      'callId': callId,
+      'stuckSeconds': stuckSeconds,
+      'phase': phase,
+      'reportedAt': DateTime.now().toIso8601String(),
+    };
+    if (_socket != null && _isConnected) {
+      _socket!.emit('billing:sync-warning', data);
+      return;
+    }
+    debugPrint(
+      '⚠️ [SOCKET] billing:sync-warning dropped (socket disconnected) callId=$callId',
+    );
   }
 
   /// REST API fallback for billing events when the socket is down.
@@ -488,6 +569,10 @@ class SocketService {
         return false;
       } else if (event == 'call-ended') {
         _pendingCallEnded = null;
+        final callId = data['callId']?.toString();
+        if (callId != null && callId.isNotEmpty) {
+          _billingStartedSeenCallIds.remove(callId);
+        }
       }
       return false;
     } catch (e) {
@@ -503,14 +588,16 @@ class SocketService {
 
     if (_pendingCallStarted != null) {
       debugPrint(
-          '💰 [SOCKET] Flushing queued call:started for ${_pendingCallStarted!['callId']}');
+        '💰 [SOCKET] Flushing queued call:started for ${_pendingCallStarted!['callId']}',
+      );
       _socket!.emit('call:started', _pendingCallStarted!);
       _pendingCallStarted = null;
     }
 
     if (_pendingCallEnded != null) {
       debugPrint(
-          '💰 [SOCKET] Flushing queued call:ended for ${_pendingCallEnded!['callId']}');
+        '💰 [SOCKET] Flushing queued call:ended for ${_pendingCallEnded!['callId']}',
+      );
       _socket!.emit('call:ended', _pendingCallEnded!);
       _pendingCallEnded = null;
     }
@@ -530,10 +617,7 @@ class SocketService {
     SentryService.addBreadcrumb(
       category: 'socket',
       message: event,
-      data: {
-        'event': event,
-        if (callId != null) 'callId': callId,
-      },
+      data: {'event': event, if (callId != null) 'callId': callId},
     );
   }
 
@@ -550,6 +634,7 @@ class SocketService {
     _pendingCallStarted = null;
     _pendingCallEnded = null;
     _pendingBillingRecoverState = false;
+    _billingStartedSeenCallIds.clear();
     if (_connectCompleter != null && !_connectCompleter!.isCompleted) {
       _connectCompleter!.complete(false);
     }

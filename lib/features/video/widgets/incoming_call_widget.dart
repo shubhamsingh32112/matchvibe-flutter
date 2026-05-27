@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stream_video_flutter/stream_video_flutter.dart';
@@ -19,6 +21,7 @@ import 'call_dial_card.dart';
 class IncomingCallWidget extends ConsumerStatefulWidget {
   final Call incomingCall;
   final String? fallbackImageUrl;
+  final String? fallbackImageSource;
 
   /// Called when the call is dismissed (rejected by creator or cancelled by caller).
   final VoidCallback? onDismiss;
@@ -27,6 +30,7 @@ class IncomingCallWidget extends ConsumerStatefulWidget {
     super.key,
     required this.incomingCall,
     this.fallbackImageUrl,
+    this.fallbackImageSource,
     this.onDismiss,
   });
 
@@ -37,6 +41,7 @@ class IncomingCallWidget extends ConsumerStatefulWidget {
 class _IncomingCallWidgetState extends ConsumerState<IncomingCallWidget>
     with SingleTickerProviderStateMixin {
   late final AnimationController _barController;
+  StreamSubscription<dynamic>? _incomingCallStateSubscription;
 
   static const String _fixedIncomingMessage =
       "Baby, I'm alone 😚\nEager to talk to you 💕";
@@ -48,12 +53,40 @@ class _IncomingCallWidgetState extends ConsumerState<IncomingCallWidget>
       vsync: this,
       duration: const Duration(milliseconds: 1400),
     )..repeat();
+    _subscribeCallState(widget.incomingCall);
+  }
+
+  @override
+  void didUpdateWidget(covariant IncomingCallWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.incomingCall.id != widget.incomingCall.id) {
+      _subscribeCallState(widget.incomingCall);
+    }
   }
 
   @override
   void dispose() {
+    _incomingCallStateSubscription?.cancel();
     _barController.dispose();
     super.dispose();
+  }
+
+  void _subscribeCallState(Call call) {
+    _incomingCallStateSubscription?.cancel();
+    try {
+      final dynamic stateStream = (call as dynamic).partialState(
+        (dynamic state) => state,
+      );
+      _incomingCallStateSubscription = (stateStream as Stream<dynamic>).listen((
+        _,
+      ) {
+        if (mounted) {
+          setState(() {});
+        }
+      });
+    } catch (_) {
+      // Best-effort hydration re-render only.
+    }
   }
 
   @override
@@ -62,29 +95,33 @@ class _IncomingCallWidgetState extends ConsumerState<IncomingCallWidget>
     final currentUserId = ref.watch(
       authProvider.select((s) => s.firebaseUser?.uid),
     );
-    final isProcessing = callPhase == CallConnectionPhase.preparing ||
+    final isProcessing =
+        callPhase == CallConnectionPhase.preparing ||
         callPhase == CallConnectionPhase.joining;
 
-    final resolvedImageUrl = resolveRemoteImageUrl(
+    final resolvedImage = resolveRemoteImage(
       call: widget.incomingCall,
       currentUserId: currentUserId,
-      fallbackImageUrl: null,
+      fallbackImageUrl: widget.fallbackImageUrl,
+      fallbackSourceTag: widget.fallbackImageSource,
       enableDebugLogs: true,
       debugSourceTag: 'incoming',
     );
-    final fallbackImageUrl = widget.fallbackImageUrl?.trim();
-    final remoteImageUrl = (resolvedImageUrl != null && resolvedImageUrl.isNotEmpty)
+    final resolvedImageUrl = resolvedImage?.url;
+    final resolvedImageSource =
+        resolvedImage?.source ?? widget.fallbackImageSource ?? 'none';
+    final remoteImageUrl =
+        (resolvedImageUrl != null && resolvedImageUrl.isNotEmpty)
         ? resolvedImageUrl
-        : (fallbackImageUrl != null && fallbackImageUrl.isNotEmpty
-            ? fallbackImageUrl
-            : null);
+        : null;
 
     debugPrint(
-        '🖼️ [INCOMING CALL WIDGET] Image URL: ${remoteImageUrl ?? "null"} (fallback: ${widget.fallbackImageUrl ?? "null"})');
+      '🖼️ [INCOMING CALL WIDGET] Image URL: ${remoteImageUrl ?? "null"} '
+      '(source: $resolvedImageSource, fallback: ${widget.fallbackImageUrl ?? "null"})',
+    );
 
     final u = remoteImageUrl;
-    final String? photoUrl =
-        u != null && u.trim().isNotEmpty ? u.trim() : null;
+    final String? photoUrl = u != null && u.trim().isNotEmpty ? u.trim() : null;
 
     final display = resolveRemoteParticipantDisplay(
       call: widget.incomingCall,
@@ -136,8 +173,9 @@ class _IncomingCallWidgetState extends ConsumerState<IncomingCallWidget>
                   currentUserId: currentUid,
                   fallbackImageUrl: widget.fallbackImageUrl,
                 );
-                ref.read(coinPurchasePopupProvider.notifier).state =
-                    CoinPopupIntent(
+                ref
+                    .read(coinPurchasePopupProvider.notifier)
+                    .state = CoinPopupIntent(
                   reason: 'preflight_low_coins_incoming',
                   dedupeKey: 'low-coins-incoming-${widget.incomingCall.id}',
                   remoteDisplayName: display.primaryName,
@@ -175,15 +213,16 @@ class _IncomingCallWidgetState extends ConsumerState<IncomingCallWidget>
                     CallDialProfilePhoto(
                       size: 220,
                       imageUrl: photoUrl,
+                      imageSourceTag: resolvedImageSource,
                     ),
                     const SizedBox(height: 12),
                     Text(
                       display.nameLine,
                       textAlign: TextAlign.center,
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            color: AppPalette.onSurface,
-                          ),
+                        fontWeight: FontWeight.w800,
+                        color: AppPalette.onSurface,
+                      ),
                     ),
                     if (location != null && location.isNotEmpty) ...[
                       const SizedBox(height: 6),
@@ -202,9 +241,7 @@ class _IncomingCallWidgetState extends ConsumerState<IncomingCallWidget>
                               location,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium
+                              style: Theme.of(context).textTheme.bodyMedium
                                   ?.copyWith(
                                     color: AppPalette.subtitle,
                                     fontWeight: FontWeight.w600,
@@ -239,18 +276,14 @@ class _IncomingHeader extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(
-          Icons.videocam,
-          color: AppPalette.subtitle,
-          size: 18,
-        ),
+        Icon(Icons.videocam, color: AppPalette.subtitle, size: 18),
         const SizedBox(width: 10),
         Text(
           isProcessing ? 'Connecting…' : 'Incoming Video Call…',
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: AppPalette.onSurface,
-                fontWeight: FontWeight.w700,
-              ),
+            color: AppPalette.onSurface,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ],
     );
@@ -280,10 +313,10 @@ class _IncomingMessageBubble extends StatelessWidget {
             child: Text(
               text,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AppPalette.onSurface,
-                    fontWeight: FontWeight.w700,
-                    height: 1.15,
-                  ),
+                color: AppPalette.onSurface,
+                fontWeight: FontWeight.w700,
+                height: 1.15,
+              ),
             ),
           ),
         ],
@@ -296,17 +329,14 @@ class _IncomingActionRow extends StatelessWidget {
   final VoidCallback onAccept;
   final VoidCallback onDecline;
 
-  const _IncomingActionRow({
-    required this.onAccept,
-    required this.onDecline,
-  });
+  const _IncomingActionRow({required this.onAccept, required this.onDecline});
 
   @override
   Widget build(BuildContext context) {
     final baseTextStyle = Theme.of(context).textTheme.titleMedium?.copyWith(
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.2,
-        );
+      fontWeight: FontWeight.w800,
+      letterSpacing: 0.2,
+    );
 
     return Row(
       children: [
@@ -411,9 +441,9 @@ class _IncomingProcessingFooter extends StatelessWidget {
           backgroundColor: AppPalette.primaryRed,
           foregroundColor: Colors.white,
           borderColor: Colors.transparent,
-          textStyle: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
+          textStyle: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
           onPressed: onHangUp,
         ),
       ],

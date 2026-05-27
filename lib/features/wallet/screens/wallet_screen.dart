@@ -9,6 +9,7 @@ import '../../auth/providers/auth_provider.dart';
 import '../../creator/providers/creator_dashboard_provider.dart';
 import '../../home/providers/availability_provider.dart';
 import '../../video/providers/call_billing_provider.dart';
+import '../../video/providers/call_billing_selectors.dart';
 import '../providers/wallet_pricing_provider.dart';
 import '../services/wallet_checkout_launcher.dart';
 import '../models/earnings_model.dart';
@@ -199,10 +200,10 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
     final userRole = ref.watch(authProvider.select((s) => s.user?.role));
     final authCoins = ref.watch(authProvider.select((s) => s.user?.coins ?? 0));
     final isCreator = userRole == 'creator' || userRole == 'admin';
-    final billingSlice = ref.watch(
-      callBillingProvider.select((b) => (b.isActive, b.userCoins)),
-    );
-    final coins = billingSlice.$1 && !isCreator ? billingSlice.$2 : authCoins;
+    final billing = ref.watch(callBillingProvider);
+    final coins = shouldShowLiveUserCoins(isCreator: isCreator, billing: billing)
+        ? billing.userCoins
+        : authCoins;
     final walletPricingAsync = isCreator
         ? null
         : ref.watch(walletPricingProvider);

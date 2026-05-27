@@ -6,7 +6,7 @@ void main() {
   group('CallOverlayPolicy.shouldShowBillingSyncHint', () {
     test('returns true shortly after connect when billing not active', () {
       final billing = const CallBillingState(
-        isActive: false,
+        runtimeState: BillingRuntimeState.syncing,
         callStartTimeMs: null,
       );
       final shouldShow = CallOverlayPolicy.shouldShowBillingSyncHint(
@@ -19,7 +19,7 @@ void main() {
 
     test('returns false after timeout window', () {
       final billing = const CallBillingState(
-        isActive: false,
+        runtimeState: BillingRuntimeState.syncing,
         callStartTimeMs: null,
       );
       final shouldShow = CallOverlayPolicy.shouldShowBillingSyncHint(
@@ -32,7 +32,7 @@ void main() {
 
     test('returns false once billing is active', () {
       final billing = const CallBillingState(
-        isActive: true,
+        runtimeState: BillingRuntimeState.active,
         callStartTimeMs: 123,
       );
       final shouldShow = CallOverlayPolicy.shouldShowBillingSyncHint(
@@ -47,7 +47,7 @@ void main() {
   group('CallOverlayPolicy.shouldShowBillingConnectionIssue', () {
     test('returns false while still in sync-hint window', () {
       final billing = const CallBillingState(
-        isActive: false,
+        runtimeState: BillingRuntimeState.syncing,
         callStartTimeMs: null,
       );
       final show = CallOverlayPolicy.shouldShowBillingConnectionIssue(
@@ -60,7 +60,7 @@ void main() {
 
     test('returns true after sync window when billing still not active', () {
       final billing = const CallBillingState(
-        isActive: false,
+        runtimeState: BillingRuntimeState.syncing,
         callStartTimeMs: null,
       );
       final show = CallOverlayPolicy.shouldShowBillingConnectionIssue(
@@ -73,7 +73,7 @@ void main() {
 
     test('returns false when billing became active', () {
       final billing = const CallBillingState(
-        isActive: true,
+        runtimeState: BillingRuntimeState.active,
         callStartTimeMs: 1,
       );
       final show = CallOverlayPolicy.shouldShowBillingConnectionIssue(
@@ -87,7 +87,10 @@ void main() {
 
   group('shouldShowLastTenSecondsHeartbeat', () {
     test('returns true for regular user when remaining seconds are 1..10', () {
-      final billing = const CallBillingState(isActive: true, remainingSeconds: 9);
+      final billing = const CallBillingState(
+        runtimeState: BillingRuntimeState.active,
+        remainingSeconds: 9,
+      );
 
       final shouldShow = shouldShowLastTenSecondsHeartbeat(
         isCreator: false,
@@ -98,7 +101,10 @@ void main() {
     });
 
     test('returns false when remainingSeconds is null', () {
-      final billing = const CallBillingState(isActive: true, remainingSeconds: null);
+      final billing = const CallBillingState(
+        runtimeState: BillingRuntimeState.active,
+        remainingSeconds: null,
+      );
 
       final shouldShow = shouldShowLastTenSecondsHeartbeat(
         isCreator: false,
@@ -109,7 +115,10 @@ void main() {
     });
 
     test('returns false when remainingSeconds is 0', () {
-      final billing = const CallBillingState(isActive: true, remainingSeconds: 0);
+      final billing = const CallBillingState(
+        runtimeState: BillingRuntimeState.active,
+        remainingSeconds: 0,
+      );
 
       final shouldShow = shouldShowLastTenSecondsHeartbeat(
         isCreator: false,
@@ -120,7 +129,10 @@ void main() {
     });
 
     test('returns false when remainingSeconds is greater than 10', () {
-      final billing = const CallBillingState(isActive: true, remainingSeconds: 11);
+      final billing = const CallBillingState(
+        runtimeState: BillingRuntimeState.active,
+        remainingSeconds: 11,
+      );
 
       final shouldShow = shouldShowLastTenSecondsHeartbeat(
         isCreator: false,
@@ -131,7 +143,10 @@ void main() {
     });
 
     test('returns false for creators even in final 10 seconds', () {
-      final billing = const CallBillingState(isActive: true, remainingSeconds: 8);
+      final billing = const CallBillingState(
+        runtimeState: BillingRuntimeState.active,
+        remainingSeconds: 8,
+      );
 
       final shouldShow = shouldShowLastTenSecondsHeartbeat(
         isCreator: true,

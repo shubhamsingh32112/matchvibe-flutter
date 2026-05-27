@@ -14,6 +14,7 @@ import '../../../shared/widgets/decorative_asset_image.dart';
 import '../../account/constants/help_support_assets.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../video/providers/call_billing_provider.dart';
+import '../../video/providers/call_billing_selectors.dart';
 import '../models/support_ticket_model.dart';
 import '../providers/support_provider.dart';
 import '../services/support_service.dart';
@@ -70,11 +71,9 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
     final supportState = ref.watch(supportProvider);
     final user = ref.watch(authProvider.select((s) => s.user));
     final isCreator = user?.role == 'creator' || user?.role == 'admin';
-    final billingSlice = ref.watch(
-      callBillingProvider.select((b) => (b.isActive, b.userCoins)),
-    );
-    final coins = billingSlice.$1 && !isCreator
-        ? billingSlice.$2
+    final billing = ref.watch(callBillingProvider);
+    final coins = shouldShowLiveUserCoins(isCreator: isCreator, billing: billing)
+        ? billing.userCoins
         : (user?.coins ?? 0);
     final scheme = Theme.of(context).colorScheme;
 

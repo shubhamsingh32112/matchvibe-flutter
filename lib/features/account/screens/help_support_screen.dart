@@ -9,6 +9,7 @@ import '../../../shared/widgets/brand_app_chrome.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../video/providers/call_billing_provider.dart';
+import '../../video/providers/call_billing_selectors.dart';
 import '../../wallet/models/transaction_model.dart';
 import '../../wallet/services/transaction_service.dart';
 import '../widgets/help_recent_payments_card.dart';
@@ -67,11 +68,9 @@ class _HelpSupportScreenState extends ConsumerState<HelpSupportScreen> {
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider.select((s) => s.user));
     final isCreator = user?.role == 'creator' || user?.role == 'admin';
-    final billingSlice = ref.watch(
-      callBillingProvider.select((b) => (b.isActive, b.userCoins)),
-    );
-    final coins = billingSlice.$1 && !isCreator
-        ? billingSlice.$2
+    final billing = ref.watch(callBillingProvider);
+    final coins = shouldShowLiveUserCoins(isCreator: isCreator, billing: billing)
+        ? billing.userCoins
         : (user?.coins ?? 0);
 
     return MainLayout(

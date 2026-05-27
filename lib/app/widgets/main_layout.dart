@@ -9,6 +9,7 @@ import '../../features/creator/providers/creator_dashboard_provider.dart';
 import '../../features/creator/providers/creator_status_provider.dart';
 import '../../features/recent/providers/recent_provider.dart';
 import '../../features/video/providers/call_billing_provider.dart';
+import '../../features/video/providers/call_billing_selectors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/styles/app_brand_styles.dart';
 import '../../shared/widgets/loading_indicator.dart';
@@ -65,7 +66,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
     // 🔥 OPTIMIZED: Socket events (coins_updated, creator:data_updated) handle most updates instantly
     // This listener is a fallback safety net for edge cases
     ref.listen<CallBillingState>(callBillingProvider, (prev, next) {
-      if (prev?.settled != true && next.settled) {
+      if (prev?.isBillingSettled != true && next.isBillingSettled) {
         // 🔥 FIX: Only refresh if socket events haven't already updated (fallback)
         // Socket events fire immediately after settlement, so this is rarely needed
         // But keep it as a safety net for edge cases (socket disconnected, etc.)
@@ -207,9 +208,12 @@ class _MainLayoutCoinChip extends ConsumerWidget {
       authProvider.select((s) => (s.user?.coins ?? 0, s.isLoading)),
     );
     final billingSlice = ref.watch(
-      callBillingProvider.select((b) => (b.isActive, b.userCoins)),
+      callBillingProvider.select((b) => (b.runtimeState, b.userCoins)),
     );
-    final coins = billingSlice.$1 && !isCreator
+    final useLiveCoins = !isCreator &&
+        (billingSlice.$1 == BillingRuntimeState.active ||
+            billingSlice.$1 == BillingRuntimeState.recovering);
+    final coins = useLiveCoins
         ? billingSlice.$2
         : authCoins.$1;
     final isLoading = authCoins.$2;

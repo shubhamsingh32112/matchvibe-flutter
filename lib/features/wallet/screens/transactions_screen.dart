@@ -13,6 +13,7 @@ import '../../../shared/widgets/ui_primitives.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../support/screens/payment_complaint_screen.dart';
 import '../../video/providers/call_billing_provider.dart';
+import '../../video/providers/call_billing_selectors.dart';
 import '../models/transaction_model.dart';
 import '../models/wallet_pricing_model.dart';
 import '../providers/wallet_pricing_provider.dart';
@@ -176,11 +177,9 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider.select((s) => s.user));
     final isCreator = user?.role == 'creator' || user?.role == 'admin';
-    final billingSlice = ref.watch(
-      callBillingProvider.select((b) => (b.isActive, b.userCoins)),
-    );
-    final coins = billingSlice.$1 && !isCreator
-        ? billingSlice.$2
+    final billing = ref.watch(callBillingProvider);
+    final coins = shouldShowLiveUserCoins(isCreator: isCreator, billing: billing)
+        ? billing.userCoins
         : (user?.coins ?? 0);
     final transactions = _transactionData?.transactions ?? const [];
     final overviewStats = TransactionUiMapper.computeOverviewStats(

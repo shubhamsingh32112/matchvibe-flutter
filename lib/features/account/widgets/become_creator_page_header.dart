@@ -11,6 +11,7 @@ import '../../../shared/widgets/loading_indicator.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../chat/providers/stream_chat_provider.dart';
 import '../../video/providers/call_billing_provider.dart';
+import '../../video/providers/call_billing_selectors.dart';
 
 class BecomeCreatorPageHeader extends ConsumerWidget {
   const BecomeCreatorPageHeader({super.key});
@@ -33,11 +34,9 @@ class BecomeCreatorPageHeader extends ConsumerWidget {
     final user = ref.watch(authProvider.select((s) => s.user));
     final authLoading = ref.watch(authProvider.select((s) => s.isLoading));
     final isCreator = user?.role == 'creator' || user?.role == 'admin';
-    final billingSlice = ref.watch(
-      callBillingProvider.select((b) => (b.isActive, b.userCoins)),
-    );
-    final coins = billingSlice.$1 && !isCreator
-        ? billingSlice.$2
+    final billing = ref.watch(callBillingProvider);
+    final coins = shouldShowLiveUserCoins(isCreator: isCreator, billing: billing)
+        ? billing.userCoins
         : (user?.coins ?? 0);
     final unread = ref.watch(
       chatUnreadCountProvider.select((a) => a.valueOrNull ?? 0),

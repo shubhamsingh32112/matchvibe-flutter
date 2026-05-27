@@ -21,6 +21,7 @@ import '../../creator/providers/creator_status_provider.dart';
 import '../../referral/screens/referral_screen.dart';
 import '../../referral/utils/host_onboarding_routes.dart';
 import '../../video/providers/call_billing_provider.dart';
+import '../../video/providers/call_billing_selectors.dart';
 import 'account_settings_screen.dart';
 
 class AccountScreen extends ConsumerStatefulWidget {
@@ -177,7 +178,8 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     final isCreator = user?.role == 'creator' || user?.role == 'admin';
     final isPlainUser = user?.role == 'user';
     final billingState = ref.watch(callBillingProvider);
-    final coins = billingState.isActive && !isCreator
+    final coins = shouldShowLiveUserCoins(
+            isCreator: isCreator, billing: billingState)
         ? billingState.userCoins
         : (user?.coins ?? 0);
     final unreadAsync = ref.watch(chatUnreadCountProvider);

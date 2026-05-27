@@ -3,7 +3,29 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import '../../../core/api/api_client.dart';
 import '../../../shared/models/creator_model.dart';
 
-final Map<String, String?> _avatarLookupCache = <String, String?>{};
+class AvatarLookupResult {
+  final String url;
+  final String source;
+
+  const AvatarLookupResult({required this.url, required this.source});
+}
+
+class _AvatarLookupCacheEntry {
+  final String? value;
+  final String source;
+  final DateTime expiresAt;
+
+  const _AvatarLookupCacheEntry({
+    required this.value,
+    required this.source,
+    required this.expiresAt,
+  });
+}
+
+const Duration _avatarCacheSuccessTtl = Duration(minutes: 20);
+const Duration _avatarCacheNullTtl = Duration(seconds: 20);
+final Map<String, _AvatarLookupCacheEntry> _avatarLookupCache =
+    <String, _AvatarLookupCacheEntry>{};
 
 /// Extracts caller Firebase UID from deterministic call IDs:
 /// `<callerFirebaseUid>_<creatorMongoId>_<timestamp>`.
@@ -22,8 +44,9 @@ String? extractCallerFirebaseUidFromCallId(String? callId) {
   final initiator = initiatorParts.join('_').trim();
 
   final ts = int.tryParse(tsPart);
-  final looksLikeCreatorMongoId = RegExp(r'^[a-fA-F0-9]{24}$')
-      .hasMatch(creatorMongoIdPart);
+  final looksLikeCreatorMongoId = RegExp(
+    r'^[a-fA-F0-9]{24}$',
+  ).hasMatch(creatorMongoIdPart);
   if (ts == null || !looksLikeCreatorMongoId || initiator.isEmpty) {
     // Fallback to legacy parser behavior for unexpected call-id shapes.
     final idx = trimmed.indexOf('_');
@@ -78,16 +101,18 @@ Future<String?> lookupAvatarFromUserList({
   String? remoteFirebaseUid,
   String? remoteUsername,
   String? debugSourceTag,
+  bool forceRefresh = false,
 }) async {
   final uid = _normalize(remoteFirebaseUid);
   final username = _normalize(remoteUsername);
   final cacheKey = 'user:${uid ?? ''}|${username ?? ''}';
-  if (_avatarLookupCache.containsKey(cacheKey)) {
-    return _avatarLookupCache[cacheKey];
+  final cached = _readCache(cacheKey, forceRefresh: forceRefresh);
+  if (cached != null) {
+    return cached.value;
   }
 
   if ((uid == null || uid.isEmpty) && (username == null || username.isEmpty)) {
-    _avatarLookupCache[cacheKey] = null;
+    _writeCache(cacheKey, value: null, source: 'empty_input');
     return null;
   }
 
@@ -95,7 +120,7 @@ Future<String?> lookupAvatarFromUserList({
     final response = await ApiClient().get('/user/list');
     final usersData = response.data?['data']?['users'];
     if (usersData is! List) {
-      _avatarLookupCache[cacheKey] = null;
+      _writeCache(cacheKey, value: null, source: 'user_list_empty');
       return null;
     }
 
@@ -120,7 +145,8 @@ Future<String?> lookupAvatarFromUserList({
 
       final idMatched =
           uid != null && uid.isNotEmpty && rowFirebaseCandidates.contains(uid);
-      final usernameMatched = username != null &&
+      final usernameMatched =
+          username != null &&
           username.isNotEmpty &&
           rowUsernameCandidates.contains(username);
 
@@ -134,7 +160,7 @@ Future<String?> lookupAvatarFromUserList({
           '✅ [CALL BG][${debugSourceTag ?? 'lookup'}] Avatar matched from /user/list'
           ' (uidMatch=$idMatched, usernameMatch=$usernameMatched): $resolved',
         );
-        _avatarLookupCache[cacheKey] = resolved;
+        _writeCache(cacheKey, value: resolved, source: 'rest_lookup:user_list');
         return resolved;
       }
     }
@@ -144,7 +170,7 @@ Future<String?> lookupAvatarFromUserList({
     );
   }
 
-  _avatarLookupCache[cacheKey] = null;
+  _writeCache(cacheKey, value: null, source: 'rest_lookup:user_list_miss');
   return null;
 }
 
@@ -152,13 +178,15 @@ Future<String?> lookupAvatarFromUserList({
 Future<String?> lookupAvatarFromUserByFirebaseUid({
   required String remoteFirebaseUid,
   String? debugSourceTag,
+  bool forceRefresh = false,
 }) async {
   final uid = remoteFirebaseUid.trim();
   if (uid.isEmpty) return null;
 
   final cacheKey = 'user_uid:$uid';
-  if (_avatarLookupCache.containsKey(cacheKey)) {
-    return _avatarLookupCache[cacheKey];
+  final cached = _readCache(cacheKey, forceRefresh: forceRefresh);
+  if (cached != null) {
+    return cached.value;
   }
 
   try {
@@ -172,7 +200,11 @@ Future<String?> lookupAvatarFromUserByFirebaseUid({
         debugPrint(
           '✅ [CALL BG][${debugSourceTag ?? 'lookup'}] Avatar from /user/by-firebase-uid: $photo',
         );
-        _avatarLookupCache[cacheKey] = photo;
+        _writeCache(
+          cacheKey,
+          value: photo,
+          source: 'rest_lookup:user_by_firebase_uid',
+        );
         return photo;
       }
     }
@@ -182,7 +214,11 @@ Future<String?> lookupAvatarFromUserByFirebaseUid({
     );
   }
 
-  _avatarLookupCache[cacheKey] = null;
+  _writeCache(
+    cacheKey,
+    value: null,
+    source: 'rest_lookup:user_by_firebase_uid_miss',
+  );
   return null;
 }
 
@@ -190,13 +226,15 @@ Future<String?> lookupAvatarFromUserByFirebaseUid({
 Future<String?> lookupAvatarFromCreatorsByFirebaseUid({
   required String remoteFirebaseUid,
   String? debugSourceTag,
+  bool forceRefresh = false,
 }) async {
   final uid = remoteFirebaseUid.trim();
   if (uid.isEmpty) return null;
 
   final cacheKey = 'creator_uid:$uid';
-  if (_avatarLookupCache.containsKey(cacheKey)) {
-    return _avatarLookupCache[cacheKey];
+  final cached = _readCache(cacheKey, forceRefresh: forceRefresh);
+  if (cached != null) {
+    return cached.value;
   }
 
   try {
@@ -210,7 +248,11 @@ Future<String?> lookupAvatarFromCreatorsByFirebaseUid({
         debugPrint(
           '✅ [CALL BG][${debugSourceTag ?? 'lookup'}] Avatar from /creator/by-firebase-uid: $photo',
         );
-        _avatarLookupCache[cacheKey] = photo;
+        _writeCache(
+          cacheKey,
+          value: photo,
+          source: 'rest_lookup:creator_by_firebase_uid',
+        );
         return photo;
       }
     }
@@ -220,7 +262,11 @@ Future<String?> lookupAvatarFromCreatorsByFirebaseUid({
     );
   }
 
-  _avatarLookupCache[cacheKey] = null;
+  _writeCache(
+    cacheKey,
+    value: null,
+    source: 'rest_lookup:creator_by_firebase_uid_miss',
+  );
   return null;
 }
 
@@ -229,6 +275,7 @@ Future<String?> lookupAvatarFromCreatorFeedPage({
   String? remoteFirebaseUid,
   String? remoteUsername,
   String? debugSourceTag,
+  bool forceRefresh = false,
 }) async {
   final uidNorm = _normalize(remoteFirebaseUid);
   final usernameNorm = _normalize(remoteUsername);
@@ -238,15 +285,16 @@ Future<String?> lookupAvatarFromCreatorFeedPage({
   }
 
   final cacheKey = 'creator_feed:${uidNorm ?? ''}|${usernameNorm ?? ''}';
-  if (_avatarLookupCache.containsKey(cacheKey)) {
-    return _avatarLookupCache[cacheKey];
+  final cached = _readCache(cacheKey, forceRefresh: forceRefresh);
+  if (cached != null) {
+    return cached.value;
   }
 
   try {
     final response = await ApiClient().get('/creator/feed?page=1&limit=50');
     final creatorsData = response.data?['data']?['creators'];
     if (creatorsData is! List) {
-      _avatarLookupCache[cacheKey] = null;
+      _writeCache(cacheKey, value: null, source: 'creator_feed_empty');
       return null;
     }
 
@@ -265,7 +313,7 @@ Future<String?> lookupAvatarFromCreatorFeedPage({
         debugPrint(
           '✅ [CALL BG][${debugSourceTag ?? 'lookup'}] Avatar from /creator/feed: $photo',
         );
-        _avatarLookupCache[cacheKey] = photo;
+        _writeCache(cacheKey, value: photo, source: 'rest_lookup:creator_feed');
         return photo;
       }
     }
@@ -275,7 +323,7 @@ Future<String?> lookupAvatarFromCreatorFeedPage({
     );
   }
 
-  _avatarLookupCache[cacheKey] = null;
+  _writeCache(cacheKey, value: null, source: 'rest_lookup:creator_feed_miss');
   return null;
 }
 
@@ -289,9 +337,33 @@ Future<String?> lookupIncomingCallerAvatar({
   String? remoteUsername,
   String? debugSourceTag,
   List<CreatorModel>? cachedCreators,
+  bool forceRefresh = false,
+  bool incomingRing = false,
+}) async {
+  final result = await lookupIncomingCallerAvatarResult(
+    calleeRole: calleeRole,
+    remoteFirebaseUid: remoteFirebaseUid,
+    remoteUsername: remoteUsername,
+    debugSourceTag: debugSourceTag,
+    cachedCreators: cachedCreators,
+    forceRefresh: forceRefresh,
+    incomingRing: incomingRing,
+  );
+  return result?.url;
+}
+
+Future<AvatarLookupResult?> lookupIncomingCallerAvatarResult({
+  required String? calleeRole,
+  String? remoteFirebaseUid,
+  String? remoteUsername,
+  String? debugSourceTag,
+  List<CreatorModel>? cachedCreators,
+  bool forceRefresh = false,
+  bool incomingRing = false,
 }) async {
   final role = (calleeRole ?? '').trim().toLowerCase();
   final isCreatorCallee = role == 'creator' || role == 'admin';
+  final shouldForceRefresh = forceRefresh || incomingRing;
 
   if (isCreatorCallee) {
     final uid = remoteFirebaseUid?.trim();
@@ -299,9 +371,13 @@ Future<String?> lookupIncomingCallerAvatar({
       final fromUserByUid = await lookupAvatarFromUserByFirebaseUid(
         remoteFirebaseUid: uid,
         debugSourceTag: debugSourceTag,
+        forceRefresh: shouldForceRefresh,
       );
       if (fromUserByUid != null && fromUserByUid.isNotEmpty) {
-        return fromUserByUid;
+        return AvatarLookupResult(
+          url: fromUserByUid,
+          source: 'rest_lookup:user_by_firebase_uid',
+        );
       }
     }
 
@@ -309,31 +385,51 @@ Future<String?> lookupIncomingCallerAvatar({
       remoteFirebaseUid: remoteFirebaseUid,
       remoteUsername: remoteUsername,
       debugSourceTag: debugSourceTag,
+      forceRefresh: shouldForceRefresh,
     );
-    if (fromUsers != null && fromUsers.isNotEmpty) return fromUsers;
+    if (fromUsers != null && fromUsers.isNotEmpty) {
+      return AvatarLookupResult(
+        url: fromUsers,
+        source: 'rest_lookup:user_list',
+      );
+    }
   } else {
-    final fromCache = _lookupAvatarFromCachedCreators(
-      cachedCreators: cachedCreators,
-      remoteFirebaseUid: remoteFirebaseUid,
-      remoteUsername: remoteUsername,
-    );
-    if (fromCache != null && fromCache.isNotEmpty) return fromCache;
-
     final uid = remoteFirebaseUid?.trim();
     if (uid != null && uid.isNotEmpty) {
       final fromUid = await lookupAvatarFromCreatorsByFirebaseUid(
         remoteFirebaseUid: uid,
         debugSourceTag: debugSourceTag,
+        forceRefresh: shouldForceRefresh,
       );
-      if (fromUid != null && fromUid.isNotEmpty) return fromUid;
+      if (fromUid != null && fromUid.isNotEmpty) {
+        return AvatarLookupResult(
+          url: fromUid,
+          source: 'rest_lookup:creator_by_firebase_uid',
+        );
+      }
     }
 
     final fromFeed = await lookupAvatarFromCreatorFeedPage(
       remoteFirebaseUid: remoteFirebaseUid,
       remoteUsername: remoteUsername,
       debugSourceTag: debugSourceTag,
+      forceRefresh: shouldForceRefresh,
     );
-    if (fromFeed != null && fromFeed.isNotEmpty) return fromFeed;
+    if (fromFeed != null && fromFeed.isNotEmpty) {
+      return AvatarLookupResult(
+        url: fromFeed,
+        source: 'rest_lookup:creator_feed',
+      );
+    }
+
+    final fromCache = _lookupAvatarFromCachedCreators(
+      cachedCreators: cachedCreators,
+      remoteFirebaseUid: remoteFirebaseUid,
+      remoteUsername: remoteUsername,
+    );
+    if (fromCache != null && fromCache.isNotEmpty) {
+      return AvatarLookupResult(url: fromCache, source: 'cache:creator_list');
+    }
   }
 
   // Creator callee: try creator endpoints if user list missed (edge case).
@@ -343,14 +439,27 @@ Future<String?> lookupIncomingCallerAvatar({
       final fromUid = await lookupAvatarFromCreatorsByFirebaseUid(
         remoteFirebaseUid: uid,
         debugSourceTag: debugSourceTag,
+        forceRefresh: shouldForceRefresh,
       );
-      if (fromUid != null && fromUid.isNotEmpty) return fromUid;
+      if (fromUid != null && fromUid.isNotEmpty) {
+        return AvatarLookupResult(
+          url: fromUid,
+          source: 'rest_lookup:creator_by_firebase_uid',
+        );
+      }
     }
-    return lookupAvatarFromCreatorFeedPage(
+    final fromFeed = await lookupAvatarFromCreatorFeedPage(
       remoteFirebaseUid: remoteFirebaseUid,
       remoteUsername: remoteUsername,
       debugSourceTag: debugSourceTag,
+      forceRefresh: shouldForceRefresh,
     );
+    if (fromFeed != null && fromFeed.isNotEmpty) {
+      return AvatarLookupResult(
+        url: fromFeed,
+        source: 'rest_lookup:creator_feed',
+      );
+    }
   }
 
   return null;
@@ -367,11 +476,13 @@ String? _lookupAvatarFromCachedCreators({
 
   for (final c in cachedCreators) {
     final creatorUid = _normalize(c.firebaseUid);
-    final idMatched = uidNorm != null &&
+    final idMatched =
+        uidNorm != null &&
         uidNorm.isNotEmpty &&
         creatorUid != null &&
         creatorUid == uidNorm;
-    final nameMatched = usernameNorm != null &&
+    final nameMatched =
+        usernameNorm != null &&
         usernameNorm.isNotEmpty &&
         c.name.trim().toLowerCase() == usernameNorm;
     if (!idMatched && !nameMatched) continue;
@@ -389,11 +500,13 @@ bool _creatorRowMatches(
 }) {
   final creatorFirebaseUid = _normalize(creator['firebaseUid']?.toString());
   final creatorName = _normalize(creator['name']?.toString());
-  final idMatched = remoteFirebaseUid != null &&
+  final idMatched =
+      remoteFirebaseUid != null &&
       remoteFirebaseUid.isNotEmpty &&
       creatorFirebaseUid != null &&
       creatorFirebaseUid == remoteFirebaseUid;
-  final nameMatched = remoteUsername != null &&
+  final nameMatched =
+      remoteUsername != null &&
       remoteUsername.isNotEmpty &&
       creatorName != null &&
       creatorName == remoteUsername;
@@ -410,4 +523,24 @@ String? _normalize(String? value) {
   if (value == null) return null;
   final trimmed = value.trim().toLowerCase();
   return trimmed.isEmpty ? null : trimmed;
+}
+
+_AvatarLookupCacheEntry? _readCache(String key, {bool forceRefresh = false}) {
+  if (forceRefresh) return null;
+  final entry = _avatarLookupCache[key];
+  if (entry == null) return null;
+  if (DateTime.now().isAfter(entry.expiresAt)) {
+    _avatarLookupCache.remove(key);
+    return null;
+  }
+  return entry;
+}
+
+void _writeCache(String key, {required String? value, required String source}) {
+  final ttl = value == null ? _avatarCacheNullTtl : _avatarCacheSuccessTtl;
+  _avatarLookupCache[key] = _AvatarLookupCacheEntry(
+    value: value,
+    source: source,
+    expiresAt: DateTime.now().add(ttl),
+  );
 }

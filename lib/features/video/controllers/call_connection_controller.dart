@@ -8,6 +8,7 @@ import '../services/call_navigation_service.dart';
 import '../services/call_ringtone_service.dart';
 import '../providers/stream_video_provider.dart';
 import '../providers/call_billing_provider.dart';
+import '../providers/call_billing_selectors.dart';
 import '../providers/call_feedback_prompt_provider.dart';
 import '../providers/creator_busy_toast_provider.dart';
 import '../utils/call_remote_image_resolver.dart';
@@ -90,6 +91,9 @@ class CallConnectionState {
       outgoingCreatorAge = null,
       outgoingCreatorCountry = null,
       creatorAcceptedForOutgoing = false;
+
+  bool get isInActiveCallFlow =>
+      phase != CallConnectionPhase.idle && phase != CallConnectionPhase.failed;
 }
 
 // ---------------------------------------------------------------------------
@@ -131,11 +135,15 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
   String? _activeCreatorMongoId;
   String?
   _activeUserFirebaseUid; // For creator-initiated calls: the user who pays
+  String? _billingStartRequestedCallId;
+  bool _billingStartRequestInFlight = false;
   bool _wasConnected = false;
   bool _isReconnecting = false;
   int _postCallGeneration = 0;
 
   CallConnectionController(this._ref) : super(const CallConnectionState.idle());
+
+  bool get isInActiveCallFlow => state.isInActiveCallFlow;
 
   // ──────────────────────────────────────────────────────────────────────────
   //  User flow
@@ -160,6 +168,11 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       debugPrint(
         '⚠️ [CALL CTRL] startUserCall ignored — phase: ${state.phase}',
       );
+      SentryService.addBreadcrumb(
+        category: 'call',
+        message: 'call_start_ignored_local_busy',
+        data: {'flow': 'user_to_creator', 'phase': state.phase.name},
+      );
       return;
     }
 
@@ -183,6 +196,8 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
 
     // ── Reset billing state from any previous call ─────────────────
     _ref.read(callBillingProvider.notifier).reset();
+    _billingStartRequestedCallId = null;
+    _billingStartRequestInFlight = false;
     _wasConnected = false;
     _creatorAccepted = false;
 
@@ -286,8 +301,8 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       final callerName = (caller?.name?.trim().isNotEmpty == true)
           ? caller!.name!.trim()
           : (caller?.username?.trim().isNotEmpty == true)
-              ? caller!.username!.trim()
-              : null;
+          ? caller!.username!.trim()
+          : null;
       final call = await callService.initiateCallToMember(
         memberFirebaseUid: creatorFirebaseUid,
         initiatorFirebaseUid: firebaseUser.uid,
@@ -358,6 +373,11 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       debugPrint(
         '⚠️ [CALL CTRL] startCreatorCallToUser ignored — phase: ${state.phase}',
       );
+      SentryService.addBreadcrumb(
+        category: 'call',
+        message: 'call_start_ignored_local_busy',
+        data: {'flow': 'creator_to_user', 'phase': state.phase.name},
+      );
       return;
     }
 
@@ -387,6 +407,8 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
 
     // Reset billing state from any previous call
     _ref.read(callBillingProvider.notifier).reset();
+    _billingStartRequestedCallId = null;
+    _billingStartRequestInFlight = false;
     _wasConnected = false;
     _creatorAccepted = false;
 
@@ -441,11 +463,18 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       final caller = _ref.read(authProvider).user;
       // Post Phase E: avatar is exclusively the canonical Cloudflare asset.
       final callerImage = _resolveCallerImageUrl(caller);
+      if (callerImage == null) {
+        _logMissingInitiatorAvatarForCreatorCall(
+          creatorFirebaseUid: firebaseUser.uid,
+          userFirebaseUid: userFirebaseUid,
+          creatorMongoId: creatorMongoId,
+        );
+      }
       final callerName = (caller?.name?.trim().isNotEmpty == true)
           ? caller!.name!.trim()
           : (caller?.username?.trim().isNotEmpty == true)
-              ? caller!.username!.trim()
-              : null;
+          ? caller!.username!.trim()
+          : null;
       final call = await callService.initiateCallToMember(
         memberFirebaseUid: userFirebaseUid,
         initiatorFirebaseUid: firebaseUser.uid,
@@ -506,11 +535,18 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       debugPrint(
         '⚠️ [CALL CTRL] acceptIncomingCall ignored — phase: ${state.phase}',
       );
+      SentryService.addBreadcrumb(
+        category: 'call',
+        message: 'incoming_accept_ignored_local_busy',
+        data: {'phase': state.phase.name, 'incoming_call_id': call.id},
+      );
       return;
     }
 
     // Reset billing state from any previous call
     _ref.read(callBillingProvider.notifier).reset();
+    _billingStartRequestedCallId = null;
+    _billingStartRequestInFlight = false;
     CallRingtoneService.stop();
     _wasConnected = false;
     final currentUserId = _ref.read(authProvider).firebaseUser?.uid;
@@ -721,6 +757,8 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     _activeCreatorFirebaseUid = null;
     _activeCreatorMongoId = null;
     _activeUserFirebaseUid = null;
+    _billingStartRequestedCallId = null;
+    _billingStartRequestInFlight = false;
     _wasConnected = false;
     _isReconnecting = false;
 
@@ -832,7 +870,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
           );
 
           // ── Start billing (both user-initiated and creator-initiated calls) ────────────
-          _emitBillingStarted();
+          unawaited(_emitBillingStarted());
 
           CallNavigationService.navigateToCallScreen();
           debugPrint('✅ [CALL CTRL] phase → connected — call is live');
@@ -865,6 +903,8 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
           _activeCreatorFirebaseUid = null;
           _activeCreatorMongoId = null;
           _activeUserFirebaseUid = null;
+          _billingStartRequestedCallId = null;
+          _billingStartRequestInFlight = false;
           _wasConnected = false;
           _isReconnecting = false;
 
@@ -914,26 +954,38 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
 
   // ──── Billing emission with retry ────
 
-  /// Emit `call:started` to the backend.
-  ///
-  /// 🔥 FIX: `emitCallStarted` now has a REST API fallback inside
-  /// [SocketService], so even if the socket is not connected, billing
-  /// will be triggered via HTTP.  The retry loop is kept as extra safety.
-  void _emitBillingStarted() {
+  /// Re-emit billing start after reconnect when call is connected but still unsynced.
+  void retryBillingStartIfNeeded() {
+    if (state.phase != CallConnectionPhase.connected) return;
+    final billing = _ref.read(callBillingProvider);
+    if (billing.isBillingLive || billing.callStartTimeMs != null) return;
+    unawaited(_emitBillingStarted(forceRetry: true));
+  }
+
+  /// Emit `call:started` to backend with idempotent retries.
+  Future<void> _emitBillingStarted({bool forceRetry = false}) async {
     if (_activeCallId == null ||
         _activeCreatorFirebaseUid == null ||
         _activeCreatorMongoId == null) {
-      return; // No billing metadata — shouldn't happen
+      return;
     }
 
     final socketService = _ref.read(socketServiceProvider);
     final billingNotifier = _ref.read(callBillingProvider.notifier);
     final callId = _activeCallId!;
+    if (!forceRetry && _billingStartRequestedCallId == callId) {
+      return;
+    }
+    if (_billingStartRequestInFlight) {
+      return;
+    }
+    _billingStartRequestedCallId = callId;
+    _billingStartRequestInFlight = true;
 
-    // Emit immediately — SocketService handles fallback to REST API and may
-    // hydrate billing from the HTTP response when the socket missed `billing:started`.
-    debugPrint('💰 [CALL CTRL] Emitting call:started');
-    unawaited(() async {
+    debugPrint(
+      '💰 [CALL CTRL] Emitting call:started (forceRetry=$forceRetry, callId=$callId)',
+    );
+    try {
       final hydratedViaHttp = await socketService.emitCallStarted(
         callId: callId,
         creatorFirebaseUid: _activeCreatorFirebaseUid!,
@@ -942,17 +994,20 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
             _activeUserFirebaseUid, // null for user-initiated, set for creator-initiated
       );
       final billing = _ref.read(callBillingProvider);
-      if (!billing.isActive && billing.callStartTimeMs == null) {
+      if (!billing.isBillingLive && billing.callStartTimeMs == null) {
+        // Immediate recovery handshake while connected + unsynced.
         billingNotifier.requestBillingRecoveryForActiveCall();
         if (!hydratedViaHttp) {
           await Future<void>.delayed(const Duration(milliseconds: 600));
           final after = _ref.read(callBillingProvider);
-          if (!after.isActive && after.callStartTimeMs == null) {
+          if (!after.isBillingLive && after.callStartTimeMs == null) {
             billingNotifier.requestBillingRecoveryForActiveCall();
           }
         }
       }
-    }());
+    } finally {
+      _billingStartRequestInFlight = false;
+    }
   }
 
   // ──── Two-phase watchdog ────
@@ -1131,7 +1186,8 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     required Call? call,
   }) {
     final userSnapshot = _ref.read(authProvider).user;
-    final hadWelcomeFreeCallUi = userSnapshot?.role == 'user' &&
+    final hadWelcomeFreeCallUi =
+        userSnapshot?.role == 'user' &&
         (userSnapshot?.welcomeFreeCallEligible ?? false);
     final postCallGeneration = ++_postCallGeneration;
     final authNotifier = _ref.read(authProvider.notifier);
@@ -1184,12 +1240,12 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
         await prefetchWalletPricing(_ref, forceRefresh: true);
         if (!mounted || postCallGeneration != _postCallGeneration) return;
         coinPopupNotifier.state = CoinPopupIntent(
-              reason: 'post_call',
-              dedupeKey: 'coin-post-call-$endedCallId',
-              remoteDisplayName: creatorName,
-              remotePhotoUrl: photo,
-              remoteFirebaseUid: endedCreatorFirebaseUid,
-            );
+          reason: 'post_call',
+          dedupeKey: 'coin-post-call-$endedCallId',
+          remoteDisplayName: creatorName,
+          remotePhotoUrl: photo,
+          remoteFirebaseUid: endedCreatorFirebaseUid,
+        );
       });
     }
   }
@@ -1244,23 +1300,44 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
   String? _resolveCallerImageUrl(dynamic caller) {
     if (caller == null) return null;
     final urls = caller.avatarAsset?.avatarUrls;
-    String? feedTile;
-    try {
-      feedTile = caller.feedTileUrl?.toString();
-    } catch (_) {
-      feedTile = null;
-    }
-    final candidates = <String?>[
-      urls?.callPhoto,
-      urls?.md,
-      urls?.feedTile,
-      feedTile,
-    ];
+    final candidates = <String?>[urls?.callPhoto, urls?.md, urls?.feedTile];
     for (final candidate in candidates) {
       if (candidate == null) continue;
       final trimmed = candidate.trim();
       if (trimmed.isNotEmpty) return trimmed;
     }
     return null;
+  }
+
+  void _logMissingInitiatorAvatarForCreatorCall({
+    required String creatorFirebaseUid,
+    required String userFirebaseUid,
+    required String creatorMongoId,
+  }) {
+    debugPrint(
+      '⚠️ [CALL CTRL] Creator call initiated without initiatorImageUrl '
+      '(creatorFirebaseUid=$creatorFirebaseUid, userFirebaseUid=$userFirebaseUid, creatorMongoId=$creatorMongoId)',
+    );
+    SentryService.addBreadcrumb(
+      category: 'call.avatar',
+      message: 'creator_call_missing_initiator_avatar',
+      data: {
+        'creator_firebase_uid': creatorFirebaseUid,
+        'user_firebase_uid': userFirebaseUid,
+        'creator_mongo_id': creatorMongoId,
+      },
+    );
+    unawaited(
+      SentryService.captureMessage(
+        'Creator call started without initiatorImageUrl metadata',
+        tags: {
+          'screen': 'incoming_call',
+          'flow': 'creator_to_user',
+          'creator_firebase_uid': creatorFirebaseUid,
+          'user_firebase_uid': userFirebaseUid,
+          'creator_mongo_id': creatorMongoId,
+        },
+      ),
+    );
   }
 }

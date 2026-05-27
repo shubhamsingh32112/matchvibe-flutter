@@ -6,76 +6,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/app_constants.dart';
 import 'sentry_service.dart';
 import '../../features/user/providers/user_availability_provider.dart';
-import '../../features/auth/providers/auth_provider.dart';
 // 🔥 CRITICAL FIX: Import home provider to update it as well
 import '../../features/home/providers/availability_provider.dart' as home_provider;
 
-/// Creator availability status enum
-/// 
-/// Only two states:
-/// - online: creator is available for calls
-/// - busy: creator is on a call, offline, or unavailable
-enum CreatorAvailability {
-  online,
-  busy,
-}
+typedef CreatorAvailability = home_provider.CreatorAvailability;
 
-/// 🔥 BACKEND-AUTHORITATIVE Availability Provider
-/// 
-/// This replaces ALL Stream Chat presence logic.
-/// 
-/// Status is pushed from backend via Socket.IO.
-/// Missing/unknown creators are ALWAYS 'busy'.
-final creatorAvailabilityProvider = StateNotifierProvider<
-    CreatorAvailabilityNotifier, Map<String, CreatorAvailability>>(
-  (ref) => CreatorAvailabilityNotifier(),
-);
-
-/// Notifier that holds the availability map
-class CreatorAvailabilityNotifier
-    extends StateNotifier<Map<String, CreatorAvailability>> {
-  CreatorAvailabilityNotifier() : super({});
-
-  /// Seed from REST. Never overwrites keys already set by live socket events.
-  void seedFromApi(Map<String, CreatorAvailability> apiData) {
-    if (apiData.isEmpty) return;
-    final newState = Map<String, CreatorAvailability>.from(state);
-    for (final e in apiData.entries) {
-      newState.putIfAbsent(e.key, () => e.value);
-    }
-    state = newState;
-    debugPrint('📡 [AVAILABILITY] Merged API seed: ${apiData.length} creator(s) (socket wins on conflict)');
-  }
-
-  /// Update a single creator's availability.
-  /// Called by socket handlers – ALWAYS overwrites (socket is authoritative).
-  void update(String creatorId, CreatorAvailability status) {
-    state = {...state, creatorId: status};
-    debugPrint('📡 [AVAILABILITY] Updated: $creatorId → $status');
-  }
-
-  /// Merge Redis batch; live [creator:status] entries win over batch for same key.
-  void updateAll(Map<String, CreatorAvailability> batch) {
-    final newState = Map<String, CreatorAvailability>.from(state);
-    for (final e in batch.entries) {
-      newState.putIfAbsent(e.key, () => e.value);
-    }
-    state = newState;
-    debugPrint('📡 [AVAILABILITY] Batch merge: ${batch.length} creator(s) (socket wins on conflict)');
-  }
-
-  /// Get availability for a specific creator
-  /// Returns 'busy' if not found (safe default)
-  CreatorAvailability get(String creatorId) {
-    return state[creatorId] ?? CreatorAvailability.busy;
-  }
-
-  /// Clear all availability (e.g., on disconnect / logout).
-  void clear() {
-    state = {};
-    debugPrint('📡 [AVAILABILITY] Cleared all');
-  }
-}
+/// Compatibility read-only mirror. Runtime authority is home provider.
+final creatorAvailabilityProvider = Provider<Map<String, CreatorAvailability>>((ref) {
+  return ref.watch(home_provider.creatorAvailabilityProvider);
+});
 
 // Global container reference for socket callbacks
 ProviderContainer? _globalContainer;
@@ -217,32 +156,8 @@ class AvailabilitySocketService {
         _availabilityToggleOn = true;
         _persistToggleState(true);
         
-        // 🔥 CRITICAL: Update creator's own status immediately in BOTH providers
-        // Backend will broadcast the status change, but we update locally first
-        // for instant UI feedback
-        if (_globalContainer != null) {
-          try {
-            final authState = _globalContainer!.read(authProvider);
-            final firebaseUid = authState.firebaseUser?.uid;
-            if (firebaseUid != null) {
-              // Update provider from availability_socket_service.dart
-              _globalContainer!.read(creatorAvailabilityProvider.notifier)
-                  .update(firebaseUid, CreatorAvailability.online);
-              
-              // 🔥 CRITICAL FIX: Also update provider from availability_provider.dart
-              // This ensures users see creator as online instantly
-              try {
-                _globalContainer!.read(home_provider.creatorAvailabilityProvider.notifier)
-                    .updateSingle(firebaseUid, 'online');
-                debugPrint('📡 [SOCKET] Updated both providers: creator own status to online immediately');
-              } catch (e) {
-                debugPrint('⚠️  [SOCKET] Failed to update home provider: $e');
-              }
-            }
-          } catch (e) {
-            debugPrint('⚠️  [SOCKET] Failed to update creator own status: $e');
-          }
-        }
+        // Do not locally force-write presence state. Wait for backend versioned
+        // creator:status so the authoritative reducer keeps strict monotonic merges.
       }
       
       // 🔥 AUTOMATIC ONLINE: Regular users are automatically online when app opens
@@ -298,6 +213,9 @@ class AvailabilitySocketService {
     _socket!.on('availability:batch', (data) {
       _handleAvailabilityBatch(data);
     });
+    _socket!.on('availability:batch:v2', (data) {
+      _handleAvailabilityBatchV2(data);
+    });
 
     // User availability events
     _socket!.on('user:status', (data) {
@@ -312,10 +230,7 @@ class AvailabilitySocketService {
     _socket!.connect();
   }
 
-  /// Handle single creator status update
-  /// 🔥 CRITICAL: Updates BOTH providers to ensure consistency
-  /// - Updates provider from availability_socket_service.dart (for creator's own status)
-  /// - Updates provider from availability_provider.dart (for user homepage)
+  /// Handle single creator status update (version-gated authority path).
   void _handleCreatorStatus(dynamic data) {
     if (_globalContainer == null) {
       debugPrint('⚠️  [SOCKET] _globalContainer is null, cannot update providers. Event will be handled by SocketService.');
@@ -330,81 +245,43 @@ class AvailabilitySocketService {
         debugPrint('⚠️  [SOCKET] Invalid creator:status data: $data');
         return;
       }
-      
-      final status = statusStr == 'online'
-          ? CreatorAvailability.online
-          : CreatorAvailability.busy;
-      
-      // Update provider from availability_socket_service.dart (for creator's own status)
-      try {
-        _globalContainer!.read(creatorAvailabilityProvider.notifier).update(creatorId, status);
-        debugPrint('📡 [AVAILABILITY SOCKET] Updated provider 1 (socket service): $creatorId → $statusStr');
-      } catch (e) {
-        debugPrint('⚠️  [AVAILABILITY SOCKET] Could not update provider 1: $e');
-      }
-      
-      // 🔥 CRITICAL FIX: Also update provider from availability_provider.dart (for user homepage)
-      // This ensures users see status changes instantly without manual reload
+
+      final version = (data is Map ? data['version'] as num? : null)?.toInt();
       try {
         _globalContainer!.read(home_provider.creatorAvailabilityProvider.notifier)
-            .updateSingle(creatorId, statusStr);
-        debugPrint('📡 [AVAILABILITY SOCKET] Updated provider 2 (home provider): $creatorId → $statusStr');
+            .updateSingle(creatorId, statusStr, version: version);
+        debugPrint('📡 [AVAILABILITY SOCKET] Updated home provider: $creatorId → $statusStr (v=$version)');
       } catch (e) {
         debugPrint('⚠️  [AVAILABILITY SOCKET] Could not update home provider: $e');
-        // This is non-critical - SocketService will also handle the event if connected
       }
     } catch (e) {
       debugPrint('❌ [SOCKET] Error handling creator:status: $e');
     }
   }
 
-  /// Handle batch availability response
-  /// 🔥 CRITICAL: Updates BOTH providers to ensure consistency
+  /// Ignore unversioned batch updates to preserve strict monotonic merges.
   void _handleAvailabilityBatch(dynamic data) {
-    if (_globalContainer == null) {
-      debugPrint('⚠️  [SOCKET] _globalContainer is null, cannot update providers. Event will be handled by SocketService.');
-      return;
-    }
-    
+    debugPrint('⚠️  [SOCKET] Ignoring unversioned availability:batch event');
+  }
+
+  void _handleAvailabilityBatchV2(dynamic data) {
+    if (_globalContainer == null) return;
     try {
       if (data is! Map) {
-        debugPrint('⚠️  [SOCKET] Invalid availability:batch data: $data');
+        debugPrint('⚠️  [SOCKET] Invalid availability:batch:v2 data: $data');
         return;
       }
-      
-      // Convert to Map<String, String> for both providers
-      final batchMap = <String, String>{};
-      final batchMapEnum = <String, CreatorAvailability>{};
+      final payload = <String, Map<String, dynamic>>{};
       data.forEach((key, value) {
-        if (key is String && value is String) {
-          batchMap[key] = value;
-          final status = value == 'online'
-              ? CreatorAvailability.online
-              : CreatorAvailability.busy;
-          batchMapEnum[key] = status;
-        }
+        if (key == null || value is! Map) return;
+        payload[key.toString()] = Map<String, dynamic>.from(
+          value.map((k, v) => MapEntry(k.toString(), v)),
+        );
       });
-      
-      // Update provider from availability_socket_service.dart
-      try {
-        _globalContainer!.read(creatorAvailabilityProvider.notifier).updateAll(batchMapEnum);
-        debugPrint('📋 [AVAILABILITY SOCKET] Updated provider 1 with batch: ${batchMap.length} creator(s)');
-      } catch (e) {
-        debugPrint('⚠️  [AVAILABILITY SOCKET] Could not update provider 1 batch: $e');
-      }
-      
-      // 🔥 CRITICAL FIX: Also update provider from availability_provider.dart
-      try {
-        _globalContainer!.read(home_provider.creatorAvailabilityProvider.notifier)
-            .updateBatch(batchMap);
-        debugPrint('📋 [AVAILABILITY SOCKET] Updated provider 2 with batch: ${batchMap.length} creator(s)');
-      } catch (e) {
-        debugPrint('⚠️  [AVAILABILITY SOCKET] Could not update home provider batch: $e');
-      }
-      
-      debugPrint('📋 [SOCKET] Batch availability received: ${data.length} creator(s)');
+      _globalContainer!.read(home_provider.creatorAvailabilityProvider.notifier).updateBatchV2(payload);
+      debugPrint('📋 [SOCKET] Processed availability:batch:v2 for ${payload.length} creator(s)');
     } catch (e) {
-      debugPrint('❌ [SOCKET] Error handling availability:batch: $e');
+      debugPrint('❌ [SOCKET] Error handling availability:batch:v2: $e');
     }
   }
 

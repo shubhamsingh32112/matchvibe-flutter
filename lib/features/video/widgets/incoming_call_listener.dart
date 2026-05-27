@@ -10,6 +10,7 @@ import '../services/call_ringtone_service.dart';
 import '../utils/call_remote_image_resolver.dart';
 import '../utils/remote_avatar_lookup.dart';
 import '../../home/providers/home_provider.dart';
+import '../../../core/services/sentry_service.dart';
 import 'incoming_call_widget.dart';
 
 /// Widget that listens for incoming calls and shows UI when call arrives.
@@ -29,10 +30,7 @@ import 'incoming_call_widget.dart';
 class IncomingCallListener extends ConsumerStatefulWidget {
   final Widget child;
 
-  const IncomingCallListener({
-    super.key,
-    required this.child,
-  });
+  const IncomingCallListener({super.key, required this.child});
 
   @override
   ConsumerState<IncomingCallListener> createState() =>
@@ -43,6 +41,7 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
   Call? _incomingCall;
   StreamSubscription? _ringingSubscription;
   StreamSubscription? _incomingCallSubscription;
+  StreamSubscription<dynamic>? _incomingCallStateSubscription;
   ProviderSubscription<CallConnectionState>? _callStateSub;
 
   /// Ring timeout: if creator doesn't accept/reject within 15s, auto-dismiss.
@@ -54,6 +53,7 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
   /// Prevents the overlay from re-appearing due to stale SDK state.
   final Set<String> _handledCallIds = {};
   final Map<String, String> _incomingFallbackImageByCallId = {};
+  final Map<String, String> _incomingFallbackSourceByCallId = {};
 
   @override
   void initState() {
@@ -83,7 +83,8 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
     final streamVideo = ref.read(streamVideoProvider);
     if (streamVideo == null) {
       debugPrint(
-          '⏳ [INCOMING CALL] Stream Video not initialized yet, will retry on next build');
+        '⏳ [INCOMING CALL] Stream Video not initialized yet, will retry on next build',
+      );
       return;
     }
 
@@ -101,7 +102,8 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
         debugPrint('📞 [INCOMING CALL] CoordinatorCallRingingEvent received');
         debugPrint('   Call CID: ${event.callCid}');
         debugPrint(
-            '   Call Type: ${event.callCid.type}, ID: ${event.callCid.id}');
+          '   Call Type: ${event.callCid.type}, ID: ${event.callCid.id}',
+        );
         debugPrint('   Video: ${event.video}');
 
         final callId = event.callCid.id;
@@ -109,7 +111,8 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
         // Skip calls we've already handled
         if (_handledCallIds.contains(callId)) {
           debugPrint(
-              '⏭️ [INCOMING CALL] Ignoring already-handled call: $callId');
+            '⏭️ [INCOMING CALL] Ignoring already-handled call: $callId',
+          );
           return;
         }
 
@@ -120,40 +123,43 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
         );
 
         debugPrint('✅ [INCOMING CALL] Call object retrieved: ${call.id}');
-        unawaited(_prefetchIncomingCallerAvatar(call));
-        CallRingtoneService.startIncomingRingtone();
-        _startRingTimeout(callId);
-        if (mounted) {
-          setState(() {
-            _incomingCall = call;
-          });
-        }
+        unawaited(() async {
+          final suppressed = await _suppressIncomingIfBusy(
+            call,
+            source: 'ring_event',
+          );
+          if (suppressed) return;
+          _showIncomingCall(call);
+        }());
       }
     });
 
     // Method 2: Also listen to state.incomingCall (recommended — simpler).
-    _incomingCallSubscription =
-        streamVideo.state.incomingCall.listen((call) {
+    _incomingCallSubscription = streamVideo.state.incomingCall.listen((call) {
       if (call != null) {
         // Skip calls we've already handled
         if (_handledCallIds.contains(call.id)) {
           debugPrint(
-              '⏭️ [INCOMING CALL] Ignoring already-handled call via state: ${call.id}');
+            '⏭️ [INCOMING CALL] Ignoring already-handled call via state: ${call.id}',
+          );
           return;
         }
         debugPrint(
-            '📞 [INCOMING CALL] Incoming call detected via state: ${call.id}');
-        unawaited(_prefetchIncomingCallerAvatar(call));
-        CallRingtoneService.startIncomingRingtone();
-        _startRingTimeout(call.id);
-        if (mounted) {
-          setState(() {
-            _incomingCall = call;
-          });
-        }
+          '📞 [INCOMING CALL] Incoming call detected via state: ${call.id}',
+        );
+        unawaited(() async {
+          final suppressed = await _suppressIncomingIfBusy(
+            call,
+            source: 'state_incoming',
+          );
+          if (suppressed) return;
+          _showIncomingCall(call);
+        }());
       } else {
         debugPrint('📞 [INCOMING CALL] Incoming call cleared by SDK');
         _cancelRingTimeout();
+        _incomingCallStateSubscription?.cancel();
+        _incomingCallStateSubscription = null;
         CallRingtoneService.stop();
         final clearedCallId = _incomingCall?.id;
         if (mounted) {
@@ -161,6 +167,7 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
             _incomingCall = null;
             if (clearedCallId != null) {
               _incomingFallbackImageByCallId.remove(clearedCallId);
+              _incomingFallbackSourceByCallId.remove(clearedCallId);
             }
           });
         }
@@ -174,16 +181,14 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
 
   void _startRingTimeout(String callId) {
     _cancelRingTimeout();
-    _ringTimeoutTimer = Timer(
-      const Duration(seconds: _ringTimeoutSeconds),
-      () {
-        if (!mounted) return;
-        if (_incomingCall?.id != callId) return;
-        debugPrint(
-            '⏱️ [INCOMING CALL] Ring timeout (${_ringTimeoutSeconds}s) — caller likely gave up');
-        _dismissIncomingCall(callId);
-      },
-    );
+    _ringTimeoutTimer = Timer(const Duration(seconds: _ringTimeoutSeconds), () {
+      if (!mounted) return;
+      if (_incomingCall?.id != callId) return;
+      debugPrint(
+        '⏱️ [INCOMING CALL] Ring timeout (${_ringTimeoutSeconds}s) — caller likely gave up',
+      );
+      _dismissIncomingCall(callId);
+    });
   }
 
   void _cancelRingTimeout() {
@@ -197,6 +202,9 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
     debugPrint('🚫 [INCOMING CALL] Dismissing call: $callId');
     _handledCallIds.add(callId);
     _incomingFallbackImageByCallId.remove(callId);
+    _incomingFallbackSourceByCallId.remove(callId);
+    _incomingCallStateSubscription?.cancel();
+    _incomingCallStateSubscription = null;
     CallRingtoneService.stop();
     if (mounted) {
       setState(() {
@@ -220,17 +228,156 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
     _cancelRingTimeout();
     CallRingtoneService.stop();
     _incomingFallbackImageByCallId.clear();
+    _incomingFallbackSourceByCallId.clear();
     _callStateSub?.close();
+    _incomingCallStateSubscription?.cancel();
     _ringingSubscription?.cancel();
     _incomingCallSubscription?.cancel();
     super.dispose();
   }
 
+  void _showIncomingCall(Call call) {
+    _primeIncomingCallState(call);
+    _subscribeIncomingCallState(call);
+    unawaited(_prefetchIncomingCallerAvatar(call));
+    CallRingtoneService.startIncomingRingtone();
+    _startRingTimeout(call.id);
+    if (mounted) {
+      setState(() {
+        _incomingCall = call;
+      });
+    }
+  }
+
+  Future<bool> _suppressIncomingIfBusy(
+    Call call, {
+    required String source,
+  }) async {
+    if (!_isLocalParticipantBusyForIncoming(call)) {
+      return false;
+    }
+
+    final controller = ref.read(callConnectionControllerProvider);
+    final activeSdkCallId = _resolveActiveSdkCallId();
+    debugPrint(
+      '🛑 [INCOMING CALL] Suppressing incoming while already in call '
+      '(incoming=${call.id}, phase=${controller.phase.name}, source=$source, activeSdkCallId=$activeSdkCallId)',
+    );
+    SentryService.addBreadcrumb(
+      category: 'call',
+      message: 'incoming_suppressed_local_busy',
+      data: {
+        'reason': 'local_busy_in_active_call',
+        'call_id': call.id,
+        'phase': controller.phase.name,
+        'source': source,
+        if (activeSdkCallId != null) 'active_sdk_call_id': activeSdkCallId,
+      },
+    );
+
+    _handledCallIds.add(call.id);
+    _incomingFallbackImageByCallId.remove(call.id);
+    _incomingFallbackSourceByCallId.remove(call.id);
+    _cancelRingTimeout();
+    CallRingtoneService.stop();
+    if (_incomingCall?.id == call.id && mounted) {
+      setState(() {
+        _incomingCall = null;
+      });
+    }
+
+    try {
+      await call.reject();
+      SentryService.addBreadcrumb(
+        category: 'call',
+        message: 'incoming_auto_rejected_local_busy',
+        data: {
+          'call_id': call.id,
+          'phase': controller.phase.name,
+          'source': source,
+        },
+      );
+      debugPrint(
+        '🛑 [INCOMING CALL] Auto-rejected suppressed incoming call: ${call.id}',
+      );
+    } catch (e) {
+      debugPrint(
+        '⚠️ [INCOMING CALL] Failed to auto-reject suppressed call ${call.id}: $e',
+      );
+    }
+    return true;
+  }
+
+  bool _isLocalParticipantBusyForIncoming(Call incomingCall) {
+    if (_incomingCall != null && _incomingCall!.id != incomingCall.id) {
+      return true;
+    }
+
+    final controller = ref.read(callConnectionControllerProvider);
+    if (controller.isInActiveCallFlow) {
+      return true;
+    }
+
+    final activeSdkCallId = _resolveActiveSdkCallId();
+    if (activeSdkCallId != null && activeSdkCallId != incomingCall.id) {
+      return true;
+    }
+    return false;
+  }
+
+  String? _resolveActiveSdkCallId() {
+    final streamVideo = ref.read(streamVideoProvider);
+    if (streamVideo == null) return null;
+    try {
+      final dynamic activeCallNotifier =
+          (streamVideo as dynamic).state?.activeCall;
+      final dynamic activeCall =
+          activeCallNotifier?.valueOrNull ?? activeCallNotifier?.value;
+      final activeCallId = activeCall?.id?.toString();
+      if (activeCallId != null && activeCallId.isNotEmpty) {
+        return activeCallId;
+      }
+    } catch (_) {
+      // Best-effort active call check only.
+    }
+    return null;
+  }
+
+  void _subscribeIncomingCallState(Call call) {
+    _incomingCallStateSubscription?.cancel();
+    try {
+      final dynamic stateStream = (call as dynamic).partialState(
+        (dynamic state) => state,
+      );
+      _incomingCallStateSubscription = (stateStream as Stream<dynamic>).listen((
+        _,
+      ) {
+        if (!mounted) return;
+        if (_incomingCall?.id != call.id) return;
+        if (_handledCallIds.contains(call.id)) return;
+        unawaited(_prefetchIncomingCallerAvatar(call));
+        setState(() {});
+      });
+    } catch (_) {
+      // Best-effort hydration listener only.
+    }
+  }
+
+  void _primeIncomingCallState(Call call) {
+    unawaited(() async {
+      try {
+        await call.get().timeout(const Duration(seconds: 2));
+      } catch (_) {
+        // Ringing call may not always support immediate refresh; keep going.
+      } finally {
+        await _prefetchIncomingCallerAvatar(call);
+      }
+    }());
+  }
+
   Future<void> _prefetchIncomingCallerAvatar(Call call) async {
     final currentUserId = ref.read(authProvider).firebaseUser?.uid;
-    
-    // First, try to resolve from call metadata
-    final fromCall = resolveRemoteImageUrl(
+    final fromCall = resolveRemoteImage(
       call: call,
       currentUserId: currentUserId,
       enableDebugLogs: true,
@@ -239,54 +386,23 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
     if (fromCall != null) {
       if (mounted) {
         setState(() {
-          _incomingFallbackImageByCallId[call.id] = fromCall;
+          _incomingFallbackImageByCallId[call.id] = fromCall.url;
+          _incomingFallbackSourceByCallId[call.id] = fromCall.source;
         });
       }
       return;
-    }
-
-    // If not found in call metadata, try to extract from call members
-    try {
-      final dynamic callState = (call as dynamic).state?.value;
-      final members = callState?.members;
-      if (members is Iterable) {
-        for (final dynamic member in members) {
-          final memberId = (member as dynamic).userId?.toString() ??
-              (member as dynamic).user?.id?.toString() ??
-              (member as dynamic).user?.userId?.toString();
-          
-          if (memberId == null || 
-              (currentUserId != null && memberId == currentUserId)) {
-            continue; // Skip current user
-          }
-
-          // Try to get image from member
-          final memberImage = (member as dynamic).user?.image?.toString() ??
-              (member as dynamic).user?.imageUrl?.toString() ??
-              (member as dynamic).image?.toString();
-          
-          if (memberImage != null && memberImage.trim().isNotEmpty) {
-            if (mounted) {
-              setState(() {
-                _incomingFallbackImageByCallId[call.id] = memberImage.trim();
-              });
-            }
-            return;
-          }
-        }
-      }
-    } catch (_) {
-      // Continue to fallback lookup
     }
 
     // Fallback: lookup from user list first, then creators list
     try {
       final dynamic callState = (call as dynamic).state?.value;
       final createdBy = callState?.createdBy;
-      final remoteFirebaseUid = createdBy?.id?.toString() ??
+      final remoteFirebaseUid =
+          createdBy?.id?.toString() ??
           createdBy?.userId?.toString() ??
           extractCallerFirebaseUidFromCallId(call.id);
-      final remoteUsername = createdBy?.name?.toString() ??
+      final remoteUsername =
+          createdBy?.name?.toString() ??
           createdBy?.extraData?['username']?.toString();
 
       final calleeRole = ref.read(authProvider).user?.role;
@@ -296,20 +412,26 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
         '🔍 [INCOMING CALL] Looking up avatar for: firebaseUid=$remoteFirebaseUid, username=$remoteUsername, calleeRole=$calleeRole',
       );
 
-      final lookedUp = await lookupIncomingCallerAvatar(
+      final lookedUp = await lookupIncomingCallerAvatarResult(
         calleeRole: calleeRole,
         remoteFirebaseUid: remoteFirebaseUid,
         remoteUsername: remoteUsername,
         debugSourceTag: 'incoming_prefetch',
         cachedCreators: cachedCreators,
+        incomingRing: true,
       );
 
-      debugPrint('🔍 [INCOMING CALL] Avatar lookup result: ${lookedUp ?? "null"}');
-      
-      if (lookedUp != null && lookedUp.isNotEmpty && mounted) {
-        debugPrint('✅ [INCOMING CALL] Setting fallback image for call ${call.id}: $lookedUp');
+      debugPrint(
+        '🔍 [INCOMING CALL] Avatar lookup result: ${lookedUp?.url ?? "null"} (source: ${lookedUp?.source ?? "none"})',
+      );
+
+      if (lookedUp != null && lookedUp.url.isNotEmpty && mounted) {
+        debugPrint(
+          '✅ [INCOMING CALL] Setting fallback image for call ${call.id}: ${lookedUp.url}',
+        );
         setState(() {
-          _incomingFallbackImageByCallId[call.id] = lookedUp;
+          _incomingFallbackImageByCallId[call.id] = lookedUp.url;
+          _incomingFallbackSourceByCallId[call.id] = lookedUp.source;
         });
       } else {
         debugPrint('⚠️ [INCOMING CALL] No avatar found for call ${call.id}');
@@ -335,11 +457,9 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
     }
 
     // ── Controller-aware overlay dismissal ──────────────────────────────────
-    final controllerPhase =
-        ref.watch(callConnectionControllerProvider).phase;
-    final controllerActive =
-        controllerPhase != CallConnectionPhase.idle &&
-            controllerPhase != CallConnectionPhase.failed;
+    final controllerActive = ref.watch(
+      callConnectionControllerProvider.select((s) => s.isInActiveCallFlow),
+    );
 
     // If controller is active, hide overlay immediately.
     if (controllerActive) {
@@ -361,6 +481,8 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
           IncomingCallWidget(
             incomingCall: incomingCall,
             fallbackImageUrl: _incomingFallbackImageByCallId[incomingCall.id],
+            fallbackImageSource:
+                _incomingFallbackSourceByCallId[incomingCall.id],
             onDismiss: () => _dismissIncomingCall(incomingCall.id),
           ),
         ],

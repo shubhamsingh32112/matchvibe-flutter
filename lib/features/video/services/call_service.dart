@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stream_video_flutter/stream_video_flutter.dart';
 
 /// Service for managing video calls
-/// 
+///
 /// IMPORTANT: Stream Video is SDK-first. Calls MUST be created via SDK (getOrCreate),
 /// NOT via REST API. This ensures proper call lifecycle, ringing, SFU sessions, etc.
 class CallService {
@@ -36,6 +36,8 @@ class CallService {
       final callId = '${initiatorFirebaseUid}_${creatorMongoId}_$ts';
 
       debugPrint('📞 [CALL] Call ID: $callId');
+      final hasInitiatorImageUrl =
+          initiatorImageUrl != null && initiatorImageUrl.trim().isNotEmpty;
 
       // Create call object using Stream SDK
       final call = streamVideo.makeCall(
@@ -71,6 +73,10 @@ class CallService {
       );
 
       debugPrint('✅ [CALL] Call created with ringing enabled');
+      debugPrint(
+        '🧾 [CALL] getOrCreate custom.initiatorImageUrl included=$hasInitiatorImageUrl '
+        '(initiatedByRole=$initiatedByRole, callId=$callId)',
+      );
 
       return call;
     } catch (e) {
@@ -96,19 +102,25 @@ class CallService {
   }
 
   /// Join an existing call with retry logic
-  /// 
+  ///
   /// 🔥 FIX 14: Added exponential backoff retry logic
   /// - Attempts to join with exponential backoff (1s, 2s, 4s)
   /// - Max 3 retries by default
   /// - Still fire-and-forget (doesn't block UI)
   /// - UI should react to call.state changes
-  /// 
+  ///
   /// [maxRetries] - Maximum number of retry attempts (default: 3)
   /// [initialDelay] - Initial delay in seconds before first retry (default: 1)
   void joinCall(Call call, {int maxRetries = 3, int initialDelay = 1}) {
-    debugPrint('📞 [CALL] Joining call: ${call.id} (with retry logic, maxRetries: $maxRetries)');
-    
-    _joinCallWithRetry(call, maxRetries: maxRetries, initialDelay: initialDelay);
+    debugPrint(
+      '📞 [CALL] Joining call: ${call.id} (with retry logic, maxRetries: $maxRetries)',
+    );
+
+    _joinCallWithRetry(
+      call,
+      maxRetries: maxRetries,
+      initialDelay: initialDelay,
+    );
   }
 
   /// Internal method to join call with exponential backoff retry
@@ -120,26 +132,30 @@ class CallService {
   }) async {
     try {
       await call.join();
-      debugPrint('✅ [CALL] Join completed successfully (attempt ${attempt + 1})');
+      debugPrint(
+        '✅ [CALL] Join completed successfully (attempt ${attempt + 1})',
+      );
     } catch (error) {
       final currentAttempt = attempt + 1;
-      debugPrint('❌ [CALL] Error joining call (attempt $currentAttempt/$maxRetries): $error');
-      
+      debugPrint(
+        '❌ [CALL] Error joining call (attempt $currentAttempt/$maxRetries): $error',
+      );
+
       // If we've exhausted retries, log and let the error propagate
       if (currentAttempt >= maxRetries) {
         debugPrint('❌ [CALL] Max retries ($maxRetries) reached. Giving up.');
         // Error is handled by call screen via call.state stream
         return;
       }
-      
+
       // Calculate exponential backoff delay: initialDelay * 2^attempt
       // e.g., attempt 0: 1s, attempt 1: 2s, attempt 2: 4s
       final delaySeconds = initialDelay * math.pow(2, attempt).toInt();
       debugPrint('🔄 [CALL] Retrying in ${delaySeconds}s...');
-      
+
       // Wait before retrying
       await Future.delayed(Duration(seconds: delaySeconds));
-      
+
       // Recursive retry
       await _joinCallWithRetry(
         call,

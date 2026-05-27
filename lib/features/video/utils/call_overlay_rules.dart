@@ -1,4 +1,5 @@
 import '../providers/call_billing_provider.dart';
+import '../providers/call_billing_selectors.dart';
 
 class CallOverlayPolicy {
   static const Duration maxBillingSyncHintDuration = Duration(seconds: 12);
@@ -9,7 +10,7 @@ class CallOverlayPolicy {
     required Duration connectedFor,
   }) {
     if (!isConnected) return false;
-    if (billing.isActive || billing.callStartTimeMs != null) return false;
+    if (billing.isBillingLive || billing.callStartTimeMs != null) return false;
     return connectedFor <= maxBillingSyncHintDuration;
   }
 
@@ -22,7 +23,7 @@ class CallOverlayPolicy {
     required Duration connectedFor,
   }) {
     if (!isConnected) return false;
-    if (billing.isActive || billing.callStartTimeMs != null) return false;
+    if (billing.isBillingLive || billing.callStartTimeMs != null) return false;
     return connectedFor > maxBillingSyncHintDuration &&
         connectedFor <= maxBillingConnectionIssueBeforeEnd;
   }
@@ -43,6 +44,6 @@ bool shouldShowLastTenSecondsHeartbeat({
   required CallBillingState billing,
 }) {
   final remaining = billing.remainingSeconds;
-  if (isCreator || !billing.isActive || remaining == null) return false;
+  if (isCreator || !billing.isBillingLive || remaining == null) return false;
   return remaining > 0 && remaining <= 10;
 }
