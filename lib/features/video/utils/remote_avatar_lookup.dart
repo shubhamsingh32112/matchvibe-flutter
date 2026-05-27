@@ -9,10 +9,29 @@ final Map<String, String?> _avatarLookupCache = <String, String?>{};
 /// `<callerFirebaseUid>_<creatorMongoId>_<timestamp>`.
 String? extractCallerFirebaseUidFromCallId(String? callId) {
   if (callId == null || callId.isEmpty) return null;
-  final idx = callId.indexOf('_');
-  if (idx <= 0) return null;
-  final parsed = callId.substring(0, idx).trim();
-  return parsed.isEmpty ? null : parsed;
+  final trimmed = callId.trim();
+  if (trimmed.isEmpty) return null;
+
+  final parts = trimmed.split('_');
+  if (parts.length < 3) return null;
+
+  // Parse from right to support firebase UIDs that may contain underscores.
+  final tsPart = parts.last.trim();
+  final creatorMongoIdPart = parts[parts.length - 2].trim();
+  final initiatorParts = parts.sublist(0, parts.length - 2);
+  final initiator = initiatorParts.join('_').trim();
+
+  final ts = int.tryParse(tsPart);
+  final looksLikeCreatorMongoId = RegExp(r'^[a-fA-F0-9]{24}$')
+      .hasMatch(creatorMongoIdPart);
+  if (ts == null || !looksLikeCreatorMongoId || initiator.isEmpty) {
+    // Fallback to legacy parser behavior for unexpected call-id shapes.
+    final idx = trimmed.indexOf('_');
+    if (idx <= 0) return null;
+    final parsed = trimmed.substring(0, idx).trim();
+    return parsed.isEmpty ? null : parsed;
+  }
+  return initiator;
 }
 
 /// Resolves a display URL from API row payloads: Cloudflare `avatar` /
