@@ -282,7 +282,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       // 5. getOrCreate (creates call + rings creator)
       final callService = _ref.read(callServiceProvider);
       final caller = _ref.read(authProvider).user;
-      final callerImage = caller?.avatarAsset?.avatarUrls.md;
+      final callerImage = _resolveCallerImageUrl(caller);
       final callerName = (caller?.name?.trim().isNotEmpty == true)
           ? caller!.name!.trim()
           : (caller?.username?.trim().isNotEmpty == true)
@@ -440,7 +440,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       final callService = _ref.read(callServiceProvider);
       final caller = _ref.read(authProvider).user;
       // Post Phase E: avatar is exclusively the canonical Cloudflare asset.
-      final callerImage = caller?.avatarAsset?.avatarUrls.md;
+      final callerImage = _resolveCallerImageUrl(caller);
       final callerName = (caller?.name?.trim().isNotEmpty == true)
           ? caller!.name!.trim()
           : (caller?.username?.trim().isNotEmpty == true)
@@ -1237,6 +1237,29 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       }
     } catch (_) {
       // Best-effort only.
+    }
+    return null;
+  }
+
+  String? _resolveCallerImageUrl(dynamic caller) {
+    if (caller == null) return null;
+    final urls = caller.avatarAsset?.avatarUrls;
+    String? feedTile;
+    try {
+      feedTile = caller.feedTileUrl?.toString();
+    } catch (_) {
+      feedTile = null;
+    }
+    final candidates = <String?>[
+      urls?.callPhoto,
+      urls?.md,
+      urls?.feedTile,
+      feedTile,
+    ];
+    for (final candidate in candidates) {
+      if (candidate == null) continue;
+      final trimmed = candidate.trim();
+      if (trimmed.isNotEmpty) return trimmed;
     }
     return null;
   }

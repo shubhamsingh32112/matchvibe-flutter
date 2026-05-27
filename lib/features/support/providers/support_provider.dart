@@ -68,14 +68,20 @@ class SupportNotifier extends StateNotifier<SupportState> {
     required String subject,
     required String message,
     String priority = 'medium',
+    List<SupportTicketAttachmentPayload> attachments = const [],
   }) async {
-    state = state.copyWith(isSubmitting: true, error: null, successMessage: null);
+    state = state.copyWith(
+      isSubmitting: true,
+      error: null,
+      successMessage: null,
+    );
     try {
       final ticket = await _service.createTicket(
         category: category,
         subject: subject,
         message: message,
         priority: priority,
+        attachments: attachments,
       );
       state = state.copyWith(
         isSubmitting: false,
@@ -100,8 +106,9 @@ class SupportNotifier extends StateNotifier<SupportState> {
   }
 }
 
-final supportProvider =
-    StateNotifierProvider<SupportNotifier, SupportState>((ref) {
+final supportProvider = StateNotifierProvider<SupportNotifier, SupportState>((
+  ref,
+) {
   final service = ref.watch(supportServiceProvider);
   return SupportNotifier(service);
 });

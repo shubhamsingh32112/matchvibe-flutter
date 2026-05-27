@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -8,12 +7,13 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 import '../../../shared/widgets/app_toast.dart';
+import '../../../shared/widgets/brand_app_chrome.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../support/providers/support_provider.dart';
+import '../../video/providers/call_billing_provider.dart';
 import '../utils/creator_whatsapp_launcher.dart';
 import '../widgets/become_creator_hero_banner.dart';
 import '../widgets/become_creator_how_it_works.dart';
-import '../widgets/become_creator_page_header.dart';
 import '../widgets/become_creator_trust_bar.dart';
 import '../widgets/become_creator_whatsapp_cta.dart';
 import '../widgets/whatsapp_number_dialog.dart';
@@ -30,7 +30,9 @@ class _BecomeCreatorScreenState extends ConsumerState<BecomeCreatorScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _redirectIfNotEligible());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _redirectIfNotEligible(),
+    );
   }
 
   void _redirectIfNotEligible() {
@@ -68,7 +70,9 @@ class _BecomeCreatorScreenState extends ConsumerState<BecomeCreatorScreen> {
       ..writeln('WhatsApp: $trimmed')
       ..writeln('User id: ${user?.id ?? "unknown"}');
 
-    final ok = await ref.read(supportProvider.notifier).createTicket(
+    final ok = await ref
+        .read(supportProvider.notifier)
+        .createTicket(
           category: 'general',
           subject: 'Become a Creator — contact me',
           message: buffer.toString(),
@@ -112,7 +116,15 @@ class _BecomeCreatorScreenState extends ConsumerState<BecomeCreatorScreen> {
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider.select((s) => s.user));
     final isCreator = user?.role == 'creator' || user?.role == 'admin';
-    final isSubmitting = ref.watch(supportProvider.select((s) => s.isSubmitting));
+    final billingSlice = ref.watch(
+      callBillingProvider.select((b) => (b.isActive, b.userCoins)),
+    );
+    final coins = billingSlice.$1 && !isCreator
+        ? billingSlice.$2
+        : (user?.coins ?? 0);
+    final isSubmitting = ref.watch(
+      supportProvider.select((s) => s.isSubmitting),
+    );
 
     if (isCreator) {
       return const SizedBox.shrink();
@@ -124,43 +136,30 @@ class _BecomeCreatorScreenState extends ConsumerState<BecomeCreatorScreen> {
       }
     });
 
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.dark.copyWith(
-        statusBarColor: Colors.transparent,
+    return MainLayout(
+      selectedIndex: 3,
+      accountMenuStyle: true,
+      appBar: buildAccountFlowAppBar(
+        context,
+        title: 'Become a Creator',
+        actions: [BrandHeaderCoinsChip(coins: coins)],
       ),
-      child: MainLayout(
-        selectedIndex: 3,
-        accountMenuStyle: true,
-        child: ColoredBox(
-          color: AppBrandGradients.accountMenuPageBackground,
-          child: CustomScrollView(
-            slivers: [
-              const SliverToBoxAdapter(
-                child: BecomeCreatorPageHeader(),
+      child: ColoredBox(
+        color: AppBrandGradients.accountMenuPageBackground,
+        child: CustomScrollView(
+          slivers: [
+            const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.sm)),
+            const SliverToBoxAdapter(child: BecomeCreatorHeroBanner()),
+            const SliverToBoxAdapter(child: BecomeCreatorHowItWorks()),
+            SliverToBoxAdapter(
+              child: BecomeCreatorWhatsappCta(
+                isSubmitting: isSubmitting,
+                onApply: _onApplyOnWhatsapp,
               ),
-              const SliverToBoxAdapter(
-                child: SizedBox(height: AppSpacing.sm),
-              ),
-              const SliverToBoxAdapter(
-                child: BecomeCreatorHeroBanner(),
-              ),
-              const SliverToBoxAdapter(
-                child: BecomeCreatorHowItWorks(),
-              ),
-              SliverToBoxAdapter(
-                child: BecomeCreatorWhatsappCta(
-                  isSubmitting: isSubmitting,
-                  onApply: _onApplyOnWhatsapp,
-                ),
-              ),
-              const SliverToBoxAdapter(
-                child: BecomeCreatorTrustBar(),
-              ),
-              const SliverToBoxAdapter(
-                child: SizedBox(height: AppSpacing.xl),
-              ),
-            ],
-          ),
+            ),
+            const SliverToBoxAdapter(child: BecomeCreatorTrustBar()),
+            const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.xl)),
+          ],
         ),
       ),
     );

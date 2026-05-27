@@ -35,7 +35,7 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
     final generation = _connectGeneration;
     final firebaseUser = authState.firebaseUser!;
     final user = authState.user!;
-    final creatorSafeAvatar = user.avatarAsset?.avatarUrls.md;
+    final creatorSafeAvatar = _resolveStreamAvatarUrl(user);
 
     final displayName =
         (user.username != null && user.username!.trim().isNotEmpty)
@@ -100,6 +100,17 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
     }();
 
     await Future.wait([chatFuture, videoFuture]);
+  }
+
+  String? _resolveStreamAvatarUrl(dynamic user) {
+    final urls = user.avatarAsset?.avatarUrls;
+    final candidates = <String?>[urls?.callPhoto, urls?.md, urls?.feedTile];
+    for (final candidate in candidates) {
+      if (candidate == null) continue;
+      final trimmed = candidate.trim();
+      if (trimmed.isNotEmpty) return trimmed;
+    }
+    return null;
   }
 
   void _bootstrapPresenceSockets(String? token) {

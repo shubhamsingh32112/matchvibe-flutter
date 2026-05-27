@@ -35,14 +35,14 @@ class _CreatorTasksScreenState extends ConsumerState<CreatorTasksScreen> {
       });
       return const Scaffold(body: Center(child: Text('Unauthorized')));
     }
-    
+
     final coins = user?.coins ?? 0;
     // Use dashboard-derived tasks provider (auto-synced via socket)
     final tasksAsync = ref.watch(dashboardTasksProvider);
 
     return Scaffold(
       backgroundColor: AppBrandGradients.accountMenuPageBackground,
-      appBar: buildBrandAppBar(
+      appBar: buildAccountFlowAppBar(
         context,
         title: 'Tasks & Rewards',
         actions: [BrandHeaderCoinsChip(coins: coins)],
@@ -79,21 +79,21 @@ class _CreatorTasksScreenState extends ConsumerState<CreatorTasksScreen> {
 
     try {
       await ref.read(creatorTaskServiceProvider).claimTaskReward(taskKey);
-      
+
       // Invalidate dashboard to refresh task state (mark as claimed)
       // The backend also emits creator:data_updated, but invalidate immediately for responsiveness
       ref.invalidate(creatorDashboardProvider);
-      
+
       // Remove from claiming set
       if (mounted) {
         setState(() {
           _claimingTaskKeys.remove(taskKey);
         });
       }
-      
+
       // DO NOT modify coins locally - wait for coins_updated socket event
       // This matches wallet & call billing behavior
-      
+
       if (mounted) {
         AppToast.showSuccess(context, 'Reward claimed successfully!');
       }
@@ -215,12 +215,13 @@ class _TasksContent extends StatelessWidget {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: LinearProgressIndicator(
-                    value: (totalMinutes / 600).clamp(0.0, 1.0), // Max 600 mins (4 hours)
+                    value: (totalMinutes / 600).clamp(
+                      0.0,
+                      1.0,
+                    ), // Max 600 mins (4 hours)
                     minHeight: 12,
                     backgroundColor: scheme.surfaceContainerHighest,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      scheme.primary,
-                    ),
+                    valueColor: AlwaysStoppedAnimation<Color>(scheme.primary),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -268,11 +269,13 @@ class _TasksContent extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          ...tasksResponse.tasks.map((task) => _TaskCard(
-                task: task,
-                isClaiming: claimingTaskKeys.contains(task.taskKey),
-                onClaim: () => onClaim(task.taskKey),
-              )),
+          ...tasksResponse.tasks.map(
+            (task) => _TaskCard(
+              task: task,
+              isClaiming: claimingTaskKeys.contains(task.taskKey),
+              onClaim: () => onClaim(task.taskKey),
+            ),
+          ),
         ],
       ),
     );
@@ -336,7 +339,8 @@ class _TaskCard extends StatefulWidget {
   State<_TaskCard> createState() => _TaskCardState();
 }
 
-class _TaskCardState extends State<_TaskCard> with SingleTickerProviderStateMixin {
+class _TaskCardState extends State<_TaskCard>
+    with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
   bool _wasCompleted = false;
 
@@ -348,7 +352,7 @@ class _TaskCardState extends State<_TaskCard> with SingleTickerProviderStateMixi
       vsync: this,
       duration: const Duration(milliseconds: 500),
     );
-    
+
     // 🔒 PHASE T4: Visual "completion moment" - animate when task becomes completed
     if (widget.task.isCompleted && !widget.task.isClaimed) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -412,11 +416,7 @@ class _TaskCardState extends State<_TaskCard> with SingleTickerProviderStateMixi
                           : null,
                     ),
                     child: task.isCompleted
-                        ? Icon(
-                            Icons.check,
-                            size: 16,
-                            color: scheme.onPrimary,
-                          )
+                        ? Icon(Icons.check, size: 16, color: scheme.onPrimary)
                         : null,
                   );
                 },
@@ -477,7 +477,9 @@ class _TaskCardState extends State<_TaskCard> with SingleTickerProviderStateMixi
               minHeight: 6,
               backgroundColor: scheme.surfaceContainerHighest,
               valueColor: AlwaysStoppedAnimation<Color>(
-                task.isCompleted ? scheme.primary : scheme.primary.withOpacity(0.5),
+                task.isCompleted
+                    ? scheme.primary
+                    : scheme.primary.withOpacity(0.5),
               ),
             ),
           ),
@@ -501,7 +503,9 @@ class _TaskCardState extends State<_TaskCard> with SingleTickerProviderStateMixi
                         height: 20,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(scheme.onPrimary),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            scheme.onPrimary,
+                          ),
                         ),
                       )
                     : const Text('Claim Reward'),
@@ -515,11 +519,7 @@ class _TaskCardState extends State<_TaskCard> with SingleTickerProviderStateMixi
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(
-                  Icons.check_circle,
-                  size: 16,
-                  color: scheme.primary,
-                ),
+                Icon(Icons.check_circle, size: 16, color: scheme.primary),
                 const SizedBox(width: 4),
                 Text(
                   'Reward claimed',
@@ -547,7 +547,8 @@ class _EmptyState extends StatelessWidget {
     return const EmptyState(
       icon: Icons.phone_disabled_outlined,
       title: 'No completed calls yet',
-      message: 'Complete video calls to start earning bonus coins! Your progress will appear here once you finish your first call.',
+      message:
+          'Complete video calls to start earning bonus coins! Your progress will appear here once you finish your first call.',
     );
   }
 }
@@ -557,10 +558,7 @@ class _ErrorView extends StatelessWidget {
   final String error;
   final VoidCallback onRetry;
 
-  const _ErrorView({
-    required this.error,
-    required this.onRetry,
-  });
+  const _ErrorView({required this.error, required this.onRetry});
 
   @override
   Widget build(BuildContext context) {
@@ -578,20 +576,17 @@ class _NextTaskPreview extends StatelessWidget {
   final double totalMinutes;
   final List<CreatorTask> tasks;
 
-  const _NextTaskPreview({
-    required this.totalMinutes,
-    required this.tasks,
-  });
+  const _NextTaskPreview({required this.totalMinutes, required this.tasks});
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    
+
     // Find next uncompleted task
     try {
       final nextTask = tasks.firstWhere((task) => !task.isCompleted);
       final minutesNeeded = nextTask.thresholdMinutes - totalMinutes;
-      
+
       if (minutesNeeded <= 0) {
         return const SizedBox.shrink();
       }
@@ -601,18 +596,11 @@ class _NextTaskPreview extends StatelessWidget {
         decoration: BoxDecoration(
           color: scheme.surfaceContainerHigh,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: scheme.outlineVariant,
-            width: 1,
-          ),
+          border: Border.all(color: scheme.outlineVariant, width: 1),
         ),
         child: Row(
           children: [
-            Icon(
-              Icons.trending_up,
-              size: 16,
-              color: scheme.primary,
-            ),
+            Icon(Icons.trending_up, size: 16, color: scheme.primary),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -637,11 +625,7 @@ class _NextTaskPreview extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(
-              Icons.celebration,
-              size: 16,
-              color: scheme.onPrimaryContainer,
-            ),
+            Icon(Icons.celebration, size: 16, color: scheme.onPrimaryContainer),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -715,8 +699,8 @@ class _DailyResetCountdownState extends State<_DailyResetCountdown> {
     final timeText = hours > 0
         ? '${hours}h ${minutes}m ${seconds}s'
         : minutes > 0
-            ? '${minutes}m ${seconds}s'
-            : '${seconds}s';
+        ? '${minutes}m ${seconds}s'
+        : '${seconds}s';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -724,18 +708,11 @@ class _DailyResetCountdownState extends State<_DailyResetCountdown> {
       decoration: BoxDecoration(
         color: scheme.tertiaryContainer.withOpacity(0.5),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: scheme.tertiary.withOpacity(0.3),
-          width: 1,
-        ),
+        border: Border.all(color: scheme.tertiary.withOpacity(0.3), width: 1),
       ),
       child: Row(
         children: [
-          Icon(
-            Icons.timer_outlined,
-            size: 20,
-            color: scheme.tertiary,
-          ),
+          Icon(Icons.timer_outlined, size: 20, color: scheme.tertiary),
           const SizedBox(width: 10),
           Expanded(
             child: Column(

@@ -18,6 +18,7 @@ import '../../shared/widgets/brand_app_chrome.dart';
 class MainLayout extends ConsumerStatefulWidget {
   final Widget child;
   final int selectedIndex;
+  final PreferredSizeWidget? appBar;
 
   /// When true (Account tab only), hides the app bar and full-width gradient
   /// wrapper so the child can paint the menu-style header and body.
@@ -27,6 +28,7 @@ class MainLayout extends ConsumerStatefulWidget {
     super.key,
     required this.child,
     required this.selectedIndex,
+    this.appBar,
     this.accountMenuStyle = false,
   });
 
@@ -81,7 +83,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
         });
       }
     });
-    
+
     // Show online/offline toggle only for creators on homepage
     final showStatusToggle = isCreator && isHomePage;
 
@@ -91,62 +93,66 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
       backgroundColor: widget.accountMenuStyle
           ? scheme.surface
           : AppBrandGradients.accountMenuPageBackground,
-      appBar: widget.accountMenuStyle
-          ? null
-          : buildBrandAppBar(
-              context,
-              title: AppConstants.appName,
-              actions: [
-                if (showStatusToggle) ...[
-                  Consumer(
-                    builder: (context, ref, child) {
-                      final status = ref.watch(creatorStatusProvider);
-                      final isOnline = status == CreatorStatus.online;
+      appBar:
+          widget.appBar ??
+          (widget.accountMenuStyle
+              ? null
+              : buildBrandAppBar(
+                  context,
+                  title: AppConstants.appName,
+                  actions: [
+                    if (showStatusToggle) ...[
+                      Consumer(
+                        builder: (context, ref, child) {
+                          final status = ref.watch(creatorStatusProvider);
+                          final isOnline = status == CreatorStatus.online;
 
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 10,
-                              height: 10,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: isOnline
-                                    ? AppPalette.success
-                                    : Colors.white.withValues(alpha: 0.55),
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.9),
-                                  width: 2,
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 10,
+                                  height: 10,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: isOnline
+                                        ? AppPalette.success
+                                        : Colors.white.withValues(alpha: 0.55),
+                                    border: Border.all(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.9,
+                                      ),
+                                      width: 2,
+                                    ),
+                                  ),
                                 ),
-                              ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  isOnline ? 'Online' : 'Offline',
+                                  style: TextStyle(
+                                    color: isOnline
+                                        ? const Color(0xFFB9F6CA)
+                                        : Colors.white.withValues(alpha: 0.85),
+                                    fontWeight: FontWeight.w500,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 6),
-                            Text(
-                              isOnline ? 'Online' : 'Offline',
-                              style: TextStyle(
-                                color: isOnline
-                                    ? const Color(0xFFB9F6CA)
-                                    : Colors.white.withValues(alpha: 0.85),
-                                fontWeight: FontWeight.w500,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ],
-                if (isHomePage && isRegularUser)
-                  IconButton(
-                    tooltip: 'Favorite creators',
-                    icon: const Icon(Icons.favorite_border),
-                    onPressed: () => context.push('/home/favorites'),
-                  ),
-                _MainLayoutCoinChip(isCreator: isCreator),
-              ],
-            ),
+                          );
+                        },
+                      ),
+                    ],
+                    if (isHomePage && isRegularUser)
+                      IconButton(
+                        tooltip: 'Favorite creators',
+                        icon: const Icon(Icons.favorite_border),
+                        onPressed: () => context.push('/home/favorites'),
+                      ),
+                    _MainLayoutCoinChip(isCreator: isCreator),
+                  ],
+                )),
       body: widget.accountMenuStyle
           ? widget.child
           : ColoredBox(
@@ -154,29 +160,29 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
               child: widget.child,
             ),
       bottomNavigationBar: NavigationBar(
-          backgroundColor: scheme.surface,
-          surfaceTintColor: Colors.transparent,
-          selectedIndex: widget.selectedIndex,
-          onDestinationSelected: _onItemTapped,
-          destinations: [
-            const NavigationDestination(
-              icon: Icon(Icons.home_outlined),
-              selectedIcon: Icon(Icons.home),
-              label: 'Home',
-            ),
-            const NavigationDestination(
-              icon: Icon(Icons.history_outlined),
-              selectedIcon: Icon(Icons.history),
-              label: 'Recent',
-            ),
-            const _MainLayoutChatNavDestination(),
-            const NavigationDestination(
-              icon: Icon(Icons.person_outline),
-              selectedIcon: Icon(Icons.person),
-              label: 'Account',
-            ),
-          ],
-        ),
+        backgroundColor: scheme.surface,
+        surfaceTintColor: Colors.transparent,
+        selectedIndex: widget.selectedIndex,
+        onDestinationSelected: _onItemTapped,
+        destinations: [
+          const NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          const NavigationDestination(
+            icon: Icon(Icons.history_outlined),
+            selectedIcon: Icon(Icons.history),
+            label: 'Recent',
+          ),
+          const _MainLayoutChatNavDestination(),
+          const NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            selectedIcon: Icon(Icons.person),
+            label: 'Account',
+          ),
+        ],
+      ),
     );
 
     if (widget.accountMenuStyle) {
@@ -210,8 +216,9 @@ class _MainLayoutCoinChip extends ConsumerWidget {
 
     return InkWell(
       onTap: () {
-        final path =
-            GoRouter.of(context).routeInformationProvider.value.uri.path;
+        final path = GoRouter.of(
+          context,
+        ).routeInformationProvider.value.uri.path;
         if (path == '/wallet') {
           ref.read(authProvider.notifier).refreshUser();
           return;

@@ -55,7 +55,8 @@ class _WithdrawalScreenState extends ConsumerState<WithdrawalScreen> {
 
     // Listen for success/error messages
     ref.listen<WithdrawalState>(withdrawalProvider, (prev, next) {
-      if (next.successMessage != null && next.successMessage != prev?.successMessage) {
+      if (next.successMessage != null &&
+          next.successMessage != prev?.successMessage) {
         AppToast.showSuccess(context, next.successMessage!);
         // Clear all form fields
         _amountController.clear();
@@ -74,59 +75,59 @@ class _WithdrawalScreenState extends ConsumerState<WithdrawalScreen> {
 
     return Scaffold(
       backgroundColor: AppBrandGradients.accountMenuPageBackground,
-      appBar: buildBrandAppBar(
+      appBar: buildAccountFlowAppBar(
         context,
         title: 'Withdraw',
         actions: [BrandHeaderCoinsChip(coins: coins)],
       ),
       body: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Balance Card
-                  _BalanceCard(coins: coins),
-                  const SizedBox(height: 20),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Balance Card
+            _BalanceCard(coins: coins),
+            const SizedBox(height: 20),
 
-                  // Withdrawal Form
-                  _WithdrawalForm(
-                    formKey: _formKey,
-                    amountController: _amountController,
-                    nameController: _nameController,
-                    numberController: _numberController,
-                    upiController: _upiController,
-                    accountNumberController: _accountNumberController,
-                    ifscController: _ifscController,
-                    useUpi: _useUpi,
-                    onUseUpiChanged: (value) => setState(() => _useUpi = value),
-                    availableBalance: coins,
-                    isSubmitting: withdrawalState.isSubmitting,
-                    onSubmit: _submitWithdrawal,
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Withdrawal History (in-session)
-                  if (withdrawalState.withdrawals.isNotEmpty) ...[
-                    Text(
-                      'Recent Requests',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurface,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    ...withdrawalState.withdrawals.map(
-                      (w) => _WithdrawalHistoryCard(withdrawal: w),
-                    ),
-                  ],
-
-                  // Info section
-                  const SizedBox(height: 16),
-                  _InfoSection(),
-                ],
-              ),
+            // Withdrawal Form
+            _WithdrawalForm(
+              formKey: _formKey,
+              amountController: _amountController,
+              nameController: _nameController,
+              numberController: _numberController,
+              upiController: _upiController,
+              accountNumberController: _accountNumberController,
+              ifscController: _ifscController,
+              useUpi: _useUpi,
+              onUseUpiChanged: (value) => setState(() => _useUpi = value),
+              availableBalance: coins,
+              isSubmitting: withdrawalState.isSubmitting,
+              onSubmit: _submitWithdrawal,
             ),
+            const SizedBox(height: 24),
+
+            // Withdrawal History (in-session)
+            if (withdrawalState.withdrawals.isNotEmpty) ...[
+              Text(
+                'Recent Requests',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 12),
+              ...withdrawalState.withdrawals.map(
+                (w) => _WithdrawalHistoryCard(withdrawal: w),
+              ),
+            ],
+
+            // Info section
+            const SizedBox(height: 16),
+            _InfoSection(),
+          ],
+        ),
+      ),
     );
   }
 
@@ -136,14 +137,16 @@ class _WithdrawalScreenState extends ConsumerState<WithdrawalScreen> {
     final amount = int.tryParse(_amountController.text.trim());
     if (amount == null || amount <= 0) return;
 
-    await ref.read(withdrawalProvider.notifier).requestWithdrawal(
-      amount: amount,
-      name: _nameController.text.trim(),
-      number: _numberController.text.trim(),
-      upi: _useUpi ? _upiController.text.trim() : null,
-      accountNumber: _useUpi ? null : _accountNumberController.text.trim(),
-      ifsc: _useUpi ? null : _ifscController.text.trim(),
-    );
+    await ref
+        .read(withdrawalProvider.notifier)
+        .requestWithdrawal(
+          amount: amount,
+          name: _nameController.text.trim(),
+          number: _numberController.text.trim(),
+          upi: _useUpi ? _upiController.text.trim() : null,
+          accountNumber: _useUpi ? null : _accountNumberController.text.trim(),
+          ifsc: _useUpi ? null : _ifscController.text.trim(),
+        );
   }
 }
 
@@ -163,17 +166,17 @@ class _BalanceCard extends StatelessWidget {
         children: [
           Text(
             'Available Balance',
-            style: TextStyle(
-              color: scheme.onSurfaceVariant,
-              fontSize: 14,
-            ),
+            style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 14),
           ),
           const SizedBox(height: 8),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   gradient: AppBrandGradients.walletCoinGold,
                   borderRadius: BorderRadius.circular(12),
@@ -262,7 +265,9 @@ class _WithdrawalForm extends StatelessWidget {
                 labelText: 'Amount (coins)',
                 labelStyle: TextStyle(color: scheme.onSurfaceVariant),
                 hintText: 'Min 100 coins',
-                hintStyle: TextStyle(color: scheme.onSurfaceVariant.withOpacity(0.5)),
+                hintStyle: TextStyle(
+                  color: scheme.onSurfaceVariant.withOpacity(0.5),
+                ),
                 prefixIcon: const GemIcon(size: 24),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -386,7 +391,10 @@ class _WithdrawalForm extends StatelessWidget {
                   labelText: 'UPI ID',
                   labelStyle: TextStyle(color: scheme.onSurfaceVariant),
                   hintText: 'yourname@paytm',
-                  prefixIcon: Icon(Icons.account_circle_outlined, color: scheme.primary),
+                  prefixIcon: Icon(
+                    Icons.account_circle_outlined,
+                    color: scheme.primary,
+                  ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide(color: scheme.outlineVariant),
@@ -413,7 +421,10 @@ class _WithdrawalForm extends StatelessWidget {
                 decoration: InputDecoration(
                   labelText: 'Account Number',
                   labelStyle: TextStyle(color: scheme.onSurfaceVariant),
-                  prefixIcon: Icon(Icons.account_balance_outlined, color: scheme.primary),
+                  prefixIcon: Icon(
+                    Icons.account_balance_outlined,
+                    color: scheme.primary,
+                  ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide(color: scheme.outlineVariant),
@@ -483,7 +494,10 @@ class _WithdrawalForm extends StatelessWidget {
                       )
                     : const Text(
                         'Submit Withdrawal Request',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
               ),
             ),
@@ -586,8 +600,18 @@ class _WithdrawalHistoryCard extends StatelessWidget {
   String _formatDate(DateTime dt) {
     final d = dt.toLocal();
     final months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${d.day} ${months[d.month - 1]} ${d.year}, '
         '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
@@ -610,7 +634,11 @@ class _InfoSection extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.info_outline, color: scheme.onSurfaceVariant, size: 18),
+              Icon(
+                Icons.info_outline,
+                color: scheme.onSurfaceVariant,
+                size: 18,
+              ),
               const SizedBox(width: 8),
               Text(
                 'How withdrawals work',
@@ -623,13 +651,25 @@ class _InfoSection extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          _InfoRow(icon: Icons.looks_one_outlined, text: 'Minimum withdrawal: 100 coins'),
+          _InfoRow(
+            icon: Icons.looks_one_outlined,
+            text: 'Minimum withdrawal: 100 coins',
+          ),
           const SizedBox(height: 8),
-          _InfoRow(icon: Icons.looks_two_outlined, text: 'Submit your request — coins stay in your wallet'),
+          _InfoRow(
+            icon: Icons.looks_two_outlined,
+            text: 'Submit your request — coins stay in your wallet',
+          ),
           const SizedBox(height: 8),
-          _InfoRow(icon: Icons.looks_3_outlined, text: 'Admin reviews & approves (coins deducted)'),
+          _InfoRow(
+            icon: Icons.looks_3_outlined,
+            text: 'Admin reviews & approves (coins deducted)',
+          ),
           const SizedBox(height: 8),
-          _InfoRow(icon: Icons.looks_4_outlined, text: 'Payment processed & marked as paid'),
+          _InfoRow(
+            icon: Icons.looks_4_outlined,
+            text: 'Payment processed & marked as paid',
+          ),
         ],
       ),
     );
@@ -652,10 +692,7 @@ class _InfoRow extends StatelessWidget {
         Expanded(
           child: Text(
             text,
-            style: TextStyle(
-              color: scheme.onSurfaceVariant,
-              fontSize: 13,
-            ),
+            style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
           ),
         ),
       ],

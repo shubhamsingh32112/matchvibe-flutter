@@ -61,9 +61,7 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
     _callStateSub = ref.listenManual<CallConnectionState>(
       callConnectionControllerProvider,
       (prev, next) {
-        if (next.phase != CallConnectionPhase.idle &&
-            next.phase != CallConnectionPhase.failed &&
-            _incomingCall != null) {
+        if (next.phase != CallConnectionPhase.idle && _incomingCall != null) {
           _cancelRingTimeout();
           _handledCallIds.add(_incomingCall!.id);
           CallRingtoneService.stop();

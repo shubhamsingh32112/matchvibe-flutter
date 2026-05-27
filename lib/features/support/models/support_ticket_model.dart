@@ -1,4 +1,49 @@
 /// Model for a support ticket.
+class SupportTicketAttachment {
+  final String name;
+  final String mimeType;
+  final int sizeBytes;
+  final bool isScreenshot;
+  final String? dataBase64;
+  final String? dataUrl;
+
+  SupportTicketAttachment({
+    required this.name,
+    required this.mimeType,
+    required this.sizeBytes,
+    required this.isScreenshot,
+    this.dataBase64,
+    this.dataUrl,
+  });
+
+  factory SupportTicketAttachment.fromJson(Map<String, dynamic> json) {
+    final mimeType = json['mimeType'] as String? ?? 'application/octet-stream';
+    final base64 = json['dataBase64'] as String?;
+    return SupportTicketAttachment(
+      name: json['name'] as String? ?? 'attachment',
+      mimeType: mimeType,
+      sizeBytes: (json['sizeBytes'] as num?)?.toInt() ?? 0,
+      isScreenshot: json['isScreenshot'] as bool? ?? false,
+      dataBase64: base64,
+      dataUrl:
+          json['dataUrl'] as String? ??
+          ((base64 != null && base64.isNotEmpty)
+              ? 'data:$mimeType;base64,$base64'
+              : null),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'name': name,
+      'mimeType': mimeType,
+      'sizeBytes': sizeBytes,
+      'isScreenshot': isScreenshot,
+      if (dataBase64 != null) 'dataBase64': dataBase64,
+    };
+  }
+}
+
 class SupportTicket {
   final String id;
   final String userId;
@@ -9,6 +54,7 @@ class SupportTicket {
   final String status; // 'open' | 'in_progress' | 'resolved' | 'closed'
   final String priority; // 'low' | 'medium' | 'high'
   final String? assignedAdminId;
+  final List<SupportTicketAttachment> attachments;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -22,6 +68,7 @@ class SupportTicket {
     required this.status,
     required this.priority,
     this.assignedAdminId,
+    this.attachments = const [],
     required this.createdAt,
     required this.updatedAt,
   });
@@ -37,6 +84,14 @@ class SupportTicket {
       status: json['status'] as String? ?? 'open',
       priority: json['priority'] as String? ?? 'medium',
       assignedAdminId: json['assignedAdminId'] as String?,
+      attachments: ((json['attachments'] as List<dynamic>?) ?? const [])
+          .whereType<Map>()
+          .map(
+            (item) => SupportTicketAttachment.fromJson(
+              Map<String, dynamic>.from(item),
+            ),
+          )
+          .toList(),
       createdAt: json['createdAt'] != null
           ? DateTime.parse(json['createdAt'] as String)
           : DateTime.now(),

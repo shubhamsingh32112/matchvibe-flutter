@@ -22,6 +22,7 @@ class CallRingtoneService {
   static AudioPlayer? _incomingPlayer;
   static _CallToneMode? _activeMode;
   static String? _cachedIncomingRingtoneUrl;
+  static int _incomingSessionId = 0;
 
   static void startOutgoingTone() {
     _start(
@@ -31,20 +32,14 @@ class CallRingtoneService {
   }
 
   static void startIncomingRingtone() {
-    unawaited(_startIncomingRingtoneInternal());
+    if (_activeMode == _CallToneMode.incoming) return;
+    final sessionId = ++_incomingSessionId;
+    unawaited(_startIncomingRingtoneInternal(sessionId));
   }
 
   static void stop() {
-    _timer?.cancel();
-    _timer = null;
-    try {
-      _incomingPlayer?.stop();
-    } on PlayerInterruptedException {
-      // Expected when a new source starts or stop races with play().
-    } catch (error) {
-      debugPrint('⚠️ [CALL TONE] Stop error: $error');
-    }
-    _activeMode = null;
+    _incomingSessionId++;
+    _stopActivePlaybackOnly();
     debugPrint('🔕 [CALL TONE] Stopped');
   }
 
@@ -64,22 +59,27 @@ class CallRingtoneService {
     debugPrint('🔔 [CALL TONE] Started (${mode.name})');
   }
 
-  static Future<void> _startIncomingRingtoneInternal() async {
-    if (_activeMode == _CallToneMode.incoming) return;
-
-    stop();
+  static Future<void> _startIncomingRingtoneInternal(int sessionId) async {
+    if (!_isIncomingSessionActive(sessionId)) return;
+    _stopActivePlaybackOnly();
+    if (!_isIncomingSessionActive(sessionId)) return;
     _activeMode = _CallToneMode.incoming;
 
     // Immediate feedback so the user hears something right away.
     _playAlert();
 
     // Start with bundled asset ringtone (fast, offline).
+    var bundledStarted = false;
     try {
+      if (!_isIncomingSessionActive(sessionId)) return;
       _incomingPlayer ??= AudioPlayer();
       await _incomingPlayer!.setLoopMode(LoopMode.one);
+      if (!_isIncomingSessionActive(sessionId)) return;
       await _incomingPlayer!.setAsset(_incomingRingtoneAssetPath);
+      if (!_isIncomingSessionActive(sessionId)) return;
       await _incomingPlayer!.play();
       debugPrint('🔔 [CALL TONE] Started (incoming bundled ringtone)');
+      bundledStarted = true;
     } on PlayerInterruptedException {
       debugPrint('🔕 [CALL TONE] Bundled ringtone interrupted (expected)');
     } catch (error) {
@@ -90,14 +90,15 @@ class CallRingtoneService {
 
     // Best-effort upgrade to remote URL ringtone (do not block ring start).
     unawaited(() async {
-      if (_activeMode != _CallToneMode.incoming) return;
+      if (!_isIncomingSessionActive(sessionId)) return;
       try {
         _incomingPlayer ??= AudioPlayer();
         await _incomingPlayer!.setLoopMode(LoopMode.one);
+        if (!_isIncomingSessionActive(sessionId)) return;
         final ringtoneUrl = await _resolveIncomingRingtoneUrl();
-        if (_activeMode != _CallToneMode.incoming) return;
+        if (!_isIncomingSessionActive(sessionId)) return;
         await _incomingPlayer!.setUrl(ringtoneUrl);
-        if (_activeMode != _CallToneMode.incoming) return;
+        if (!_isIncomingSessionActive(sessionId)) return;
         await _incomingPlayer!.play();
         debugPrint('🔔 [CALL TONE] Upgraded to incoming custom ringtone URL');
       } on PlayerInterruptedException {
@@ -107,11 +108,18 @@ class CallRingtoneService {
       }
     }());
 
+    // Bundled ringtone is already active; no need to run another start path.
+    if (bundledStarted) return;
+
     try {
+      if (!_isIncomingSessionActive(sessionId)) return;
       _incomingPlayer ??= AudioPlayer();
       await _incomingPlayer!.setLoopMode(LoopMode.one);
+      if (!_isIncomingSessionActive(sessionId)) return;
       final ringtoneUrl = await _resolveIncomingRingtoneUrl();
+      if (!_isIncomingSessionActive(sessionId)) return;
       await _incomingPlayer!.setUrl(ringtoneUrl);
+      if (!_isIncomingSessionActive(sessionId)) return;
       await _incomingPlayer!.play();
       debugPrint('🔔 [CALL TONE] Started (incoming custom ringtone)');
       return;
@@ -124,29 +132,31 @@ class CallRingtoneService {
       );
     }
 
-    try {
-      _incomingPlayer ??= AudioPlayer();
-      await _incomingPlayer!.setLoopMode(LoopMode.one);
-      await _incomingPlayer!.setAsset(_incomingRingtoneAssetPath);
-      await _incomingPlayer!.play();
-      debugPrint('🔔 [CALL TONE] Started (incoming bundled ringtone)');
-      return;
-    } on PlayerInterruptedException {
-      debugPrint('🔕 [CALL TONE] Asset ringtone interrupted (expected)');
-      return;
-    } catch (error) {
-      debugPrint(
-        '⚠️ [CALL TONE] Asset ringtone failed, using alert sound: $error',
-      );
-    }
-
     // Last-resort fallback so incoming calls still notify the creator.
+    if (!_isIncomingSessionActive(sessionId)) return;
     _playAlert();
     _timer = Timer.periodic(
       const Duration(milliseconds: 1200),
       (_) => _playAlert(),
     );
     debugPrint('🔔 [CALL TONE] Started (incoming system alert fallback)');
+  }
+
+  static bool _isIncomingSessionActive(int sessionId) {
+    return _incomingSessionId == sessionId;
+  }
+
+  static void _stopActivePlaybackOnly() {
+    _timer?.cancel();
+    _timer = null;
+    try {
+      _incomingPlayer?.stop();
+    } on PlayerInterruptedException {
+      // Expected when a new source starts or stop races with play().
+    } catch (error) {
+      debugPrint('⚠️ [CALL TONE] Stop error: $error');
+    }
+    _activeMode = null;
   }
 
   static Future<String> _resolveIncomingRingtoneUrl() async {

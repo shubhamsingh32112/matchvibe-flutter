@@ -197,27 +197,25 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
   @override
   Widget build(BuildContext context) {
     final userRole = ref.watch(authProvider.select((s) => s.user?.role));
-    final authCoins = ref.watch(
-      authProvider.select((s) => s.user?.coins ?? 0),
-    );
+    final authCoins = ref.watch(authProvider.select((s) => s.user?.coins ?? 0));
     final isCreator = userRole == 'creator' || userRole == 'admin';
     final billingSlice = ref.watch(
       callBillingProvider.select((b) => (b.isActive, b.userCoins)),
     );
-    final coins = billingSlice.$1 && !isCreator
-        ? billingSlice.$2
-        : authCoins;
-    final walletPricingAsync =
-        isCreator ? null : ref.watch(walletPricingProvider);
+    final coins = billingSlice.$1 && !isCreator ? billingSlice.$2 : authCoins;
+    final walletPricingAsync = isCreator
+        ? null
+        : ref.watch(walletPricingProvider);
 
-    final earningsAsync =
-        isCreator ? ref.watch(dashboardEarningsProvider) : null;
+    final earningsAsync = isCreator
+        ? ref.watch(dashboardEarningsProvider)
+        : null;
     ref.listen(socketServiceProvider, (_, __) {});
 
     if (isCreator) {
       return Scaffold(
         backgroundColor: AppBrandGradients.accountMenuPageBackground,
-        appBar: buildBrandAppBar(
+        appBar: buildAccountFlowAppBar(
           context,
           title: 'Wallet',
           leading: IconButton(
@@ -225,9 +223,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
             onPressed: () => context.pop(),
           ),
           automaticallyImplyLeading: false,
-          actions: [
-            BrandHeaderCoinsChip(coins: coins),
-          ],
+          actions: [BrandHeaderCoinsChip(coins: coins)],
         ),
         body: earningsAsync!.when(
           data: (earnings) => _CreatorWalletView(
@@ -264,10 +260,11 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
           data: (pricingData) => SizedBox(
             width: double.infinity,
             child: ClipRRect(
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(20)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(20),
+              ),
               child: ColoredBox(
-              color: _kPageBackground,
+                color: _kPageBackground,
                 child: _UserBuyCoinsBody(
                   isAddingCoins: _isAddingCoins,
                   packages: pricingData.packages.take(6).toList(),
@@ -643,29 +640,26 @@ class _UserBuyCoinsBody extends StatelessWidget {
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             sliver: SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final pack = packages[index];
-                  final art = index < _kWalletTierArt.length
-                      ? _kWalletTierArt[index]
-                      : _kWalletTierArt.last;
-                  final accent = index < _kTierBadgeColors.length
-                      ? _kTierBadgeColors[index]
-                      : _kTierBadgeColors.last;
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 14),
-                    child: _BuyCoinPackCard(
-                      pack: pack,
-                      tierArtAsset: art,
-                      accentColor: accent,
-                      onTap: isAddingCoins
-                          ? null
-                          : () => onAddCoins(pack.coins, pack.priceInr),
-                    ),
-                  );
-                },
-                childCount: packages.length,
-              ),
+              delegate: SliverChildBuilderDelegate((context, index) {
+                final pack = packages[index];
+                final art = index < _kWalletTierArt.length
+                    ? _kWalletTierArt[index]
+                    : _kWalletTierArt.last;
+                final accent = index < _kTierBadgeColors.length
+                    ? _kTierBadgeColors[index]
+                    : _kTierBadgeColors.last;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: _BuyCoinPackCard(
+                    pack: pack,
+                    tierArtAsset: art,
+                    accentColor: accent,
+                    onTap: isAddingCoins
+                        ? null
+                        : () => onAddCoins(pack.coins, pack.priceInr),
+                  ),
+                );
+              }, childCount: packages.length),
             ),
           ),
         ],
@@ -693,15 +687,15 @@ class _BuyCoinPackCard extends StatelessWidget {
         pack.oldPriceInr != null && pack.oldPriceInr! > pack.priceInr;
     final discountPercent = hasDiscount
         ? (((pack.oldPriceInr! - pack.priceInr) / pack.oldPriceInr!) * 100)
-            .round()
+              .round()
         : null;
     final String? centerPromo = hasDiscount
         ? (pack.badge != null && pack.badge!.trim().isNotEmpty
-            ? pack.badge!.trim()
-            : 'Flat $discountPercent% off')
+              ? pack.badge!.trim()
+              : 'Flat $discountPercent% off')
         : (pack.badge != null && pack.badge!.trim().isNotEmpty
-            ? pack.badge!.trim()
-            : null);
+              ? pack.badge!.trim()
+              : null);
 
     return Material(
       color: Colors.transparent,
@@ -709,187 +703,189 @@ class _BuyCoinPackCard extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(20),
         child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: const Color(0xFFE0E0E0),
-                  width: 1,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.06),
-                    blurRadius: 10,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFE0E0E0), width: 1),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.06),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
               ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(20),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final artLane =
-                        (constraints.maxWidth * 0.40).clamp(102.0, 142.0);
-                    return Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        Positioned(
-                          left: -4,
-                          top: -14,
-                          bottom: -14,
-                          width: artLane + 22,
-                          child: IgnorePointer(
-                            child: Image.asset(
-                              tierArtAsset,
-                              fit: BoxFit.contain,
-                              alignment: Alignment.centerLeft,
-                              filterQuality: FilterQuality.medium,
-                              errorBuilder: (_, _, _) => Align(
-                                alignment: Alignment.centerLeft,
-                                child: Icon(
-                                  Icons.diamond_outlined,
-                                  size: 50,
-                                  color: accentColor,
-                                ),
-                              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final artLane = (constraints.maxWidth * 0.40).clamp(
+                  102.0,
+                  142.0,
+                );
+                return Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Positioned(
+                      left: -4,
+                      top: -14,
+                      bottom: -14,
+                      width: artLane + 22,
+                      child: IgnorePointer(
+                        child: Image.asset(
+                          tierArtAsset,
+                          fit: BoxFit.contain,
+                          alignment: Alignment.centerLeft,
+                          filterQuality: FilterQuality.medium,
+                          errorBuilder: (_, _, _) => Align(
+                            alignment: Alignment.centerLeft,
+                            child: Icon(
+                              Icons.diamond_outlined,
+                              size: 50,
+                              color: accentColor,
                             ),
                           ),
                         ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 20,
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              SizedBox(width: artLane * 0.72),
-                              Expanded(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.center,
-                                  children: [
-                                    Text.rich(
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 20,
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          SizedBox(width: artLane * 0.72),
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Text.rich(
+                                  TextSpan(
+                                    children: [
                                       TextSpan(
-                                        children: [
-                                          TextSpan(
-                                            text: '${pack.coins}',
-                                            style: GoogleFonts.poppins(
-                                              fontSize: 22,
-                                              fontWeight: FontWeight.w800,
-                                              color: _kTextPrimary,
-                                              height: 1.1,
-                                            ),
-                                          ),
-                                          TextSpan(
-                                            text: ' Coins',
-                                            style: GoogleFonts.poppins(
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w600,
-                                              color: _kTextPrimary
-                                                  .withValues(alpha: 0.92),
-                                              height: 1.1,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      textAlign: TextAlign.center,
-                                    ),
-                                    if (centerPromo != null)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 10),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 10,
-                                            vertical: 5,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: hasDiscount
-                                                ? _kBuyCoinsPink
-                                                    .withValues(alpha: 0.14)
-                                                : accentColor
-                                                    .withValues(alpha: 0.14),
-                                            borderRadius:
-                                                BorderRadius.circular(20),
-                                          ),
-                                          child: Text(
-                                            centerPromo,
-                                            textAlign: TextAlign.center,
-                                            style: GoogleFonts.poppins(
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w700,
-                                              color: hasDiscount
-                                                  ? _kBuyCoinsPink
-                                                      .withValues(alpha: 0.95)
-                                                  : accentColor
-                                                      .withValues(alpha: 0.95),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              SizedBox(
-                                width: 76,
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    if (hasDiscount && discountPercent != null)
-                                      Container(
-                                        margin:
-                                            const EdgeInsets.only(bottom: 5),
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 3,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: _kBuyCoinsPink
-                                              .withValues(alpha: 0.18),
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                        child: Text(
-                                          '-$discountPercent%',
-                                          style: GoogleFonts.poppins(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w800,
-                                            color: _kBuyCoinsPink,
-                                          ),
-                                        ),
-                                      ),
-                                    Text(
-                                      '₹${pack.priceInr}',
-                                      style: GoogleFonts.poppins(
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.w800,
-                                        color: _kBuyCoinsPurple,
-                                      ),
-                                    ),
-                                    if (hasDiscount && pack.oldPriceInr != null)
-                                      Text(
-                                        '₹${pack.oldPriceInr}',
+                                        text: '${pack.coins}',
                                         style: GoogleFonts.poppins(
-                                          fontSize: 12,
-                                          color: _kTextMuted,
-                                          decoration:
-                                              TextDecoration.lineThrough,
-                                          fontWeight: FontWeight.w500,
+                                          fontSize: 22,
+                                          fontWeight: FontWeight.w800,
+                                          color: _kTextPrimary,
+                                          height: 1.1,
                                         ),
                                       ),
-                                  ],
+                                      TextSpan(
+                                        text: ' Coins',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                          color: _kTextPrimary.withValues(
+                                            alpha: 0.92,
+                                          ),
+                                          height: 1.1,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  textAlign: TextAlign.center,
                                 ),
-                              ),
-                            ],
+                                if (centerPromo != null)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 10),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 5,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: hasDiscount
+                                            ? _kBuyCoinsPink.withValues(
+                                                alpha: 0.14,
+                                              )
+                                            : accentColor.withValues(
+                                                alpha: 0.14,
+                                              ),
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      child: Text(
+                                        centerPromo,
+                                        textAlign: TextAlign.center,
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700,
+                                          color: hasDiscount
+                                              ? _kBuyCoinsPink.withValues(
+                                                  alpha: 0.95,
+                                                )
+                                              : accentColor.withValues(
+                                                  alpha: 0.95,
+                                                ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ),
+                          const SizedBox(width: 6),
+                          SizedBox(
+                            width: 76,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                if (hasDiscount && discountPercent != null)
+                                  Container(
+                                    margin: const EdgeInsets.only(bottom: 5),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 3,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: _kBuyCoinsPink.withValues(
+                                        alpha: 0.18,
+                                      ),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      '-$discountPercent%',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w800,
+                                        color: _kBuyCoinsPink,
+                                      ),
+                                    ),
+                                  ),
+                                Text(
+                                  '₹${pack.priceInr}',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w800,
+                                    color: _kBuyCoinsPurple,
+                                  ),
+                                ),
+                                if (hasDiscount && pack.oldPriceInr != null)
+                                  Text(
+                                    '₹${pack.oldPriceInr}',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 12,
+                                      color: _kTextMuted,
+                                      decoration: TextDecoration.lineThrough,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
+          ),
+        ),
       ),
     );
   }

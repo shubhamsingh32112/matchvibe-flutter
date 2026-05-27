@@ -37,16 +37,34 @@ AppBar buildBrandAppBar(
   );
 }
 
+/// Standard app bar for full-screen Account-flow pages.
+///
+/// Keeps the same visual treatment as the default homepage top app bar while
+/// allowing page-specific titles and optional custom actions.
+AppBar buildAccountFlowAppBar(
+  BuildContext context, {
+  required String title,
+  List<Widget>? actions,
+  Widget? leading,
+  bool automaticallyImplyLeading = true,
+  bool centerTitle = false,
+}) {
+  return buildBrandAppBar(
+    context,
+    title: title,
+    leading: leading,
+    automaticallyImplyLeading: automaticallyImplyLeading,
+    centerTitle: centerTitle,
+    actions: actions,
+  );
+}
+
 /// Purple gradient title strip for modal bottom sheets (Account tab style).
 class BrandSheetHeader extends StatelessWidget {
   final String title;
   final List<Widget>? trailing;
 
-  const BrandSheetHeader({
-    super.key,
-    required this.title,
-    this.trailing,
-  });
+  const BrandSheetHeader({super.key, required this.title, this.trailing});
 
   @override
   Widget build(BuildContext context) {
@@ -80,9 +98,9 @@ class BrandSheetHeader extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
                 if (trailing != null) ...trailing!,

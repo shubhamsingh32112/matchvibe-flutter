@@ -84,6 +84,11 @@ String? resolveRemoteImageUrl({
     // This helps incoming-call UI show the caller image before members/createdBy hydrate.
     final customImage = _asNonEmptyString(
       _extractFromCallCustom(callState, 'initiatorImageUrl') ??
+          _extractFromCallCustom(callState, 'callPhoto') ??
+          _extractFromCallCustom(callState, 'avatarUrl') ??
+          _extractFromCallCustom(callState, 'avatar') ??
+          _extractFromCallCustom(callState, 'photoUrl') ??
+          _extractFromCallCustom(callState, 'photoURL') ??
           _extractFromCallCustom(callState, 'image') ??
           _extractFromCallCustom(callState, 'imageUrl'),
     );
@@ -175,6 +180,8 @@ String? _extractImageFromExtraData(dynamic extraData) {
     'avatar',
     'avatarUrl',
     'avatar_url',
+    'callPhoto',
+    'call_photo',
     'profileImage',
     'profile_image',
     'photoURL',

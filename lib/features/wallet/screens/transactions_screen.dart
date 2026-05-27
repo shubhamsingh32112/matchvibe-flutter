@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -8,10 +7,12 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 import '../../../shared/widgets/app_modal_bottom_sheet.dart';
+import '../../../shared/widgets/brand_app_chrome.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../support/screens/payment_complaint_screen.dart';
+import '../../video/providers/call_billing_provider.dart';
 import '../models/transaction_model.dart';
 import '../models/wallet_pricing_model.dart';
 import '../providers/wallet_pricing_provider.dart';
@@ -20,14 +21,12 @@ import '../utils/transaction_ui_mapper.dart';
 import '../widgets/transactions_balance_card.dart';
 import '../widgets/transactions_history_section.dart';
 import '../widgets/transactions_overview_row.dart';
-import '../widgets/transactions_page_header.dart';
 
 class TransactionsScreen extends ConsumerStatefulWidget {
   const TransactionsScreen({super.key});
 
   @override
-  ConsumerState<TransactionsScreen> createState() =>
-      _TransactionsScreenState();
+  ConsumerState<TransactionsScreen> createState() => _TransactionsScreenState();
 }
 
 class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
@@ -177,9 +176,16 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider.select((s) => s.user));
     final isCreator = user?.role == 'creator' || user?.role == 'admin';
-    final coins = user?.coins ?? 0;
+    final billingSlice = ref.watch(
+      callBillingProvider.select((b) => (b.isActive, b.userCoins)),
+    );
+    final coins = billingSlice.$1 && !isCreator
+        ? billingSlice.$2
+        : (user?.coins ?? 0);
     final transactions = _transactionData?.transactions ?? const [];
-    final overviewStats = TransactionUiMapper.computeOverviewStats(transactions);
+    final overviewStats = TransactionUiMapper.computeOverviewStats(
+      transactions,
+    );
     final todayNet = TransactionUiMapper.computeTodayNet(transactions);
     final inrEstimate = TransactionUiMapper.estimateInrValue(
       coins,
@@ -189,99 +195,92 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
         .where((t) => t.type == 'credit')
         .fold<int>(0, (sum, t) => sum + t.amount);
 
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.dark.copyWith(
-        statusBarColor: Colors.transparent,
+    return MainLayout(
+      selectedIndex: 3,
+      accountMenuStyle: true,
+      appBar: buildAccountFlowAppBar(
+        context,
+        title: 'Transactions',
+        actions: [BrandHeaderCoinsChip(coins: coins)],
       ),
-      child: MainLayout(
-        selectedIndex: 3,
-        accountMenuStyle: true,
-        child: ColoredBox(
-          color: AppBrandGradients.accountMenuPageBackground,
-          child: _isLoading && _transactionData == null
-              ? const Center(child: LoadingIndicator())
-              : _error != null && _transactionData == null
-                  ? ErrorState(
-                      title: 'Failed to load transactions',
-                      message: _error ?? 'Unknown error',
-                      actionLabel: 'Retry',
-                      onAction: () => _loadTransactions(refresh: true),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: () => _loadTransactions(refresh: true),
-                      child: CustomScrollView(
-                        controller: _scrollController,
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        slivers: [
-                          const SliverToBoxAdapter(
-                            child: TransactionsPageHeader(),
-                          ),
-                          SliverToBoxAdapter(
-                            child: SizedBox(height: AppSpacing.sm),
-                          ),
-                          if (!isCreator) ...[
-                            SliverToBoxAdapter(
-                              child: TransactionsBalanceCard(
-                                coins: coins,
-                                todayNet: todayNet,
-                                inrEstimate: inrEstimate,
-                                onScrollToHistory: _scrollToHistory,
-                              ),
-                            ),
-                            const SliverToBoxAdapter(
-                              child: SizedBox(height: AppSpacing.md),
-                            ),
-                            SliverToBoxAdapter(
-                              child: TransactionsOverviewRow(
-                                stats: overviewStats,
-                              ),
-                            ),
-                          ] else ...[
-                            SliverToBoxAdapter(
-                              child: TransactionsCreatorBalanceCard(
-                                totalEarned: creatorTotalEarned,
-                              ),
-                            ),
-                            const SliverToBoxAdapter(
-                              child: SizedBox(height: AppSpacing.lg),
-                            ),
-                          ],
-                          if (_transactionData == null ||
-                              _transactionData!.transactions.isEmpty)
-                            SliverFillRemaining(
-                              hasScrollBody: false,
-                              child: _buildEmptyView(isCreator),
-                            )
-                          else ...[
-                            ...TransactionsHistorySection.buildSlivers(
-                              context: context,
-                              historySectionKey: _historySectionKey,
-                              transactions: transactions,
-                              filter: _filter,
-                              onFilterChanged: (value) {
-                                setState(() => _filter = value);
-                              },
-                              isCreator: isCreator,
-                              coinPacks: _coinPacks(),
-                              onTransactionTap: isCreator
-                                  ? null
-                                  : _showPaymentComplaintBottomSheet,
-                            ),
-                            if (_isLoadingMore)
-                              const SliverToBoxAdapter(
-                                child: Padding(
-                                  padding: EdgeInsets.all(AppSpacing.lg),
-                                  child: Center(child: LoadingIndicator()),
-                                ),
-                              ),
-                            const SliverToBoxAdapter(
-                              child: TransactionsFooterDecoration(),
-                            ),
-                          ],
-                        ],
+      child: ColoredBox(
+        color: AppBrandGradients.accountMenuPageBackground,
+        child: _isLoading && _transactionData == null
+            ? const Center(child: LoadingIndicator())
+            : _error != null && _transactionData == null
+            ? ErrorState(
+                title: 'Failed to load transactions',
+                message: _error ?? 'Unknown error',
+                actionLabel: 'Retry',
+                onAction: () => _loadTransactions(refresh: true),
+              )
+            : RefreshIndicator(
+                onRefresh: () => _loadTransactions(refresh: true),
+                child: CustomScrollView(
+                  controller: _scrollController,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    SliverToBoxAdapter(child: SizedBox(height: AppSpacing.sm)),
+                    if (!isCreator) ...[
+                      SliverToBoxAdapter(
+                        child: TransactionsBalanceCard(
+                          coins: coins,
+                          todayNet: todayNet,
+                          inrEstimate: inrEstimate,
+                          onScrollToHistory: _scrollToHistory,
+                        ),
                       ),
-                    ),
-        ),
+                      const SliverToBoxAdapter(
+                        child: SizedBox(height: AppSpacing.md),
+                      ),
+                      SliverToBoxAdapter(
+                        child: TransactionsOverviewRow(stats: overviewStats),
+                      ),
+                    ] else ...[
+                      SliverToBoxAdapter(
+                        child: TransactionsCreatorBalanceCard(
+                          totalEarned: creatorTotalEarned,
+                        ),
+                      ),
+                      const SliverToBoxAdapter(
+                        child: SizedBox(height: AppSpacing.lg),
+                      ),
+                    ],
+                    if (_transactionData == null ||
+                        _transactionData!.transactions.isEmpty)
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: _buildEmptyView(isCreator),
+                      )
+                    else ...[
+                      ...TransactionsHistorySection.buildSlivers(
+                        context: context,
+                        historySectionKey: _historySectionKey,
+                        transactions: transactions,
+                        filter: _filter,
+                        onFilterChanged: (value) {
+                          setState(() => _filter = value);
+                        },
+                        isCreator: isCreator,
+                        coinPacks: _coinPacks(),
+                        onTransactionTap: isCreator
+                            ? null
+                            : _showPaymentComplaintBottomSheet,
+                      ),
+                      if (_isLoadingMore)
+                        const SliverToBoxAdapter(
+                          child: Padding(
+                            padding: EdgeInsets.all(AppSpacing.lg),
+                            child: Center(child: LoadingIndicator()),
+                          ),
+                        ),
+                      const SliverToBoxAdapter(
+                        child: TransactionsFooterDecoration(),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
       ),
     );
   }

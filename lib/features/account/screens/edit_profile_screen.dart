@@ -50,9 +50,12 @@ class EditProfileScreen extends ConsumerStatefulWidget {
 
 class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   final TextEditingController _usernameController = TextEditingController();
-  final TextEditingController _nameController = TextEditingController(); // For creators
-  final TextEditingController _aboutController = TextEditingController(); // For creators
-  final TextEditingController _ageController = TextEditingController(); // For creators
+  final TextEditingController _nameController =
+      TextEditingController(); // For creators
+  final TextEditingController _aboutController =
+      TextEditingController(); // For creators
+  final TextEditingController _ageController =
+      TextEditingController(); // For creators
   final ApiClient _apiClient = ApiClient();
   final CreatorGalleryService _creatorGalleryService = CreatorGalleryService();
   final ImagePicker _picker = ImagePicker();
@@ -84,15 +87,18 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
   /// Whether the user is using a gallery image instead of a preset avatar.
   bool _usingGalleryImage = false;
+
   /// True until preset-vs-custom avatar classification finishes on first open.
   bool _avatarPresetCheckPending = false;
   bool _isGalleryFetching = false;
   bool _isGalleryUploading = false;
   String? _galleryActionImageId;
+
   /// Canonical creator avatar from `GET /creator/profile` (preferred over auth).
   AvatarAssetView? _creatorProfileAvatar;
   List<CreatorGalleryImage> _creatorGalleryImages = const [];
-  final List<_GalleryLocalPreview> _localGalleryPreviews = <_GalleryLocalPreview>[];
+  final List<_GalleryLocalPreview> _localGalleryPreviews =
+      <_GalleryLocalPreview>[];
 
   /// Auto-retry guard: per-draft-slot in-flight flag so a fast back-to-back
   /// degraded→healthy oscillation cannot start two concurrent retries for
@@ -119,34 +125,37 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     }
 
     setState(() => _avatarPresetCheckPending = true);
-    ImagePresetsService.instance.load().then((presets) {
-      if (!mounted || _galleryImageBytes != null) return;
-      final g = gender ?? 'male';
-      final list = g == 'female' ? presets.female : presets.male;
-      PresetAvatarEntry? matched;
-      for (final entry in list) {
-        if (entry.imageId == currentImageId) {
-          matched = entry;
-          break;
-        }
-      }
-      setState(() {
-        _avatarPresetCheckPending = false;
-        if (matched != null) {
-          _selectedAvatar = matched.fileName;
-          _usingGalleryImage = false;
-        } else {
-          _usingGalleryImage = true;
-        }
-      });
-    }).catchError((_) {
-      if (mounted) {
-        setState(() {
-          _avatarPresetCheckPending = false;
-          _usingGalleryImage = true;
+    ImagePresetsService.instance
+        .load()
+        .then((presets) {
+          if (!mounted || _galleryImageBytes != null) return;
+          final g = gender ?? 'male';
+          final list = g == 'female' ? presets.female : presets.male;
+          PresetAvatarEntry? matched;
+          for (final entry in list) {
+            if (entry.imageId == currentImageId) {
+              matched = entry;
+              break;
+            }
+          }
+          setState(() {
+            _avatarPresetCheckPending = false;
+            if (matched != null) {
+              _selectedAvatar = matched.fileName;
+              _usingGalleryImage = false;
+            } else {
+              _usingGalleryImage = true;
+            }
+          });
+        })
+        .catchError((_) {
+          if (mounted) {
+            setState(() {
+              _avatarPresetCheckPending = false;
+              _usingGalleryImage = true;
+            });
+          }
         });
-      }
-    });
   }
 
   @override
@@ -160,7 +169,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       if (user.categories != null) {
         _selectedCategories.addAll(user.categories!);
       }
-      
+
       // Initialize creator-specific fields if user is a creator
       final isCreator = user.role == 'creator' || user.role == 'admin';
       if (isCreator) {
@@ -177,15 +186,13 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       // matches one of the preset imageIds, pre-select that preset name.
       // Otherwise treat as a gallery-uploaded image. Assume custom until the
       // async preset check proves otherwise (avoids preset-carousel flash).
-      _selectedAvatar =
-          availableAvatars.isNotEmpty ? availableAvatars[0] : null;
+      _selectedAvatar = availableAvatars.isNotEmpty
+          ? availableAvatars[0]
+          : null;
       final currentImageId = user.avatarAsset?.imageId;
       if (currentImageId != null && currentImageId.isNotEmpty) {
         _usingGalleryImage = true;
-        _resolveAvatarPresetMode(
-          avatar: user.avatarAsset,
-          gender: user.gender,
-        );
+        _resolveAvatarPresetMode(avatar: user.avatarAsset, gender: user.gender);
       } else {
         _usingGalleryImage = false;
         _avatarPresetCheckPending = false;
@@ -196,8 +203,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     // Initialize PageController with selected avatar index
     final initialIndex =
         _selectedAvatar != null && availableAvatars.contains(_selectedAvatar!)
-            ? availableAvatars.indexOf(_selectedAvatar!)
-            : 0;
+        ? availableAvatars.indexOf(_selectedAvatar!)
+        : 0;
     _pageController = PageController(
       viewportFraction: 0.6,
       initialPage: initialIndex,
@@ -241,7 +248,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       final bytes = await pickedFile.readAsBytes();
       final fileName = pickedFile.name;
 
-      debugPrint('📸 [GALLERY] Picked image: $fileName (${bytes.length} bytes)');
+      debugPrint(
+        '📸 [GALLERY] Picked image: $fileName (${bytes.length} bytes)',
+      );
 
       setState(() {
         _galleryImageBytes = bytes;
@@ -389,8 +398,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     final hasPermission = await _requestGalleryPermission();
     if (!hasPermission) return;
 
-    final remainingSlots =
-        CreatorGalleryService.maxImages - _gallerySlotCount;
+    final remainingSlots = CreatorGalleryService.maxImages - _gallerySlotCount;
 
     try {
       final pickedFiles = await _picker.pickMultiImage(
@@ -491,8 +499,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       if (!mounted) return;
       setState(() {
         _creatorGalleryImages = images;
-        _localGalleryPreviews
-            .removeWhere((preview) => preview.committedGalleryId == imageId);
+        _localGalleryPreviews.removeWhere(
+          (preview) => preview.committedGalleryId == imageId,
+        );
       });
       final isCreatorRole =
           ref.read(authProvider).user?.role == 'creator' ||
@@ -537,7 +546,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     }
 
     final currentUser = ref.read(authProvider).user;
-    final isCreator = currentUser?.role == 'creator' || currentUser?.role == 'admin';
+    final isCreator =
+        currentUser?.role == 'creator' || currentUser?.role == 'admin';
     if (isCreator && _creatorGalleryImages.isEmpty) {
       AppToast.showInfo(context, 'Please upload at least 1 creator picture');
       return;
@@ -556,7 +566,6 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
       final user = ref.read(authProvider).user;
       final isCreator = user?.role == 'creator' || user?.role == 'admin';
-      final authState = ref.read(authProvider);
 
       // Cloudflare Images: either an upload session (fresh upload) or
       // a preset imageId (pre-seeded). Legacy `avatar`/`photo` URL strings
@@ -568,7 +577,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
       if (_avatarChanged) {
         if (_usingGalleryImage && _galleryImageBytes != null) {
-          debugPrint('🖼️  [EDIT PROFILE] Uploading avatar to Cloudflare Images...');
+          debugPrint(
+            '🖼️  [EDIT PROFILE] Uploading avatar to Cloudflare Images...',
+          );
           final result = await ImageUploadService.uploadAvatar(
             bytes: _galleryImageBytes!,
             purpose: isCreator
@@ -578,23 +589,26 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
             draftSlot: isCreator ? 'creator-avatar' : 'user-avatar',
           );
           debugPrint(
-              '✅ [EDIT PROFILE] Avatar uploaded: imageId=${result.imageId} session=${result.sessionId}');
+            '✅ [EDIT PROFILE] Avatar uploaded: imageId=${result.imageId} session=${result.sessionId}',
+          );
           if (isCreator) {
             creatorAvatarUploadSessionId = result.sessionId;
           } else {
             avatarUploadSessionId = result.sessionId;
           }
         } else if (_selectedAvatar != null && !isCreator) {
-          debugPrint('🖼️  [EDIT PROFILE] Resolving preset Cloudflare imageId...');
+          debugPrint(
+            '🖼️  [EDIT PROFILE] Resolving preset Cloudflare imageId...',
+          );
           final presets = await ImagePresetsService.instance.load();
           final match = presets.findByFileName(
             _selectedAvatar!,
             user?.gender ?? 'male',
           );
-          avatarPresetImageId =
-              match?.imageId ?? presets.defaultImageId;
+          avatarPresetImageId = match?.imageId ?? presets.defaultImageId;
           debugPrint(
-              '✅ [EDIT PROFILE] Preset resolved: ${avatarPresetImageId ?? '(none)'}');
+            '✅ [EDIT PROFILE] Preset resolved: ${avatarPresetImageId ?? '(none)'}',
+          );
         }
       }
 
@@ -614,7 +628,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       );
 
       if (userResponse.statusCode != 200) {
-        throw Exception('Failed to save user profile: ${userResponse.statusCode}');
+        throw Exception(
+          'Failed to save user profile: ${userResponse.statusCode}',
+        );
       }
 
       // If creator, also update creator profile (name, about, age, categories)
@@ -622,7 +638,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         final name = _nameController.text.trim();
         final about = _aboutController.text.trim();
         final ageText = _ageController.text.trim();
-        
+
         // Validate creator fields
         if (name.isEmpty || name.length < 2 || name.length > 100) {
           throw Exception('Name must be between 2 and 100 characters');
@@ -630,7 +646,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         if (about.isEmpty || about.length < 10 || about.length > 1000) {
           throw Exception('About must be between 10 and 1000 characters');
         }
-        
+
         int? age;
         if (ageText.isNotEmpty) {
           age = int.tryParse(ageText);
@@ -638,7 +654,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
             throw Exception('Age must be a number between 18 and 100');
           }
         }
-        
+
         final requestData = {
           'name': name,
           'about': about,
@@ -647,30 +663,31 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
             'avatarUploadSessionId': creatorAvatarUploadSessionId,
           'categories': _selectedCategories.toList(),
         };
-        
+
         debugPrint('📤 [EDIT PROFILE] Sending creator profile update:');
         debugPrint('   Name: $name (length: ${name.length})');
         debugPrint('   About: $about (length: ${about.length})');
         debugPrint('   Age: $age');
         debugPrint(
-            '   Avatar upload session: ${creatorAvatarUploadSessionId != null ? "present" : "not provided"}');
+          '   Avatar upload session: ${creatorAvatarUploadSessionId != null ? "present" : "not provided"}',
+        );
         debugPrint('   Categories: ${_selectedCategories.toList()}');
         debugPrint('   Request data: $requestData');
-        
+
         final creatorResponse = await _apiClient.patch(
           '/creator/profile',
           data: requestData,
         );
 
         if (creatorResponse.statusCode != 200) {
-          throw Exception('Failed to save creator profile: ${creatorResponse.statusCode}');
+          throw Exception(
+            'Failed to save creator profile: ${creatorResponse.statusCode}',
+          );
         }
       }
 
       debugPrint('✅ [EDIT PROFILE] Profile saved successfully');
-      await MetaAppEventsService.logCustomizeProduct(
-        contentId: user?.id,
-      );
+      await MetaAppEventsService.logCustomizeProduct(contentId: user?.id);
 
       await ref.read(authProvider.notifier).refreshUser();
       final savedAsCreator =
@@ -750,10 +767,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
           draftSlot: slot,
         );
         if (mounted) {
-          AppToast.showSuccess(
-            context,
-            'Pending avatar upload completed',
-          );
+          AppToast.showSuccess(context, 'Pending avatar upload completed');
         }
       } catch (e) {
         debugPrint('⚠️  [EDIT PROFILE] Auto-retry for $slot failed: $e');
@@ -777,8 +791,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           setState(() {
-            _selectedAvatar =
-                availableAvatars.isNotEmpty ? availableAvatars[0] : null;
+            _selectedAvatar = availableAvatars.isNotEmpty
+                ? availableAvatars[0]
+                : null;
           });
         }
       });
@@ -786,933 +801,950 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
     return Scaffold(
       backgroundColor: AppBrandGradients.accountMenuPageBackground,
-      appBar: buildBrandAppBar(
+      appBar: buildAccountFlowAppBar(
         context,
         title: 'Edit Profile',
         centerTitle: true,
       ),
       body: SingleChildScrollView(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Avatar Selection — Only show for non-creators
-                  if (user?.role != 'creator' && user?.role != 'admin') ...[
-                    Text(
-                      'Your Avatar',
-                      style: TextStyle(
-                        color: scheme.onSurface,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 24),
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Avatar Selection — Only show for non-creators
+            if (user?.role != 'creator' && user?.role != 'admin') ...[
+              Text(
+                'Your Avatar',
+                style: TextStyle(
+                  color: scheme.onSurface,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
 
-                    // ── Gallery preview (if a gallery image is selected) ──
-                    if (_avatarPresetCheckPending && _galleryImageBytes == null) ...[
-                      Center(
-                        child: SizedBox(
-                          width: 130,
-                          height: 130,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: scheme.primary,
+              // ── Gallery preview (if a gallery image is selected) ──
+              if (_avatarPresetCheckPending && _galleryImageBytes == null) ...[
+                Center(
+                  child: SizedBox(
+                    width: 130,
+                    height: 130,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: scheme.primary,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ] else if (_usingGalleryImage) ...[
+                Center(
+                  child: Stack(
+                    alignment: Alignment.bottomRight,
+                    children: [
+                      Container(
+                        width: 130,
+                        height: 130,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color:
+                                AppBrandGradients.avatarCarouselSelectedBorder,
+                            width: AppBrandGradients
+                                .avatarCarouselSelectedBorderWidth,
                           ),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                    ] else if (_usingGalleryImage) ...[
-                      Center(
-                        child: Stack(
-                          alignment: Alignment.bottomRight,
-                          children: [
-                            Container(
-                              width: 130,
-                              height: 130,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: AppBrandGradients
-                                      .avatarCarouselSelectedBorder,
-                                  width: AppBrandGradients
-                                      .avatarCarouselSelectedBorderWidth,
-                                ),
-                                boxShadow: const [
-                                  AppBrandGradients.avatarCarouselGlow,
-                                ],
-                              ),
-                              child: ClipOval(
-                                child: _galleryImageBytes != null
-                                    ? Image.memory(
-                                        _galleryImageBytes!,
-                                        fit: BoxFit.cover,
-                                        width: 130,
-                                        height: 130,
-                                      )
-                                    : _buildCurrentAvatarFromAsset(_displayAvatar),
-                              ),
-                            ),
-                            // Small "change" button
-                            Positioned(
-                              bottom: 4,
-                              right: 4,
-                              child: GestureDetector(
-                                onTap: _pickFromGallery,
-                                child: Container(
-                                  width: 36,
-                                  height: 36,
-                                  decoration: BoxDecoration(
-                                    color: scheme.primary,
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                        color: scheme.surface, width: 2),
-                                  ),
-                                  child: Icon(
-                                    Icons.camera_alt,
-                                    color: scheme.onPrimary,
-                                    size: 18,
-                                  ),
-                                ),
-                              ),
-                            ),
+                          boxShadow: const [
+                            AppBrandGradients.avatarCarouselGlow,
                           ],
                         ),
+                        child: ClipOval(
+                          child: _galleryImageBytes != null
+                              ? Image.memory(
+                                  _galleryImageBytes!,
+                                  fit: BoxFit.cover,
+                                  width: 130,
+                                  height: 130,
+                                )
+                              : _buildCurrentAvatarFromAsset(_displayAvatar),
+                        ),
                       ),
-                      const SizedBox(height: 12),
-                      // "Use a preset avatar instead" link
-                      Center(
-                        child: TextButton.icon(
-                          onPressed: () {
-                            setState(() {
-                              _usingGalleryImage = false;
-                              _galleryImageBytes = null;
-                              _galleryImageName = null;
-                              _avatarChanged = true;
-                            });
-                          },
-                          icon: Icon(Icons.grid_view,
-                              size: 16, color: scheme.primary),
-                          label: Text(
-                            'Use a preset avatar instead',
-                            style: TextStyle(
+                      // Small "change" button
+                      Positioned(
+                        bottom: 4,
+                        right: 4,
+                        child: GestureDetector(
+                          onTap: _pickFromGallery,
+                          child: Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
                               color: scheme.primary,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                    ] else ...[
-                      // ── Preset Avatar Carousel ───────────────────────
-                      SizedBox(
-                        height: 220,
-                        child: PageView.builder(
-                          controller: _pageController,
-                          onPageChanged: (index) {
-                            setState(() {
-                              _selectedAvatar = availableAvatars[index];
-                              _avatarChanged = true;
-                            });
-                          },
-                          itemCount: availableAvatars.length,
-                          itemBuilder: (context, index) {
-                            final avatar = availableAvatars[index];
-                            final isSelected = _selectedAvatar == avatar;
-
-                            return GestureDetector(
-                              onTap: () {
-                                _pageController.animateToPage(
-                                  index,
-                                  duration: const Duration(milliseconds: 300),
-                                  curve: Curves.easeInOut,
-                                );
-                                setState(() {
-                                  _selectedAvatar = avatar;
-                                  _avatarChanged = true;
-                                });
-                              },
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 200),
-                                curve: Curves.easeInOut,
-                                margin:
-                                    const EdgeInsets.symmetric(horizontal: 8),
-                                child: Center(
-                                  child: Container(
-                                    width: isSelected ? 150 : 110,
-                                    height: isSelected ? 150 : 110,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: isSelected
-                                            ? AppBrandGradients
-                                                .avatarCarouselSelectedBorder
-                                            : AppBrandGradients
-                                                .avatarCarouselUnselectedBorder,
-                                        width: isSelected
-                                            ? AppBrandGradients
-                                                .avatarCarouselSelectedBorderWidth
-                                            : AppBrandGradients
-                                                .avatarCarouselUnselectedBorderWidth,
-                                      ),
-                                      boxShadow: isSelected
-                                          ? [
-                                              AppBrandGradients
-                                                  .avatarCarouselGlow,
-                                            ]
-                                          : null,
-                                    ),
-                                    child: ClipOval(
-                                      child: FutureBuilder<String?>(
-                                        future: ImagePresetsService.instance
-                                            .getPresetAvatarUrl(
-                                          avatarName: avatar,
-                                          gender: user?.gender ?? 'male',
-                                        ),
-                                        builder: (context, snapshot) {
-                                          if (snapshot.hasData &&
-                                              snapshot.data != null &&
-                                              snapshot.data!.isNotEmpty) {
-                                            return AppNetworkImage(
-                                              imageUrl: snapshot.data,
-                                              width: 160,
-                                              height: 160,
-                                              fit: BoxFit.cover,
-                                              cacheManager: avatarCacheManager,
-                                              variantTag: 'avatarMd',
-                                              errorFallback: Container(
-                                                color: scheme.surfaceContainerHigh,
-                                                child: Icon(
-                                                  Icons.person,
-                                                  color: scheme.onSurfaceVariant,
-                                                  size: 40,
-                                                ),
-                                              ),
-                                            );
-                                          }
-                                          return Container(
-                                            color: scheme.surfaceContainerHigh,
-                                            child: Icon(
-                                              Icons.person,
-                                              color: scheme.onSurfaceVariant,
-                                              size: 40,
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                  ),
-                                ),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: scheme.surface,
+                                width: 2,
                               ),
-                            );
-                          },
-                        ),
-                      ),
-
-                      const SizedBox(height: 16),
-
-                      // ── "Or pick from gallery" button ──────────────
-                      Center(
-                        child: OutlinedButton.icon(
-                          onPressed: _pickFromGallery,
-                          icon: const Icon(Icons.photo_library_outlined,
-                              size: 18),
-                          label: const Text('Pick from Gallery'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: scheme.primary,
-                            side: BorderSide(
-                                color: scheme.primary.withOpacity(0.5)),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(24),
                             ),
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 24, vertical: 12),
+                            child: Icon(
+                              Icons.camera_alt,
+                              color: scheme.onPrimary,
+                              size: 18,
+                            ),
                           ),
                         ),
                       ),
-
-                      const SizedBox(height: 32),
                     ],
-                  ] else ...[
-                    // For creators – show avatar selection like regular users
-                    Text(
-                      'Your Profile Photo',
-                      style: TextStyle(
-                        color: scheme.onSurface,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 24),
-
-                    // ── Gallery preview (if a gallery image is selected) ──
-                    if (_avatarPresetCheckPending && _galleryImageBytes == null) ...[
-                      Center(
-                        child: SizedBox(
-                          width: 130,
-                          height: 130,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: scheme.primary,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                    ] else if (_usingGalleryImage) ...[
-                      Center(
-                        child: Stack(
-                          alignment: Alignment.bottomRight,
-                          children: [
-                            Container(
-                              width: 130,
-                              height: 130,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: AppBrandGradients
-                                      .avatarCarouselSelectedBorder,
-                                  width: AppBrandGradients
-                                      .avatarCarouselSelectedBorderWidth,
-                                ),
-                                boxShadow: const [
-                                  AppBrandGradients.avatarCarouselGlow,
-                                ],
-                              ),
-                              child: ClipOval(
-                                child: _galleryImageBytes != null
-                                    ? Image.memory(
-                                        _galleryImageBytes!,
-                                        fit: BoxFit.cover,
-                                        width: 130,
-                                        height: 130,
-                                      )
-                                    : _buildCurrentAvatarFromAsset(_displayAvatar),
-                              ),
-                            ),
-                            // Small "change" button
-                            Positioned(
-                              bottom: 4,
-                              right: 4,
-                              child: GestureDetector(
-                                onTap: _pickFromGallery,
-                                child: Container(
-                                  width: 36,
-                                  height: 36,
-                                  decoration: BoxDecoration(
-                                    color: scheme.primary,
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                        color: scheme.surface, width: 2),
-                                  ),
-                                  child: Icon(
-                                    Icons.camera_alt,
-                                    color: scheme.onPrimary,
-                                    size: 18,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      // "Use a preset avatar instead" link
-                      Center(
-                        child: TextButton.icon(
-                          onPressed: () {
-                            setState(() {
-                              _usingGalleryImage = false;
-                              _galleryImageBytes = null;
-                              _galleryImageName = null;
-                              _avatarChanged = true;
-                            });
-                          },
-                          icon: Icon(Icons.grid_view,
-                              size: 16, color: scheme.primary),
-                          label: Text(
-                            'Use a preset avatar instead',
-                            style: TextStyle(
-                              color: scheme.primary,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                    ] else ...[
-                      // ── Preset Avatar Carousel ───────────────────────
-                      SizedBox(
-                        height: 220,
-                        child: PageView.builder(
-                          controller: _pageController,
-                          onPageChanged: (index) {
-                            setState(() {
-                              _selectedAvatar = availableAvatars[index];
-                              _avatarChanged = true;
-                            });
-                          },
-                          itemCount: availableAvatars.length,
-                          itemBuilder: (context, index) {
-                            final avatar = availableAvatars[index];
-                            final isSelected = _selectedAvatar == avatar;
-
-                            return GestureDetector(
-                              onTap: () {
-                                _pageController.animateToPage(
-                                  index,
-                                  duration: const Duration(milliseconds: 300),
-                                  curve: Curves.easeInOut,
-                                );
-                                setState(() {
-                                  _selectedAvatar = avatar;
-                                  _avatarChanged = true;
-                                });
-                              },
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 200),
-                                curve: Curves.easeInOut,
-                                margin:
-                                    const EdgeInsets.symmetric(horizontal: 8),
-                                child: Center(
-                                  child: Container(
-                                    width: isSelected ? 150 : 110,
-                                    height: isSelected ? 150 : 110,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: isSelected
-                                            ? AppBrandGradients
-                                                .avatarCarouselSelectedBorder
-                                            : AppBrandGradients
-                                                .avatarCarouselUnselectedBorder,
-                                        width: isSelected
-                                            ? AppBrandGradients
-                                                .avatarCarouselSelectedBorderWidth
-                                            : AppBrandGradients
-                                                .avatarCarouselUnselectedBorderWidth,
-                                      ),
-                                      boxShadow: isSelected
-                                          ? [
-                                              AppBrandGradients
-                                                  .avatarCarouselGlow,
-                                            ]
-                                          : null,
-                                    ),
-                                    child: ClipOval(
-                                      child: FutureBuilder<String?>(
-                                        future: ImagePresetsService.instance
-                                            .getPresetAvatarUrl(
-                                          avatarName: avatar,
-                                          gender: user?.gender ?? 'male',
-                                        ),
-                                        builder: (context, snapshot) {
-                                          if (snapshot.hasData &&
-                                              snapshot.data != null &&
-                                              snapshot.data!.isNotEmpty) {
-                                            return AppNetworkImage(
-                                              imageUrl: snapshot.data,
-                                              width: 160,
-                                              height: 160,
-                                              fit: BoxFit.cover,
-                                              cacheManager: avatarCacheManager,
-                                              variantTag: 'avatarMd',
-                                              errorFallback: Container(
-                                                color: scheme.surfaceContainerHigh,
-                                                child: Icon(
-                                                  Icons.person,
-                                                  color: scheme.onSurfaceVariant,
-                                                  size: 40,
-                                                ),
-                                              ),
-                                            );
-                                          }
-                                          return Container(
-                                            color: scheme.surfaceContainerHigh,
-                                            child: Icon(
-                                              Icons.person,
-                                              color: scheme.onSurfaceVariant,
-                                              size: 40,
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-
-                      const SizedBox(height: 16),
-
-                      // ── "Or pick from gallery" button ──────────────
-                      Center(
-                        child: OutlinedButton.icon(
-                          onPressed: _pickFromGallery,
-                          icon: const Icon(Icons.photo_library_outlined,
-                              size: 18),
-                          label: const Text('Pick from Gallery'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: scheme.primary,
-                            side: BorderSide(
-                                color: scheme.primary.withOpacity(0.5)),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(24),
-                            ),
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 24, vertical: 12),
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 32),
-                    ],
-                    
-                    // Creator-specific fields
-                    if (user?.role == 'creator' || user?.role == 'admin') ...[
-                      // Name Field
-                      Text(
-                        'Name *',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: scheme.onSurface,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                            ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _nameController,
-                        style: TextStyle(color: scheme.onSurface),
-                        decoration: InputDecoration(
-                          filled: true,
-                          fillColor: scheme.surfaceContainerHigh,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(
-                                color: scheme.outlineVariant, width: 1),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(
-                                color: scheme.outlineVariant, width: 1),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide:
-                                BorderSide(color: scheme.primary, width: 2),
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 16),
-                          hintText: 'Enter your name',
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      
-                      // About Field
-                      Text(
-                        'About *',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: scheme.onSurface,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                            ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _aboutController,
-                        style: TextStyle(color: scheme.onSurface),
-                        maxLines: 4,
-                        decoration: InputDecoration(
-                          filled: true,
-                          fillColor: scheme.surfaceContainerHigh,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(
-                                color: scheme.outlineVariant, width: 1),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(
-                                color: scheme.outlineVariant, width: 1),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide:
-                                BorderSide(color: scheme.primary, width: 2),
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 16),
-                          hintText: 'Tell users about yourself',
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      
-                      // Age Field
-                      Text(
-                        'Age',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: scheme.onSurface,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                            ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _ageController,
-                        style: TextStyle(color: scheme.onSurface),
-                        keyboardType: TextInputType.number,
-                        decoration: InputDecoration(
-                          filled: true,
-                          fillColor: scheme.surfaceContainerHigh,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(
-                                color: scheme.outlineVariant, width: 1),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(
-                                color: scheme.outlineVariant, width: 1),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide:
-                                BorderSide(color: scheme.primary, width: 2),
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 16),
-                          hintText: 'Enter your age (18-100)',
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      Text(
-                        'Creator Pictures (1-6) *',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: scheme.onSurface,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                            ),
-                      ),
-                      const SizedBox(height: 12),
-                      if (_isGalleryFetching &&
-                          _creatorGalleryImages.isEmpty &&
-                          _localGalleryPreviews.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 12),
-                          child: Center(child: CircularProgressIndicator()),
-                        ),
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 12,
-                        children: [
-                          ..._creatorGalleryImages.map((image) {
-                            final isDeleting = _galleryActionImageId == image.id;
-                            final canRemove = _creatorGalleryImages.length >
-                                1; // must keep ≥1 (matches save + backend)
-                            final localBytes = _localBytesForGalleryId(image.id);
-                            return SizedBox(
-                              width: 96,
-                              height: 120,
-                              child: Stack(
-                                children: [
-                                  Positioned.fill(
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(12),
-                                      child: _GalleryThumbTile(
-                                        localBytes: localBytes,
-                                        networkUrl: image.previewUrl,
-                                        blurhash: image.asset?.blurhash,
-                                      ),
-                                    ),
-                                  ),
-                                  if (canRemove)
-                                    Positioned(
-                                      right: 4,
-                                      top: 4,
-                                      child: InkWell(
-                                        onTap: isDeleting
-                                            ? null
-                                            : () =>
-                                                _removeCreatorGalleryImage(image.id),
-                                        child: Container(
-                                          width: 24,
-                                          height: 24,
-                                          decoration: BoxDecoration(
-                                            color: scheme.surface
-                                                .withValues(alpha: 0.9),
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: isDeleting
-                                              ? const Padding(
-                                                  padding: EdgeInsets.all(4),
-                                                  child: CircularProgressIndicator(
-                                                    strokeWidth: 2,
-                                                  ),
-                                                )
-                                              : Icon(
-                                                  Icons.close,
-                                                  size: 16,
-                                                  color: scheme.error,
-                                                ),
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            );
-                          }),
-                          ..._localGalleryPreviews
-                              .where((preview) => preview.committedGalleryId == null)
-                              .map(
-                            (preview) => SizedBox(
-                              width: 96,
-                              height: 120,
-                              child: Stack(
-                                children: [
-                                  Positioned.fill(
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(12),
-                                      child: Image.memory(
-                                        preview.bytes,
-                                        fit: BoxFit.cover,
-                                      ),
-                                    ),
-                                  ),
-                                  if (preview.uploading)
-                                    Positioned(
-                                      right: 6,
-                                      bottom: 6,
-                                      child: Container(
-                                        width: 22,
-                                        height: 22,
-                                        padding: const EdgeInsets.all(3),
-                                        decoration: BoxDecoration(
-                                          color: scheme.surface
-                                              .withValues(alpha: 0.92),
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: scheme.primary,
-                                        ),
-                                      ),
-                                    ),
-                                  if (preview.failed)
-                                    Positioned(
-                                      right: 6,
-                                      bottom: 6,
-                                      child: Container(
-                                        width: 22,
-                                        height: 22,
-                                        decoration: BoxDecoration(
-                                          color: scheme.errorContainer,
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: Icon(
-                                          Icons.error_outline,
-                                          size: 14,
-                                          color: scheme.onErrorContainer,
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          if (_gallerySlotCount < CreatorGalleryService.maxImages)
-                            InkWell(
-                              onTap: _isGalleryUploading
-                                  ? null
-                                  : _addCreatorGalleryImage,
-                              borderRadius: BorderRadius.circular(12),
-                              child: Container(
-                                width: 96,
-                                height: 120,
-                                decoration: BoxDecoration(
-                                  color: scheme.surfaceContainerHigh,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: scheme.outlineVariant),
-                                ),
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.add_photo_alternate_outlined, color: scheme.primary),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      'Add',
-                                      style: TextStyle(
-                                        color: scheme.primary,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    if (CreatorGalleryService.maxImages -
-                                            _gallerySlotCount >
-                                        1)
-                                      Text(
-                                        'up to ${CreatorGalleryService.maxImages - _gallerySlotCount}',
-                                        style: TextStyle(
-                                          color: scheme.onSurfaceVariant,
-                                          fontSize: 10,
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Upload at least 1 and up to 6 pictures. You can select multiple at once.',
-                        style: TextStyle(
-                          color: scheme.onSurfaceVariant,
-                          fontSize: 12,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                    ],
-                  ],
-
-                  // Username Field
-                  Text(
-                    'Username *',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: scheme.onSurface,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                        ),
                   ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _usernameController,
-                    style: TextStyle(color: scheme.onSurface),
-                    decoration: InputDecoration(
-                      filled: true,
-                      fillColor: scheme.surfaceContainerHigh,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide:
-                            BorderSide(color: scheme.outlineVariant, width: 1),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide:
-                            BorderSide(color: scheme.outlineVariant, width: 1),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide:
-                            BorderSide(color: scheme.primary, width: 2),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 16),
+                ),
+                const SizedBox(height: 12),
+                // "Use a preset avatar instead" link
+                Center(
+                  child: TextButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _usingGalleryImage = false;
+                        _galleryImageBytes = null;
+                        _galleryImageName = null;
+                        _avatarChanged = true;
+                      });
+                    },
+                    icon: Icon(
+                      Icons.grid_view,
+                      size: 16,
+                      color: scheme.primary,
+                    ),
+                    label: Text(
+                      'Use a preset avatar instead',
+                      style: TextStyle(color: scheme.primary, fontSize: 13),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Username must be 4-10 characters.',
-                    style: TextStyle(
-                      color: scheme.onSurfaceVariant,
-                      fontSize: 12,
-                    ),
-                  ),
+                ),
+                const SizedBox(height: 24),
+              ] else ...[
+                // ── Preset Avatar Carousel ───────────────────────
+                SizedBox(
+                  height: 220,
+                  child: PageView.builder(
+                    controller: _pageController,
+                    onPageChanged: (index) {
+                      setState(() {
+                        _selectedAvatar = availableAvatars[index];
+                        _avatarChanged = true;
+                      });
+                    },
+                    itemCount: availableAvatars.length,
+                    itemBuilder: (context, index) {
+                      final avatar = availableAvatars[index];
+                      final isSelected = _selectedAvatar == avatar;
 
-                  const SizedBox(height: 40),
-
-                  // Category Selection
-                  Text(
-                    'Select categories',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: scheme.onSurface,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                        ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: _categories.map((category) {
-                      final isSelected =
-                          _selectedCategories.contains(category);
                       return GestureDetector(
                         onTap: () {
+                          _pageController.animateToPage(
+                            index,
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeInOut,
+                          );
                           setState(() {
-                            if (isSelected) {
-                              _selectedCategories.remove(category);
-                            } else {
-                              if (_selectedCategories.length < 4) {
-                                _selectedCategories.add(category);
-                              } else {
-                                AppToast.showInfo(
-                                  context,
-                                  'Maximum 4 categories allowed',
-                                );
-                              }
-                            }
+                            _selectedAvatar = avatar;
+                            _avatarChanged = true;
                           });
                         },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 20, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? scheme.primaryContainer
-                                : scheme.surfaceContainerHigh,
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                                color: scheme.outlineVariant, width: 1),
-                          ),
-                          child: Text(
-                            category,
-                            style: TextStyle(
-                              color: isSelected
-                                  ? scheme.onPrimaryContainer
-                                  : scheme.onSurface,
-                              fontSize: 14,
-                              fontWeight: isSelected
-                                  ? FontWeight.w600
-                                  : FontWeight.w400,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          curve: Curves.easeInOut,
+                          margin: const EdgeInsets.symmetric(horizontal: 8),
+                          child: Center(
+                            child: Container(
+                              width: isSelected ? 150 : 110,
+                              height: isSelected ? 150 : 110,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: isSelected
+                                      ? AppBrandGradients
+                                            .avatarCarouselSelectedBorder
+                                      : AppBrandGradients
+                                            .avatarCarouselUnselectedBorder,
+                                  width: isSelected
+                                      ? AppBrandGradients
+                                            .avatarCarouselSelectedBorderWidth
+                                      : AppBrandGradients
+                                            .avatarCarouselUnselectedBorderWidth,
+                                ),
+                                boxShadow: isSelected
+                                    ? [AppBrandGradients.avatarCarouselGlow]
+                                    : null,
+                              ),
+                              child: ClipOval(
+                                child: FutureBuilder<String?>(
+                                  future: ImagePresetsService.instance
+                                      .getPresetAvatarUrl(
+                                        avatarName: avatar,
+                                        gender: user?.gender ?? 'male',
+                                      ),
+                                  builder: (context, snapshot) {
+                                    if (snapshot.hasData &&
+                                        snapshot.data != null &&
+                                        snapshot.data!.isNotEmpty) {
+                                      return AppNetworkImage(
+                                        imageUrl: snapshot.data,
+                                        width: 160,
+                                        height: 160,
+                                        fit: BoxFit.cover,
+                                        cacheManager: avatarCacheManager,
+                                        variantTag: 'avatarMd',
+                                        errorFallback: Container(
+                                          color: scheme.surfaceContainerHigh,
+                                          child: Icon(
+                                            Icons.person,
+                                            color: scheme.onSurfaceVariant,
+                                            size: 40,
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                    return Container(
+                                      color: scheme.surfaceContainerHigh,
+                                      child: Icon(
+                                        Icons.person,
+                                        color: scheme.onSurfaceVariant,
+                                        size: 40,
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
                             ),
                           ),
                         ),
-                      )
-                          .animate()
-                          .fadeIn(duration: 300.ms)
-                          .scale(delay: 100.ms);
-                    }).toList(),
+                      );
+                    },
                   ),
+                ),
 
-                  const SizedBox(height: 12),
-                  Text(
-                    'Select up to 4 categories (optional).',
-                    style: TextStyle(
-                      color: scheme.onSurfaceVariant,
-                      fontSize: 12,
+                const SizedBox(height: 16),
+
+                // ── "Or pick from gallery" button ──────────────
+                Center(
+                  child: OutlinedButton.icon(
+                    onPressed: _pickFromGallery,
+                    icon: const Icon(Icons.photo_library_outlined, size: 18),
+                    label: const Text('Pick from Gallery'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: scheme.primary,
+                      side: BorderSide(color: scheme.primary.withOpacity(0.5)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
                     ),
                   ),
+                ),
 
-                  const SizedBox(height: 40),
+                const SizedBox(height: 32),
+              ],
+            ] else ...[
+              // For creators – show avatar selection like regular users
+              Text(
+                'Your Profile Photo',
+                style: TextStyle(
+                  color: scheme.onSurface,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
 
-                  // Save Button
-                  SizedBox(
-                    height: 56,
-                    child: PrimaryButton(
-                      label: 'Save',
-                      onPressed: _isLoading ? null : _saveProfile,
-                      isLoading: _isLoading,
+              // ── Gallery preview (if a gallery image is selected) ──
+              if (_avatarPresetCheckPending && _galleryImageBytes == null) ...[
+                Center(
+                  child: SizedBox(
+                    width: 130,
+                    height: 130,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: scheme.primary,
                     ),
                   ),
+                ),
+                const SizedBox(height: 24),
+              ] else if (_usingGalleryImage) ...[
+                Center(
+                  child: Stack(
+                    alignment: Alignment.bottomRight,
+                    children: [
+                      Container(
+                        width: 130,
+                        height: 130,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color:
+                                AppBrandGradients.avatarCarouselSelectedBorder,
+                            width: AppBrandGradients
+                                .avatarCarouselSelectedBorderWidth,
+                          ),
+                          boxShadow: const [
+                            AppBrandGradients.avatarCarouselGlow,
+                          ],
+                        ),
+                        child: ClipOval(
+                          child: _galleryImageBytes != null
+                              ? Image.memory(
+                                  _galleryImageBytes!,
+                                  fit: BoxFit.cover,
+                                  width: 130,
+                                  height: 130,
+                                )
+                              : _buildCurrentAvatarFromAsset(_displayAvatar),
+                        ),
+                      ),
+                      // Small "change" button
+                      Positioned(
+                        bottom: 4,
+                        right: 4,
+                        child: GestureDetector(
+                          onTap: _pickFromGallery,
+                          child: Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: scheme.primary,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: scheme.surface,
+                                width: 2,
+                              ),
+                            ),
+                            child: Icon(
+                              Icons.camera_alt,
+                              color: scheme.onPrimary,
+                              size: 18,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // "Use a preset avatar instead" link
+                Center(
+                  child: TextButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _usingGalleryImage = false;
+                        _galleryImageBytes = null;
+                        _galleryImageName = null;
+                        _avatarChanged = true;
+                      });
+                    },
+                    icon: Icon(
+                      Icons.grid_view,
+                      size: 16,
+                      color: scheme.primary,
+                    ),
+                    label: Text(
+                      'Use a preset avatar instead',
+                      style: TextStyle(color: scheme.primary, fontSize: 13),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ] else ...[
+                // ── Preset Avatar Carousel ───────────────────────
+                SizedBox(
+                  height: 220,
+                  child: PageView.builder(
+                    controller: _pageController,
+                    onPageChanged: (index) {
+                      setState(() {
+                        _selectedAvatar = availableAvatars[index];
+                        _avatarChanged = true;
+                      });
+                    },
+                    itemCount: availableAvatars.length,
+                    itemBuilder: (context, index) {
+                      final avatar = availableAvatars[index];
+                      final isSelected = _selectedAvatar == avatar;
 
-                  const SizedBox(height: 20),
-                ],
+                      return GestureDetector(
+                        onTap: () {
+                          _pageController.animateToPage(
+                            index,
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeInOut,
+                          );
+                          setState(() {
+                            _selectedAvatar = avatar;
+                            _avatarChanged = true;
+                          });
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          curve: Curves.easeInOut,
+                          margin: const EdgeInsets.symmetric(horizontal: 8),
+                          child: Center(
+                            child: Container(
+                              width: isSelected ? 150 : 110,
+                              height: isSelected ? 150 : 110,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: isSelected
+                                      ? AppBrandGradients
+                                            .avatarCarouselSelectedBorder
+                                      : AppBrandGradients
+                                            .avatarCarouselUnselectedBorder,
+                                  width: isSelected
+                                      ? AppBrandGradients
+                                            .avatarCarouselSelectedBorderWidth
+                                      : AppBrandGradients
+                                            .avatarCarouselUnselectedBorderWidth,
+                                ),
+                                boxShadow: isSelected
+                                    ? [AppBrandGradients.avatarCarouselGlow]
+                                    : null,
+                              ),
+                              child: ClipOval(
+                                child: FutureBuilder<String?>(
+                                  future: ImagePresetsService.instance
+                                      .getPresetAvatarUrl(
+                                        avatarName: avatar,
+                                        gender: user?.gender ?? 'male',
+                                      ),
+                                  builder: (context, snapshot) {
+                                    if (snapshot.hasData &&
+                                        snapshot.data != null &&
+                                        snapshot.data!.isNotEmpty) {
+                                      return AppNetworkImage(
+                                        imageUrl: snapshot.data,
+                                        width: 160,
+                                        height: 160,
+                                        fit: BoxFit.cover,
+                                        cacheManager: avatarCacheManager,
+                                        variantTag: 'avatarMd',
+                                        errorFallback: Container(
+                                          color: scheme.surfaceContainerHigh,
+                                          child: Icon(
+                                            Icons.person,
+                                            color: scheme.onSurfaceVariant,
+                                            size: 40,
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                    return Container(
+                                      color: scheme.surfaceContainerHigh,
+                                      child: Icon(
+                                        Icons.person,
+                                        color: scheme.onSurfaceVariant,
+                                        size: 40,
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // ── "Or pick from gallery" button ──────────────
+                Center(
+                  child: OutlinedButton.icon(
+                    onPressed: _pickFromGallery,
+                    icon: const Icon(Icons.photo_library_outlined, size: 18),
+                    label: const Text('Pick from Gallery'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: scheme.primary,
+                      side: BorderSide(color: scheme.primary.withOpacity(0.5)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 32),
+              ],
+
+              // Creator-specific fields
+              if (user?.role == 'creator' || user?.role == 'admin') ...[
+                // Name Field
+                Text(
+                  'Name *',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurface,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _nameController,
+                  style: TextStyle(color: scheme.onSurface),
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: scheme.surfaceContainerHigh,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                        color: scheme.outlineVariant,
+                        width: 1,
+                      ),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                        color: scheme.outlineVariant,
+                        width: 1,
+                      ),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: scheme.primary, width: 2),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 16,
+                    ),
+                    hintText: 'Enter your name',
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // About Field
+                Text(
+                  'About *',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurface,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _aboutController,
+                  style: TextStyle(color: scheme.onSurface),
+                  maxLines: 4,
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: scheme.surfaceContainerHigh,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                        color: scheme.outlineVariant,
+                        width: 1,
+                      ),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                        color: scheme.outlineVariant,
+                        width: 1,
+                      ),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: scheme.primary, width: 2),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 16,
+                    ),
+                    hintText: 'Tell users about yourself',
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // Age Field
+                Text(
+                  'Age',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurface,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _ageController,
+                  style: TextStyle(color: scheme.onSurface),
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: scheme.surfaceContainerHigh,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                        color: scheme.outlineVariant,
+                        width: 1,
+                      ),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                        color: scheme.outlineVariant,
+                        width: 1,
+                      ),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: scheme.primary, width: 2),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 16,
+                    ),
+                    hintText: 'Enter your age (18-100)',
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                Text(
+                  'Creator Pictures (1-6) *',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurface,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (_isGalleryFetching &&
+                    _creatorGalleryImages.isEmpty &&
+                    _localGalleryPreviews.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    ..._creatorGalleryImages.map((image) {
+                      final isDeleting = _galleryActionImageId == image.id;
+                      final canRemove =
+                          _creatorGalleryImages.length >
+                          1; // must keep ≥1 (matches save + backend)
+                      final localBytes = _localBytesForGalleryId(image.id);
+                      return SizedBox(
+                        width: 96,
+                        height: 120,
+                        child: Stack(
+                          children: [
+                            Positioned.fill(
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: _GalleryThumbTile(
+                                  localBytes: localBytes,
+                                  networkUrl: image.previewUrl,
+                                  blurhash: image.asset?.blurhash,
+                                ),
+                              ),
+                            ),
+                            if (canRemove)
+                              Positioned(
+                                right: 4,
+                                top: 4,
+                                child: InkWell(
+                                  onTap: isDeleting
+                                      ? null
+                                      : () => _removeCreatorGalleryImage(
+                                          image.id,
+                                        ),
+                                  child: Container(
+                                    width: 24,
+                                    height: 24,
+                                    decoration: BoxDecoration(
+                                      color: scheme.surface.withValues(
+                                        alpha: 0.9,
+                                      ),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: isDeleting
+                                        ? const Padding(
+                                            padding: EdgeInsets.all(4),
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : Icon(
+                                            Icons.close,
+                                            size: 16,
+                                            color: scheme.error,
+                                          ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      );
+                    }),
+                    ..._localGalleryPreviews
+                        .where((preview) => preview.committedGalleryId == null)
+                        .map(
+                          (preview) => SizedBox(
+                            width: 96,
+                            height: 120,
+                            child: Stack(
+                              children: [
+                                Positioned.fill(
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: Image.memory(
+                                      preview.bytes,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                ),
+                                if (preview.uploading)
+                                  Positioned(
+                                    right: 6,
+                                    bottom: 6,
+                                    child: Container(
+                                      width: 22,
+                                      height: 22,
+                                      padding: const EdgeInsets.all(3),
+                                      decoration: BoxDecoration(
+                                        color: scheme.surface.withValues(
+                                          alpha: 0.92,
+                                        ),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: scheme.primary,
+                                      ),
+                                    ),
+                                  ),
+                                if (preview.failed)
+                                  Positioned(
+                                    right: 6,
+                                    bottom: 6,
+                                    child: Container(
+                                      width: 22,
+                                      height: 22,
+                                      decoration: BoxDecoration(
+                                        color: scheme.errorContainer,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Icon(
+                                        Icons.error_outline,
+                                        size: 14,
+                                        color: scheme.onErrorContainer,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    if (_gallerySlotCount < CreatorGalleryService.maxImages)
+                      InkWell(
+                        onTap: _isGalleryUploading
+                            ? null
+                            : _addCreatorGalleryImage,
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          width: 96,
+                          height: 120,
+                          decoration: BoxDecoration(
+                            color: scheme.surfaceContainerHigh,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: scheme.outlineVariant),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.add_photo_alternate_outlined,
+                                color: scheme.primary,
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Add',
+                                style: TextStyle(
+                                  color: scheme.primary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              if (CreatorGalleryService.maxImages -
+                                      _gallerySlotCount >
+                                  1)
+                                Text(
+                                  'up to ${CreatorGalleryService.maxImages - _gallerySlotCount}',
+                                  style: TextStyle(
+                                    color: scheme.onSurfaceVariant,
+                                    fontSize: 10,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Upload at least 1 and up to 6 pictures. You can select multiple at once.',
+                  style: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
+            ],
+
+            // Username Field
+            Text(
+              'Username *',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurface,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
               ),
             ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _usernameController,
+              style: TextStyle(color: scheme.onSurface),
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: scheme.surfaceContainerHigh,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: scheme.outlineVariant,
+                    width: 1,
+                  ),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: scheme.outlineVariant,
+                    width: 1,
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: scheme.primary, width: 2),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 16,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Username must be 4-10 characters.',
+              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+            ),
+
+            const SizedBox(height: 40),
+
+            // Category Selection
+            Text(
+              'Select categories',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: scheme.onSurface,
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: _categories.map((category) {
+                final isSelected = _selectedCategories.contains(category);
+                return GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      if (isSelected) {
+                        _selectedCategories.remove(category);
+                      } else {
+                        if (_selectedCategories.length < 4) {
+                          _selectedCategories.add(category);
+                        } else {
+                          AppToast.showInfo(
+                            context,
+                            'Maximum 4 categories allowed',
+                          );
+                        }
+                      }
+                    });
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? scheme.primaryContainer
+                          : scheme.surfaceContainerHigh,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: scheme.outlineVariant,
+                        width: 1,
+                      ),
+                    ),
+                    child: Text(
+                      category,
+                      style: TextStyle(
+                        color: isSelected
+                            ? scheme.onPrimaryContainer
+                            : scheme.onSurface,
+                        fontSize: 14,
+                        fontWeight: isSelected
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                      ),
+                    ),
+                  ),
+                ).animate().fadeIn(duration: 300.ms).scale(delay: 100.ms);
+              }).toList(),
+            ),
+
+            const SizedBox(height: 12),
+            Text(
+              'Select up to 4 categories (optional).',
+              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+            ),
+
+            const SizedBox(height: 40),
+
+            // Save Button
+            SizedBox(
+              height: 56,
+              child: PrimaryButton(
+                label: 'Save',
+                onPressed: _isLoading ? null : _saveProfile,
+                isLoading: _isLoading,
+              ),
+            ),
+
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1795,12 +1827,7 @@ class _GalleryThumbTile extends StatelessWidget {
     final url = networkUrl?.trim();
     final hasMemory = localBytes != null && localBytes!.isNotEmpty;
     final memoryWidget = hasMemory
-        ? Image.memory(
-            localBytes!,
-            fit: BoxFit.cover,
-            width: 96,
-            height: 120,
-          )
+        ? Image.memory(localBytes!, fit: BoxFit.cover, width: 96, height: 120)
         : null;
 
     if (hasMemory && (url == null || url.isEmpty)) {

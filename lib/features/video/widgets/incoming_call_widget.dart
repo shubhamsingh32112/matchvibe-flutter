@@ -5,6 +5,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../shared/providers/coin_purchase_popup_provider.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../controllers/call_connection_controller.dart';
+import '../services/call_ringtone_service.dart';
 import '../utils/call_remote_image_resolver.dart';
 import '../utils/call_remote_participant_display.dart';
 import 'call_dial_card.dart';
@@ -64,16 +65,19 @@ class _IncomingCallWidgetState extends ConsumerState<IncomingCallWidget>
     final isProcessing = callPhase == CallConnectionPhase.preparing ||
         callPhase == CallConnectionPhase.joining;
 
-    String? remoteImageUrl = (widget.fallbackImageUrl != null &&
-            widget.fallbackImageUrl!.isNotEmpty)
-        ? widget.fallbackImageUrl
-        : resolveRemoteImageUrl(
-            call: widget.incomingCall,
-            currentUserId: currentUserId,
-            fallbackImageUrl: widget.fallbackImageUrl,
-            enableDebugLogs: true,
-            debugSourceTag: 'incoming',
-          );
+    final resolvedImageUrl = resolveRemoteImageUrl(
+      call: widget.incomingCall,
+      currentUserId: currentUserId,
+      fallbackImageUrl: null,
+      enableDebugLogs: true,
+      debugSourceTag: 'incoming',
+    );
+    final fallbackImageUrl = widget.fallbackImageUrl?.trim();
+    final remoteImageUrl = (resolvedImageUrl != null && resolvedImageUrl.isNotEmpty)
+        ? resolvedImageUrl
+        : (fallbackImageUrl != null && fallbackImageUrl.isNotEmpty
+            ? fallbackImageUrl
+            : null);
 
     debugPrint(
         '🖼️ [INCOMING CALL WIDGET] Image URL: ${remoteImageUrl ?? "null"} (fallback: ${widget.fallbackImageUrl ?? "null"})');
@@ -97,6 +101,7 @@ class _IncomingCallWidgetState extends ConsumerState<IncomingCallWidget>
           )
         : _IncomingActionRow(
             onDecline: () async {
+              CallRingtoneService.stop();
               try {
                 await widget.incomingCall.reject();
                 debugPrint('❌ [CALL] Call rejected by user');
@@ -111,6 +116,7 @@ class _IncomingCallWidgetState extends ConsumerState<IncomingCallWidget>
               if (user != null &&
                   user.role == 'user' &&
                   user.spendableCallCoins < 10) {
+                CallRingtoneService.stop();
                 try {
                   await widget.incomingCall.reject();
                 } catch (_) {}

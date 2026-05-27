@@ -15,6 +15,7 @@ import '../../core/services/availability_socket_service.dart'
 import '../../shared/providers/image_service_degraded_provider.dart';
 import '../../features/creator/providers/creator_dashboard_provider.dart';
 import '../../features/video/controllers/call_connection_controller.dart';
+import '../../features/video/services/call_ringtone_service.dart';
 import '../../features/home/providers/home_provider.dart';
 import '../../shared/widgets/app_modal_dialog.dart';
 import '../../shared/widgets/app_update_popup.dart';
@@ -954,6 +955,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       }
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
+      CallRingtoneService.stop();
       // Keep creators online while app is alive, including background.
       // Socket connection remains active, so creator stays online
       if (user != null && (user.role == 'creator' || user.role == 'admin')) {
@@ -962,6 +964,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
         );
       }
     } else if (state == AppLifecycleState.detached) {
+      CallRingtoneService.stop();
       // App closed — socket disconnect will automatically mark creator offline
       // Backend socket handler handles this automatically
       if (user != null && (user.role == 'creator' || user.role == 'admin')) {

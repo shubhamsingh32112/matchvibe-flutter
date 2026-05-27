@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/widgets/main_layout.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../shared/styles/app_brand_styles.dart';
+import '../../../shared/widgets/brand_app_chrome.dart';
 import '../../../shared/widgets/loading_indicator.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../video/providers/call_billing_provider.dart';
 import '../../wallet/models/transaction_model.dart';
 import '../../wallet/services/transaction_service.dart';
 import '../widgets/help_recent_payments_card.dart';
@@ -66,68 +67,67 @@ class _HelpSupportScreenState extends ConsumerState<HelpSupportScreen> {
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider.select((s) => s.user));
     final isCreator = user?.role == 'creator' || user?.role == 'admin';
-    final balance = user?.coins ?? 0;
+    final billingSlice = ref.watch(
+      callBillingProvider.select((b) => (b.isActive, b.userCoins)),
+    );
+    final coins = billingSlice.$1 && !isCreator
+        ? billingSlice.$2
+        : (user?.coins ?? 0);
 
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.dark.copyWith(
-        statusBarColor: Colors.transparent,
+    return MainLayout(
+      selectedIndex: 3,
+      accountMenuStyle: true,
+      appBar: buildAccountFlowAppBar(
+        context,
+        title: 'Help & Support',
+        actions: [BrandHeaderCoinsChip(coins: coins)],
       ),
-      child: MainLayout(
-        selectedIndex: 3,
-        accountMenuStyle: true,
-        child: ColoredBox(
-          color: AppBrandGradients.accountMenuPageBackground,
-          child: CustomScrollView(
-            slivers: [
-              const SliverToBoxAdapter(
-                child: HelpSupportHeroBanner(),
-              ),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.lg,
-                    AppSpacing.lg,
-                    AppSpacing.lg,
-                    AppSpacing.sm,
-                  ),
-                  child: Text(
-                    'Select by Category',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: const Color(0xFF1A1A1A),
-                        ),
+      child: ColoredBox(
+        color: AppBrandGradients.accountMenuPageBackground,
+        child: CustomScrollView(
+          slivers: [
+            const SliverToBoxAdapter(child: HelpSupportHeroBanner()),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.lg,
+                  AppSpacing.lg,
+                  AppSpacing.lg,
+                  AppSpacing.sm,
+                ),
+                child: Text(
+                  'Select by Category',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF1A1A1A),
                   ),
                 ),
               ),
-              if (!isCreator) ...[
-                if (_isLoadingSummary)
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.all(AppSpacing.xl),
-                      child: Center(child: LoadingIndicator()),
-                    ),
-                  )
-                else if (_summary != null)
-                  SliverToBoxAdapter(
-                    child: HelpTransactionSummaryCard(
-                      credits: _summary!.totalCredits,
-                      debits: _summary!.totalDebits,
-                      balance: balance,
-                      onTap: _openTransactions,
-                    ),
+            ),
+            if (!isCreator) ...[
+              if (_isLoadingSummary)
+                const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.all(AppSpacing.xl),
+                    child: Center(child: LoadingIndicator()),
                   ),
-              ],
-              SliverToBoxAdapter(
-                child: HelpRecentPaymentsCard(onTap: _openTransactions),
-              ),
-              const SliverToBoxAdapter(
-                child: HelpSupportFooterDecoration(),
-              ),
-              const SliverToBoxAdapter(
-                child: SizedBox(height: AppSpacing.xl),
-              ),
+                )
+              else if (_summary != null)
+                SliverToBoxAdapter(
+                  child: HelpTransactionSummaryCard(
+                    credits: _summary!.totalCredits,
+                    debits: _summary!.totalDebits,
+                    balance: coins,
+                    onTap: _openTransactions,
+                  ),
+                ),
             ],
-          ),
+            SliverToBoxAdapter(
+              child: HelpRecentPaymentsCard(onTap: _openTransactions),
+            ),
+            const SliverToBoxAdapter(child: HelpSupportFooterDecoration()),
+            const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.xl)),
+          ],
         ),
       ),
     );

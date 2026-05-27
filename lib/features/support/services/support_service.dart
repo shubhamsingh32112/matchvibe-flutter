@@ -3,6 +3,32 @@ import '../../../core/api/api_client.dart';
 import '../../../core/services/meta_app_events_service.dart';
 import '../models/support_ticket_model.dart';
 
+class SupportTicketAttachmentPayload {
+  const SupportTicketAttachmentPayload({
+    required this.name,
+    required this.mimeType,
+    required this.sizeBytes,
+    required this.dataBase64,
+    this.isScreenshot = false,
+  });
+
+  final String name;
+  final String mimeType;
+  final int sizeBytes;
+  final String dataBase64;
+  final bool isScreenshot;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'name': name,
+      'mimeType': mimeType,
+      'sizeBytes': sizeBytes,
+      'dataBase64': dataBase64,
+      'isScreenshot': isScreenshot,
+    };
+  }
+}
+
 class SupportService {
   final ApiClient _apiClient = ApiClient();
 
@@ -16,6 +42,7 @@ class SupportService {
     String? relatedCallId,
     String? creatorLookupId,
     String? creatorFirebaseUid,
+    List<SupportTicketAttachmentPayload> attachments = const [],
   }) async {
     try {
       debugPrint('📝 [SUPPORT] Creating ticket: $subject');
@@ -31,6 +58,10 @@ class SupportService {
           'creatorLookupId': creatorLookupId.trim(),
         if (creatorFirebaseUid != null && creatorFirebaseUid.trim().isNotEmpty)
           'creatorFirebaseUid': creatorFirebaseUid.trim(),
+        if (attachments.isNotEmpty)
+          'attachments': attachments
+              .map((attachment) => attachment.toJson())
+              .toList(),
       };
 
       final response = await _apiClient.post('/support/ticket', data: payload);
@@ -52,6 +83,7 @@ class SupportService {
           'category': data['category'] ?? category,
           'subject': data['subject'] ?? subject,
           'message': message,
+          'attachments': data['attachments'] ?? const [],
           'status': data['status'] ?? 'open',
           'priority': data['priority'] ?? priority,
           'createdAt': data['createdAt'] ?? DateTime.now().toIso8601String(),

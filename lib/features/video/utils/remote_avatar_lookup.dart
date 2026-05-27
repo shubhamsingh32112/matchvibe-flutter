@@ -129,6 +129,44 @@ Future<String?> lookupAvatarFromUserList({
   return null;
 }
 
+/// O(1) user avatar lookup via [GET /user/by-firebase-uid/:uid].
+Future<String?> lookupAvatarFromUserByFirebaseUid({
+  required String remoteFirebaseUid,
+  String? debugSourceTag,
+}) async {
+  final uid = remoteFirebaseUid.trim();
+  if (uid.isEmpty) return null;
+
+  final cacheKey = 'user_uid:$uid';
+  if (_avatarLookupCache.containsKey(cacheKey)) {
+    return _avatarLookupCache[cacheKey];
+  }
+
+  try {
+    final response = await ApiClient().get(
+      '/user/by-firebase-uid/${Uri.encodeComponent(uid)}',
+    );
+    final row = response.data?['data']?['user'];
+    if (row is Map) {
+      final photo = resolveAvatarUrlFromRow(Map<String, dynamic>.from(row));
+      if (photo != null && photo.isNotEmpty) {
+        debugPrint(
+          '✅ [CALL BG][${debugSourceTag ?? 'lookup'}] Avatar from /user/by-firebase-uid: $photo',
+        );
+        _avatarLookupCache[cacheKey] = photo;
+        return photo;
+      }
+    }
+  } catch (e) {
+    debugPrint(
+      '❌ [CALL BG][${debugSourceTag ?? 'lookup'}] /user/by-firebase-uid failed: $e',
+    );
+  }
+
+  _avatarLookupCache[cacheKey] = null;
+  return null;
+}
+
 /// O(1) creator avatar lookup via [GET /creator/by-firebase-uid/:uid].
 Future<String?> lookupAvatarFromCreatorsByFirebaseUid({
   required String remoteFirebaseUid,
@@ -237,6 +275,17 @@ Future<String?> lookupIncomingCallerAvatar({
   final isCreatorCallee = role == 'creator' || role == 'admin';
 
   if (isCreatorCallee) {
+    final uid = remoteFirebaseUid?.trim();
+    if (uid != null && uid.isNotEmpty) {
+      final fromUserByUid = await lookupAvatarFromUserByFirebaseUid(
+        remoteFirebaseUid: uid,
+        debugSourceTag: debugSourceTag,
+      );
+      if (fromUserByUid != null && fromUserByUid.isNotEmpty) {
+        return fromUserByUid;
+      }
+    }
+
     final fromUsers = await lookupAvatarFromUserList(
       remoteFirebaseUid: remoteFirebaseUid,
       remoteUsername: remoteUsername,

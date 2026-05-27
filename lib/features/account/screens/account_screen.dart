@@ -20,7 +20,6 @@ import '../../creator/providers/creator_dashboard_provider.dart';
 import '../../creator/providers/creator_status_provider.dart';
 import '../../referral/screens/referral_screen.dart';
 import '../../referral/utils/host_onboarding_routes.dart';
-import '../../support/screens/support_screen.dart';
 import '../../video/providers/call_billing_provider.dart';
 import 'account_settings_screen.dart';
 
@@ -133,11 +132,8 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     context.push('/help-support');
   }
 
-  void _showSupportBottomSheet(BuildContext context) {
-    showAppModalBottomSheet(
-      context: context,
-      builder: (context) => const SupportBottomSheet(),
-    );
+  void _openSupport(BuildContext context) {
+    context.push('/support');
   }
 
   void _showAccountSettingsBottomSheet(BuildContext context) {
@@ -590,7 +586,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         icon: Icons.support_agent_outlined,
         title: 'Contact us',
         subtitle: 'Support & tickets',
-        onTap: () => _showSupportBottomSheet(context),
+        onTap: () => _openSupport(context),
       ),
       _exploreTile(
         context: context,
