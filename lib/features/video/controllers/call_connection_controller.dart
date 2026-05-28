@@ -883,6 +883,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
           );
 
           // ── Start billing (both user-initiated and creator-initiated calls) ────────────
+          _ref.read(callBillingProvider.notifier).requestBillingRecoveryForActiveCall();
           unawaited(_emitBillingStarted());
 
           final activeCreatorUid = _activeCreatorFirebaseUid;

@@ -24,7 +24,7 @@ UserModel _creatorUser() => const UserModel(
     );
 
 void main() {
-  test('creator shows online when SocketService connected and map empty', () {
+  test('creator shows syncing when socket connected but map empty', () {
     final container = ProviderContainer(
       overrides: [
         socketServiceProvider.overrideWithValue(
@@ -41,11 +41,11 @@ void main() {
 
     expect(
       container.read(creator_self.creatorStatusProvider),
-      creator_self.CreatorStatus.online,
+      creator_self.CreatorStatus.syncing,
     );
   });
 
-  test('updateFromSocketConnection true sets online when socket up', () {
+  test('updateFromSocketConnection true keeps syncing without self map', () {
     final container = ProviderContainer(
       overrides: [
         socketServiceProvider.overrideWithValue(
@@ -65,7 +65,7 @@ void main() {
         .updateFromSocketConnection(false);
     expect(
       container.read(creator_self.creatorStatusProvider),
-      creator_self.CreatorStatus.offline,
+      creator_self.CreatorStatus.syncing,
     );
 
     container
@@ -73,11 +73,11 @@ void main() {
         .updateFromSocketConnection(true);
     expect(
       container.read(creator_self.creatorStatusProvider),
-      creator_self.CreatorStatus.online,
+      creator_self.CreatorStatus.syncing,
     );
   });
 
-  test('updateFromSocketConnection false sets offline', () {
+  test('updateFromSocketConnection false sets offline after grace', () async {
     final container = ProviderContainer(
       overrides: [
         socketServiceProvider.overrideWithValue(
@@ -95,9 +95,11 @@ void main() {
     container
         .read(creator_self.creatorStatusProvider.notifier)
         .updateFromSocketConnection(false);
+    await Future<void>.delayed(const Duration(seconds: 4));
     expect(
       container.read(creator_self.creatorStatusProvider),
       creator_self.CreatorStatus.offline,
     );
   });
+
 }

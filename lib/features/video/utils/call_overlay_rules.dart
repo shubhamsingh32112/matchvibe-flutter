@@ -19,7 +19,7 @@ class CallOverlayPolicy {
     if (!isConnected) return false;
     if (_hasRuntimeConvergence(billing)) return false;
     if (!billing.isBillingSyncing) return false;
-    return connectedFor <= maxBillingSyncHintDuration;
+    return connectedFor <= maxBillingConnectionIssueBeforeEnd;
   }
 
   static const Duration maxBillingConnectionIssueBeforeEnd = Duration(seconds: 20);
@@ -30,11 +30,9 @@ class CallOverlayPolicy {
     required CallBillingState billing,
     required Duration connectedFor,
   }) {
-    if (!isConnected) return false;
-    if (_hasRuntimeConvergence(billing)) return false;
-    if (!billing.isBillingSyncing) return false;
-    return connectedFor > maxBillingSyncHintDuration &&
-        connectedFor <= maxBillingConnectionIssueBeforeEnd;
+    // Keep UX deterministic: stay in syncing hint while recovery is in-flight.
+    // Hard failures are handled by forced end-call path, not a mid-call issue banner.
+    return false;
   }
 
   static bool shouldShowSecurityBlock({

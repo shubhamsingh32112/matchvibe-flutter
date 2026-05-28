@@ -28,6 +28,7 @@ import '../providers/home_provider.dart';
 import '../providers/availability_provider.dart';
 import '../widgets/home_user_grid_card.dart';
 import '../../creator/providers/creator_dashboard_provider.dart';
+import '../../creator/providers/creator_presence_orchestrator_provider.dart';
 import '../../creator/providers/creator_task_provider.dart';
 import '../../creator/models/creator_task_model.dart';
 import '../../video/services/permission_service.dart';
@@ -92,7 +93,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   // Watchdog to prevent onboarding deadlocks if user never interacts.
   Timer? _onboardingPopupWatchdog;
   String? _onboardingSessionId;
-  final Map<String, int> _sequenceBlockCounts = <String, int>{};
 
   String _newOnboardingSessionId(String uid) {
     final now = DateTime.now().microsecondsSinceEpoch;
@@ -109,6 +109,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // Note: Bonus onboarding removed; flow is welcome → permissions
     // Connect Socket.IO and hydrate creator availability from Redis
     _initSocketAndHydrateAvailability();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final role = ref.read(authProvider).user?.role;
+      if (role == 'creator' || role == 'admin') {
+        unawaited(
+          ref
+              .read(creatorPresenceOrchestratorProvider)
+              .refreshPresence(reason: 'home_screen_init'),
+        );
+      }
+    });
     _homeScrollController.addListener(_onHomeScroll);
     _setupReactiveListeners();
     _startFrameTimingSampling();
@@ -1417,8 +1428,24 @@ class _HomeUserFeedView extends ConsumerWidget {
         (afterRole == 'admin' && adminView == AdminViewMode.creator);
     if (creatorLikeView) {
       await ref.read(usersProvider.notifier).refreshFeed();
+      final uid = ref.read(authProvider).firebaseUser?.uid;
+      if (uid != null && uid.isNotEmpty) {
+        ref.read(socketServiceProvider).requestAvailability([uid]);
+      }
+      await ref
+          .read(creatorPresenceOrchestratorProvider)
+          .refreshPresence(reason: 'home_pull_to_refresh_creator');
     } else {
       await ref.read(creatorsProvider.notifier).refreshFeed();
+      final creators = ref.read(creatorsProvider).valueOrNull ?? [];
+      final liveUids = creators
+          .map((c) => c.firebaseUid)
+          .whereType<String>()
+          .where((id) => id.isNotEmpty)
+          .toList(growable: false);
+      if (liveUids.isNotEmpty) {
+        ref.read(socketServiceProvider).requestAvailability(liveUids);
+      }
     }
     await Future.delayed(const Duration(milliseconds: 500));
   }

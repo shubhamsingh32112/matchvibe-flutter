@@ -1,9 +1,11 @@
+import 'dart:async' show unawaited;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/services/socket_service.dart';
 import '../../creator/providers/creator_dashboard_provider.dart';
 import '../../creator/providers/creator_status_provider.dart'
     as creator_self_status;
+import '../../creator/providers/creator_presence_orchestrator_provider.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../wallet/providers/wallet_pricing_provider.dart';
 import '../../user/providers/user_availability_provider.dart';
@@ -191,10 +193,14 @@ final socketServiceProvider = Provider<SocketService>((ref) {
     final isCreator =
         user != null && (user.role == 'creator' || user.role == 'admin');
     if (isCreator) {
-      service.emitCreatorOnline();
       ref
           .read(creator_self_status.creatorStatusProvider.notifier)
           .updateFromSocketConnection(true);
+      unawaited(
+        ref
+            .read(creatorPresenceOrchestratorProvider)
+            .refreshPresence(reason: 'socket_connected'),
+      );
     }
   }
 

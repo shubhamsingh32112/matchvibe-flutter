@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,10 +8,11 @@ import '../../features/auth/providers/auth_provider.dart';
 import '../../features/chat/providers/stream_chat_provider.dart';
 import '../../features/creator/providers/creator_dashboard_provider.dart';
 import '../../features/creator/providers/creator_status_provider.dart';
+import '../../features/creator/providers/creator_presence_orchestrator_provider.dart';
+import '../../features/creator/widgets/creator_status_label.dart';
 import '../../features/recent/providers/recent_provider.dart';
 import '../../features/video/providers/call_billing_provider.dart';
 import '../../features/video/providers/call_billing_selectors.dart';
-import '../../core/theme/app_theme.dart';
 import '../../shared/styles/app_brand_styles.dart';
 import '../../shared/widgets/loading_indicator.dart';
 import '../../shared/widgets/gem_icon.dart';
@@ -41,6 +43,14 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
   void _onItemTapped(int index) {
     switch (index) {
       case 0:
+        final role = ref.read(authProvider).user?.role;
+        if (role == 'creator' || role == 'admin') {
+          unawaited(
+            ref
+                .read(creatorPresenceOrchestratorProvider)
+                .refreshPresence(reason: 'home_tab_tap'),
+          );
+        }
         context.go('/home');
         break;
       case 1:
@@ -106,40 +116,12 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                       Consumer(
                         builder: (context, ref, child) {
                           final status = ref.watch(creatorStatusProvider);
-                          final isOnline = status == CreatorStatus.online;
-
                           return Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 8),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 10,
-                                  height: 10,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: isOnline
-                                        ? AppPalette.success
-                                        : Colors.white.withValues(alpha: 0.55),
-                                    border: Border.all(
-                                      color: Colors.white.withValues(
-                                        alpha: 0.9,
-                                      ),
-                                      width: 2,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  isOnline ? 'Online' : 'Offline',
-                                  style: TextStyle(
-                                    color: isOnline
-                                        ? const Color(0xFFB9F6CA)
-                                        : Colors.white.withValues(alpha: 0.85),
-                                    fontWeight: FontWeight.w500,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              ],
+                            child: CreatorStatusLabel(
+                              status: status,
+                              compact: true,
+                              useAppBarColors: true,
                             ),
                           );
                         },

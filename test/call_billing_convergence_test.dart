@@ -229,6 +229,30 @@ void main() {
       expect(result.state.userCoins, 100);
     });
 
+    test('creator call recover_success while syncing accepts ACTIVE snapshot', () {
+      var state = const CallBillingState(
+        callId: 'call-creator',
+        billingSequence: 0,
+        runtimeState: BillingRuntimeState.syncing,
+      );
+      final result = BillingRecoveryMerge.apply(
+        state: state,
+        expectedCallId: 'call-creator',
+        envelope: _recoverEnvelope(
+          recoveryRequestId: 99,
+          generatedAtMs: 1_700_000_050_000,
+          entry: _activeEntry(
+            callId: 'call-creator',
+            billingSequence: 2,
+          ),
+        ),
+        tracking: BillingRecoveryTracking(),
+      );
+      expect(result.outcome, BillingRecoveryApplyOutcome.applied);
+      expect(result.state.runtimeState, BillingRuntimeState.active);
+      expect(result.state.billingSequence, 2);
+    });
+
     test('TEST N — ACTIVE equal seq RECOVERING lifecycle rejected', () {
       const state = CallBillingState(
         callId: 'call-1',

@@ -18,6 +18,7 @@ import '../../chat/providers/stream_chat_provider.dart';
 import '../../creator/models/creator_dashboard_model.dart';
 import '../../creator/providers/creator_dashboard_provider.dart';
 import '../../creator/providers/creator_status_provider.dart';
+import '../../creator/widgets/creator_status_label.dart';
 import '../../referral/screens/referral_screen.dart';
 import '../../referral/utils/host_onboarding_routes.dart';
 import '../../video/providers/call_billing_provider.dart';
@@ -859,57 +860,17 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
           Consumer(
             builder: (context, ref, child) {
               final status = ref.watch(creatorStatusProvider);
-              final isOnline = status == CreatorStatus.online;
 
-              return Row(
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    width: 12,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: isOnline ? scheme.primary : scheme.outlineVariant,
-                      boxShadow: isOnline
-                          ? [
-                              BoxShadow(
-                                color: scheme.primary.withValues(alpha: 0.5),
-                                blurRadius: 8,
-                                spreadRadius: 2,
-                              ),
-                            ]
-                          : null,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          isOnline ? 'Online' : 'Offline',
-                          style: TextStyle(
-                            color: scheme.onSurface,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        Text(
-                          'Status is automatic based on app open/close',
-                          style: TextStyle(
-                            color: scheme.onSurfaceVariant,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    width: 12,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: isOnline ? Colors.green : Colors.grey,
-                      border: Border.all(color: scheme.surface, width: 2),
+                  CreatorStatusLabel(status: status),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Status is automatic based on app open/close',
+                    style: TextStyle(
+                      color: scheme.onSurfaceVariant,
+                      fontSize: 12,
                     ),
                   ),
                 ],

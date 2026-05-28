@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zztherapy/features/video/providers/call_billing_provider.dart';
-import 'package:zztherapy/features/video/providers/call_billing_selectors.dart';
 import 'package:zztherapy/features/video/utils/call_overlay_rules.dart';
 
 void main() {
@@ -18,7 +17,7 @@ void main() {
       expect(shouldShow, isTrue);
     });
 
-    test('returns false after timeout window', () {
+    test('remains true until forced-end guard window', () {
       final billing = const CallBillingState(
         runtimeState: BillingRuntimeState.syncing,
         callStartTimeMs: null,
@@ -28,7 +27,7 @@ void main() {
         billing: billing,
         connectedFor: const Duration(seconds: 20),
       );
-      expect(shouldShow, isFalse);
+      expect(shouldShow, isTrue);
     });
 
     test('returns false once billing is active', () {
@@ -72,7 +71,7 @@ void main() {
       expect(show, isFalse);
     });
 
-    test('returns true after sync window when billing still not active', () {
+    test('returns false even after sync window when billing still not active', () {
       final billing = const CallBillingState(
         runtimeState: BillingRuntimeState.syncing,
         callStartTimeMs: null,
@@ -82,7 +81,7 @@ void main() {
         billing: billing,
         connectedFor: const Duration(seconds: 15),
       );
-      expect(show, isTrue);
+      expect(show, isFalse);
     });
 
     test('returns false when billing became active', () {

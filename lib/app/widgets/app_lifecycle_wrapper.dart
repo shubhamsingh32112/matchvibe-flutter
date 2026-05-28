@@ -14,6 +14,7 @@ import '../../core/services/availability_socket_service.dart'
     as socket_availability;
 import '../../shared/providers/image_service_degraded_provider.dart';
 import '../../features/creator/providers/creator_dashboard_provider.dart';
+import '../../features/creator/providers/creator_presence_orchestrator_provider.dart';
 import '../../features/video/controllers/call_connection_controller.dart';
 import '../../features/video/providers/call_billing_provider.dart';
 import '../../features/video/providers/call_billing_selectors.dart';
@@ -580,6 +581,9 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     await _refreshPendingAppUpdate();
     await _maybeToastProfileUpdatedByAdmin();
     ref.invalidate(creatorDashboardProvider);
+    await ref
+        .read(creatorPresenceOrchestratorProvider)
+        .refreshPresence(reason: 'app_resume_creator');
   }
 
   Future<void> _refreshPendingAppUpdate() async {
@@ -1022,13 +1026,9 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       return;
     }
 
-    // 🔥 AUTOMATIC: Socket connection automatically handles online/offline
-    // When socket connects, backend sets creator online automatically
-    // When socket disconnects, backend sets creator offline automatically
-    // No manual status setting needed
-    debugPrint(
-      '✅ [APP LIFECYCLE] Socket connection handles creator status automatically',
-    );
+    await ref
+        .read(creatorPresenceOrchestratorProvider)
+        .refreshPresence(reason: 'ensure_creator_online');
   }
 
   Future<void> _drainModalQueue() async {
