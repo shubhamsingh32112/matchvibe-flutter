@@ -1,8 +1,15 @@
+//D:\zztherapy\frontend\lib\features\video\utils\call_overlay_rules.dart
 import '../providers/call_billing_provider.dart';
 import '../providers/call_billing_selectors.dart';
 
 class CallOverlayPolicy {
   static const Duration maxBillingSyncHintDuration = Duration(seconds: 12);
+
+  /// True when runtime has converged to live billing (not merely stale
+  /// `callStartTimeMs` left over after a syncing regression).
+  static bool _hasRuntimeConvergence(CallBillingState billing) {
+    return billing.runtimeState == BillingRuntimeState.active;
+  }
 
   static bool shouldShowBillingSyncHint({
     required bool isConnected,
@@ -10,7 +17,8 @@ class CallOverlayPolicy {
     required Duration connectedFor,
   }) {
     if (!isConnected) return false;
-    if (billing.isBillingLive || billing.callStartTimeMs != null) return false;
+    if (_hasRuntimeConvergence(billing)) return false;
+    if (!billing.isBillingSyncing) return false;
     return connectedFor <= maxBillingSyncHintDuration;
   }
 
@@ -23,7 +31,8 @@ class CallOverlayPolicy {
     required Duration connectedFor,
   }) {
     if (!isConnected) return false;
-    if (billing.isBillingLive || billing.callStartTimeMs != null) return false;
+    if (_hasRuntimeConvergence(billing)) return false;
+    if (!billing.isBillingSyncing) return false;
     return connectedFor > maxBillingSyncHintDuration &&
         connectedFor <= maxBillingConnectionIssueBeforeEnd;
   }

@@ -587,7 +587,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         context: context,
         icon: Icons.support_agent_outlined,
         title: 'Contact us',
-        subtitle: 'Support & tickets',
+        subtitle: 'Create & track tickets',
         onTap: () => _openSupport(context),
       ),
       _exploreTile(

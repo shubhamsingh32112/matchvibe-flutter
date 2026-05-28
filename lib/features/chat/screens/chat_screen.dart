@@ -20,6 +20,7 @@ import '../../auth/providers/auth_provider.dart';
 import '../../home/providers/availability_provider.dart';
 import '../../video/controllers/call_connection_controller.dart';
 import '../../support/services/support_service.dart';
+import '../../support/utils/support_contact_phone.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/gem_icon.dart';
 import '../../../shared/providers/coin_purchase_popup_provider.dart';
@@ -785,11 +786,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       }
 
                       if (!ctx.mounted) return;
+                      final contactPhone = await collectSupportContactPhone(
+                        context,
+                        initialValue: ref.read(authProvider).user?.phone,
+                      );
+                      if (!ctx.mounted || contactPhone == null) return;
+
                       setDialogState(() => isSubmitting = true);
                       try {
                         await _supportService.reportCreator(
                           reasonMessage: message,
                           source: 'chat',
+                          contactPhone: contactPhone,
                           creatorLookupId: _otherUserMongoId,
                           creatorFirebaseUid: _otherUserFirebaseUid,
                           creatorName: _otherUserName,

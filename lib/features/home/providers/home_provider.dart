@@ -205,6 +205,11 @@ class CreatorFeedNotifier extends AsyncNotifier<List<CreatorModel>> {
     }
     ref.read(creatorAvailabilityProvider.notifier).seedFromApi(apiAvailability);
 
+    final liveUids = apiAvailability.keys.toList(growable: false);
+    if (liveUids.isNotEmpty) {
+      ref.read(socketServiceProvider).requestAvailability(liveUids);
+    }
+
     final pagination =
         responseData['data']['pagination'] as Map<String, dynamic>?;
     if (pagination == null) {

@@ -33,6 +33,7 @@ import '../../creator/models/creator_task_model.dart';
 import '../../video/services/permission_service.dart';
 import '../../admin/providers/admin_view_provider.dart';
 import '../../support/services/support_service.dart';
+import '../../support/utils/support_contact_phone.dart';
 import '../../video/providers/call_feedback_prompt_provider.dart';
 import '../../video/providers/creator_busy_toast_provider.dart';
 import '../../withdrawal/screens/withdrawal_screen.dart';
@@ -328,10 +329,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// Availability hydration is handled centrally in `StreamChatWrapper` to avoid duplicate
   /// fetch races and double socket requests from multiple screens.
   Future<void> _initSocketAndHydrateAvailability() async {
-    // Give the widget tree a moment to settle
-    await Future.delayed(const Duration(milliseconds: 200));
-    if (!mounted) return;
-
     final authState = ref.read(authProvider);
     if (!authState.isAuthenticated || authState.firebaseUser == null) return;
 
@@ -1209,11 +1206,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       }
 
                       if (!ctx.mounted) return;
+                      final contactPhone = await collectSupportContactPhone(
+                        context,
+                        initialValue: ref.read(authProvider).user?.phone,
+                      );
+                      if (!ctx.mounted || contactPhone == null) return;
+
                       setDialogState(() => isSubmitting = true);
                       try {
                         await _supportService.reportCreator(
                           reasonMessage: message,
                           source: source,
+                          contactPhone: contactPhone,
                           creatorLookupId: creatorLookupId,
                           creatorFirebaseUid: creatorFirebaseUid,
                           creatorName: creatorName,

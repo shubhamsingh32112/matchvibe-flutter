@@ -77,6 +77,7 @@ class _BecomeCreatorScreenState extends ConsumerState<BecomeCreatorScreen> {
           category: 'general',
           subject: 'Become a Creator — contact me',
           message: buffer.toString(),
+          contactPhone: trimmed.startsWith('+') ? trimmed : '+$trimmed',
           priority: 'medium',
         );
     if (!mounted) return;

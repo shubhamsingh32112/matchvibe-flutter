@@ -90,6 +90,11 @@ class FavoriteCreatorsNotifier extends AsyncNotifier<List<CreatorModel>> {
     }
     ref.read(creatorAvailabilityProvider.notifier).seedFromApi(apiAvailability);
 
+    final liveUids = apiAvailability.keys.toList(growable: false);
+    if (liveUids.isNotEmpty) {
+      ref.read(socketServiceProvider).requestAvailability(liveUids);
+    }
+
     final currentPage = (pagination?['page'] as num?)?.toInt() ?? page;
     final total = (pagination?['total'] as num?)?.toInt();
     final totalPages = (pagination?['totalPages'] as num?)?.toInt() ?? currentPage;

@@ -13,6 +13,7 @@ import '../services/permission_service.dart';
 import '../services/security_service.dart';
 import '../utils/call_remote_image_resolver.dart';
 import '../utils/call_remote_participant_display.dart';
+import '../utils/billing_elapsed_display.dart';
 import '../utils/call_overlay_rules.dart';
 import '../widgets/call_dial_card.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -418,12 +419,8 @@ class _VideoCallScreenContentState
   void _startDurationLimitWatchdog() {
     _durationLimitTimer?.cancel();
     final billing = ref.read(callBillingProvider);
-    final limit = billing.durationLimit;
-    final startMs = billing.callStartTimeMs;
-    if (limit == null || limit <= 0 || startMs == null) return;
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-    final elapsed = ((nowMs - startMs) / 1000).floor();
-    final remaining = (limit - elapsed).clamp(0, limit);
+    final remaining = estimateSecondsUntilDurationLimit(billing);
+    if (remaining == null) return;
     _durationLimitTimer = Timer(Duration(seconds: remaining), () {
       _enforceDurationLimitIfNeeded();
     });
@@ -433,12 +430,10 @@ class _VideoCallScreenContentState
     if (_durationLimitHandled) return;
     final billing = ref.read(callBillingProvider);
     final limit = billing.durationLimit;
-    final startMs = billing.callStartTimeMs;
-    if (limit == null || limit <= 0 || startMs == null) return;
+    if (limit == null || limit <= 0) return;
 
-    final elapsedSeconds =
-        ((DateTime.now().millisecondsSinceEpoch - startMs) / 1000).floor();
-    if (elapsedSeconds < limit) return;
+    final elapsedSeconds = estimateBillingElapsedSeconds(billing);
+    if (elapsedSeconds == null || elapsedSeconds < limit) return;
 
     _durationLimitHandled = true;
     debugPrint(
@@ -635,10 +630,14 @@ class _VideoCallScreenContentState
           '🧾 [CALL_OVERLAY] billing_sync_hint_resolved_after_ms=$ms callId=${next.callId}',
         );
       }
-      final prevStart = prev?.callStartTimeMs;
       final prevLimit = prev?.durationLimit;
-      if (next.callStartTimeMs != prevStart ||
-          next.durationLimit != prevLimit) {
+      final prevRemaining = prev?.remainingSeconds;
+      final prevElapsed = prev?.elapsedSeconds;
+      final prevTs = prev?.lastServerTimestampMs;
+      if (next.durationLimit != prevLimit ||
+          next.remainingSeconds != prevRemaining ||
+          next.elapsedSeconds != prevElapsed ||
+          next.lastServerTimestampMs != prevTs) {
         _startDurationLimitWatchdog();
       }
       final movedToEnding =

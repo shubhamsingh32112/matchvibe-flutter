@@ -2,11 +2,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/services/socket_service.dart';
 import '../../creator/providers/creator_dashboard_provider.dart';
+import '../../creator/providers/creator_status_provider.dart'
+    as creator_self_status;
 import '../../auth/providers/auth_provider.dart';
 import '../../wallet/providers/wallet_pricing_provider.dart';
 import '../../user/providers/user_availability_provider.dart';
 import '../../../shared/models/app_update_model.dart';
 import '../../../shared/providers/app_update_popup_provider.dart';
+import '../../support/services/support_realtime_handler.dart';
 
 // ── Enum ──────────────────────────────────────────────────────────────────
 enum CreatorAvailability { online, busy }
@@ -139,6 +142,16 @@ class CreatorAvailabilityNotifier
     if (creatorId == null) return CreatorAvailability.busy;
     return state[creatorId] ?? CreatorAvailability.busy;
   }
+
+  /// Instant fan UI while call lifecycle runs — server versioned events still win when higher.
+  void applyCallLifecycleHint(String creatorId, CreatorAvailability availability) {
+    final nextVersion = (_versions[creatorId] ?? 0) + 1;
+    updateSingle(
+      creatorId,
+      availability == CreatorAvailability.online ? 'online' : 'busy',
+      version: nextVersion,
+    );
+  }
 }
 
 // ── Providers ─────────────────────────────────────────────────────────────
@@ -172,6 +185,32 @@ final creatorStatusProvider = Provider.family<CreatorAvailability, String?>((
 /// Created once, lives for the entire app session (not autoDispose).
 final socketServiceProvider = Provider<SocketService>((ref) {
   final service = SocketService();
+
+  void onSocketConnected() {
+    final user = ref.read(authProvider).user;
+    final isCreator =
+        user != null && (user.role == 'creator' || user.role == 'admin');
+    if (isCreator) {
+      service.emitCreatorOnline();
+      ref
+          .read(creator_self_status.creatorStatusProvider.notifier)
+          .updateFromSocketConnection(true);
+    }
+  }
+
+  void onSocketDisconnected() {
+    final user = ref.read(authProvider).user;
+    final isCreator =
+        user != null && (user.role == 'creator' || user.role == 'admin');
+    if (isCreator) {
+      ref
+          .read(creator_self_status.creatorStatusProvider.notifier)
+          .updateFromSocketConnection(false);
+    }
+  }
+
+  service.onConnected = onSocketConnected;
+  service.onDisconnected = onSocketDisconnected;
 
   // Wire socket callbacks → Riverpod state
   service.onAvailabilityBatch = (data) {
@@ -273,6 +312,10 @@ final socketServiceProvider = Provider<SocketService>((ref) {
     ref
         .read(appUpdatePopupProvider.notifier)
         .setPendingUpdate(AppUpdateModel.fromJson(data), source: 'socket');
+  };
+
+  service.onSupportTicketUpdated = (data) {
+    handleSupportTicketSocketUpdate(ref, data);
   };
 
   ref.onDispose(() {

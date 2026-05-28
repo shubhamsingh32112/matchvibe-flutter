@@ -15,7 +15,6 @@ import '../../../core/utils/user_message_mapper.dart';
 import '../../chat/services/chat_service.dart';
 import '../../../core/services/meta_app_events_service.dart';
 import '../../../core/services/sentry_service.dart';
-import '../../../core/services/availability_socket_service.dart';
 import '../../../core/services/device_fingerprint_service.dart';
 import '../../../core/services/install_referrer_service.dart';
 import '../../../core/services/google_sign_in_service.dart';
@@ -883,14 +882,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await SentryService.clearUserContext();
       await MetaAppEventsService.clearUserId();
 
-      try {
-        AvailabilitySocketService.instance.onLogout();
-        debugPrint('✅ [AUTH] Availability socket disconnected');
-      } catch (e) {
-        debugPrint(
-          '⚠️  [AUTH] Availability socket disconnect error (non-critical): $e',
-        );
-      }
+      // Presence offline emit + socket disconnect are handled in
+      // StreamChatWrapper when auth becomes unauthenticated (SocketService).
 
       await AppGoogleSignIn.signOut();
 

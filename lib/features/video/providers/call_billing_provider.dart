@@ -1,3 +1,4 @@
+//D:\zztherapy\frontend\lib\features\video\providers\call_billing_provider.dart
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -8,6 +9,7 @@ import '../../../core/services/meta_app_events_service.dart';
 import '../../home/providers/availability_provider.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../controllers/call_connection_controller.dart';
+import '../services/billing_convergence_metrics.dart';
 
 // ── State ──────────────────────────────────────────────────────────────────
 //
@@ -120,6 +122,7 @@ class CallBillingState {
     bool? introPromoActive,
     int? lastServerTimestampMs,
     int? callStartTimeMs,
+    bool clearCallStartTimeMs = false,
     String? forceEndReason,
     int? finalCoins,
     int? totalDeducted,
@@ -140,7 +143,9 @@ class CallBillingState {
       introPromoActive: introPromoActive ?? this.introPromoActive,
       lastServerTimestampMs:
           lastServerTimestampMs ?? this.lastServerTimestampMs,
-      callStartTimeMs: callStartTimeMs ?? this.callStartTimeMs,
+      callStartTimeMs: clearCallStartTimeMs
+          ? null
+          : (callStartTimeMs ?? this.callStartTimeMs),
       forceEndReason: forceEndReason ?? this.forceEndReason,
       finalCoins: finalCoins ?? this.finalCoins,
       totalDeducted: totalDeducted ?? this.totalDeducted,
@@ -160,11 +165,589 @@ enum BillingRuntimeState {
   failed,
 }
 
+/// Terminal runtime states must not accept live billing event resurrection.
+bool isBillingTerminalRuntime(BillingRuntimeState runtime) {
+  return runtime == BillingRuntimeState.settled ||
+      runtime == BillingRuntimeState.failed ||
+      runtime == BillingRuntimeState.ending;
+}
+
+/// Reject late live events for the same call after terminal convergence.
+bool shouldRejectBillingEventForTerminalState({
+  required CallBillingState state,
+  String? eventCallId,
+}) {
+  if (!isBillingTerminalRuntime(state.runtimeState)) return false;
+  if (eventCallId == null || eventCallId.isEmpty) return true;
+  if (state.callId == null || state.callId!.isEmpty) return true;
+  return eventCallId == state.callId;
+}
+
+/// Alias for terminal runtime checks (ending / settled / failed).
+bool isTerminalBillingState(BillingRuntimeState runtime) =>
+    isBillingTerminalRuntime(runtime);
+
+/// Reject live billing events after terminal convergence for the same call.
+bool shouldRejectEventAfterTerminal({
+  required CallBillingState state,
+  String? eventCallId,
+}) =>
+    shouldRejectBillingEventForTerminalState(
+      state: state,
+      eventCallId: eventCallId,
+    );
+
+/// Prior billing evidence for reconnect convergence (not `callStartTimeMs`).
+bool hadPriorBillingEvidenceForReconnect(CallBillingState state) {
+  return state.runtimeState == BillingRuntimeState.active ||
+      state.billingSequence > 0;
+}
+
 int? _readIntMs(dynamic v) {
   if (v == null) return null;
   if (v is int) return v;
   if (v is num) return v.toInt();
   return int.tryParse(v.toString());
+}
+
+/// Tracks the newest recovery envelope applied for this call session.
+///
+/// Used only for `billing:recover-state:response` ordering — not for
+/// `billing:update` / `billing:started` (those keep global sequence gates).
+class BillingRecoveryTracking {
+  static const int _maxAppliedEnvelopeIds = 32;
+
+  int? latestRecoveryRequestId;
+  int? latestGeneratedAtMs;
+  String? latestClientRecoveryRequestId;
+  final Set<String> appliedRecoveryEnvelopeIds = {};
+  final List<String> _appliedEnvelopeOrder = [];
+
+  static String envelopeKey(
+    String callId,
+    Map<String, dynamic> envelope,
+    Map<String, dynamic> entry,
+  ) {
+    final reqId = envelope['recoveryRequestId'];
+    final seq = entry['billingSequence'];
+    return '$callId:$reqId:$seq';
+  }
+
+  bool hasAppliedEnvelope(String key) =>
+      appliedRecoveryEnvelopeIds.contains(key);
+
+  void recordAppliedEnvelope(String key) {
+    if (appliedRecoveryEnvelopeIds.contains(key)) return;
+    appliedRecoveryEnvelopeIds.add(key);
+    _appliedEnvelopeOrder.add(key);
+    while (_appliedEnvelopeOrder.length > _maxAppliedEnvelopeIds) {
+      final oldest = _appliedEnvelopeOrder.removeAt(0);
+      appliedRecoveryEnvelopeIds.remove(oldest);
+    }
+  }
+
+  void recordApplied(Map<String, dynamic> envelope) {
+    final reqId = (envelope['recoveryRequestId'] as num?)?.toInt();
+    final genMs = _readIntMs(envelope['generatedAtMs']);
+    final clientReqId = envelope['clientRecoveryRequestId']?.toString();
+    if (reqId != null && reqId > 0) {
+      latestRecoveryRequestId = reqId;
+    }
+    if (genMs != null && genMs > 0) {
+      latestGeneratedAtMs = genMs;
+    }
+    if (clientReqId != null && clientReqId.isNotEmpty) {
+      latestClientRecoveryRequestId = clientReqId;
+    }
+  }
+
+  void reset() {
+    latestRecoveryRequestId = null;
+    latestGeneratedAtMs = null;
+    latestClientRecoveryRequestId = null;
+    appliedRecoveryEnvelopeIds.clear();
+    _appliedEnvelopeOrder.clear();
+  }
+}
+
+/// Pure convergence policy for reconnect/recovery reducers.
+///
+/// Distributed semantics: equal `billingSequence` on a live socket usually
+/// means stale replay, but after reconnect the reducer may sit in `syncing`
+/// while the server snapshot is still the authoritative truth at the same
+/// sequence — re-hydration must be allowed in that narrow case only.
+class BillingConvergencePolicy {
+  /// Runtime confidence ordering: ACTIVE > RECOVERING > SYNCING > INIT.
+  static int runtimeConfidence(BillingRuntimeState runtime) {
+    switch (runtime) {
+      case BillingRuntimeState.active:
+        return 4;
+      case BillingRuntimeState.recovering:
+        return 3;
+      case BillingRuntimeState.syncing:
+        return 2;
+      case BillingRuntimeState.init:
+        return 1;
+      case BillingRuntimeState.ending:
+      case BillingRuntimeState.settled:
+      case BillingRuntimeState.failed:
+        return 0;
+    }
+  }
+
+  static bool isHigherConfidenceRuntime(
+    BillingRuntimeState current,
+    BillingRuntimeState incoming,
+  ) {
+    return runtimeConfidence(incoming) > runtimeConfidence(current);
+  }
+
+  static bool isBootstrappingPayload(Map<String, dynamic> envelope) {
+    return envelope['status']?.toString() == 'bootstrapping';
+  }
+
+  /// Authoritative recover snapshot: server session anchor + live lifecycle.
+  ///
+  /// `callStartTime` validates payload shape from server — not client reconnect truth.
+  static bool isAuthoritativeRecoverPayload(Map<String, dynamic> entry) {
+    final startMs = _readIntMs(entry['callStartTime']);
+    if (startMs == null || startMs <= 0) return false;
+    final lifecycle =
+        entry['lifecycleState']?.toString().toUpperCase() ?? '';
+    return lifecycle == 'ACTIVE' ||
+        lifecycle == 'RECOVERING' ||
+        lifecycle == 'SETTLING';
+  }
+
+  /// Equal-sequence merge is normally stale replay; allow only when the
+  /// reducer is stuck in convergence (`syncing`/`recovering`) and the
+  /// recovery snapshot can re-hydrate authoritative billing fields.
+  ///
+  /// Regression risk: must never run for `billing:update` / `billing:started`.
+  static bool canRehydrateEqualSequenceRecover({
+    required CallBillingState state,
+    required String expectedCallId,
+    required Map<String, dynamic> entry,
+  }) {
+    final seq = (entry['billingSequence'] as num?)?.toInt() ?? 0;
+    if (seq <= 0 || seq != state.billingSequence) return false;
+    if (state.callId != expectedCallId) return false;
+    if (state.runtimeState != BillingRuntimeState.syncing &&
+        state.runtimeState != BillingRuntimeState.recovering) {
+      return false;
+    }
+    return isAuthoritativeRecoverPayload(entry);
+  }
+
+  /// True when envelope is strictly newer than the last applied recovery.
+  static bool recoveryEnvelopeIsNewer({
+    required Map<String, dynamic> envelope,
+    required BillingRecoveryTracking tracking,
+  }) {
+    final reqId = (envelope['recoveryRequestId'] as num?)?.toInt();
+    final genMs = _readIntMs(envelope['generatedAtMs']);
+    final latestReq = tracking.latestRecoveryRequestId;
+    final latestGen = tracking.latestGeneratedAtMs;
+
+    if (reqId != null && latestReq != null) {
+      if (reqId > latestReq) return true;
+      return false;
+    }
+    if (genMs != null && latestGen != null && genMs > latestGen) {
+      return true;
+    }
+    return latestReq == null && latestGen == null;
+  }
+
+  /// True when recover entry fields differ materially from local state.
+  static bool recoverFieldsMateriallyDiffer({
+    required CallBillingState state,
+    required Map<String, dynamic> entry,
+  }) {
+    final entryCoins = entry['coins'];
+    if (entryCoins != null &&
+        (entryCoins as num).toInt() != state.userCoins) {
+      return true;
+    }
+    final entryEarnings = entry['earnings'];
+    if (entryEarnings != null &&
+        (entryEarnings as num).toDouble() != state.creatorEarnings) {
+      return true;
+    }
+    final entryElapsed = entry['elapsedSeconds'];
+    if (entryElapsed != null &&
+        (entryElapsed as num).toInt() != state.elapsedSeconds) {
+      return true;
+    }
+    final entryTs = _readIntMs(entry['serverTimestamp']);
+    if (entryTs != null && entryTs != state.lastServerTimestampMs) {
+      return true;
+    }
+    final entryLifecycle =
+        entry['lifecycleState']?.toString().toUpperCase() ?? '';
+    if (entryLifecycle.isNotEmpty &&
+        entryLifecycle != state.lifecycleState.toUpperCase()) {
+      return true;
+    }
+    final entryRemaining = entry['remainingSeconds'];
+    if (entryRemaining != null &&
+        state.remainingSeconds != null &&
+        (entryRemaining as num).toInt() != state.remainingSeconds) {
+      return true;
+    }
+    return false;
+  }
+
+  /// Equal-sequence recover while ACTIVE: convergence refresh, not replay.
+  static bool shouldApplyEqualSequenceRefresh({
+    required CallBillingState state,
+    required String expectedCallId,
+    required Map<String, dynamic> envelope,
+    required Map<String, dynamic> entry,
+    required BillingRecoveryTracking tracking,
+  }) {
+    final seq = (entry['billingSequence'] as num?)?.toInt() ?? 0;
+    if (seq <= 0 || seq != state.billingSequence) return false;
+    if (state.callId != expectedCallId) return false;
+    if (state.runtimeState != BillingRuntimeState.active) return false;
+    if (isTerminalBillingState(state.runtimeState)) return false;
+    final lifecycle = entry['lifecycleState']?.toString().toUpperCase() ?? '';
+    if (lifecycle != 'ACTIVE') return false;
+    if (!isAuthoritativeRecoverPayload(entry)) return false;
+    if (!recoveryEnvelopeIsNewer(envelope: envelope, tracking: tracking)) {
+      return false;
+    }
+    return recoverFieldsMateriallyDiffer(state: state, entry: entry);
+  }
+
+  /// Reject delayed/out-of-order/duplicate recovery envelopes.
+  ///
+  /// Applies only to recovery responses — not billing tick updates.
+  static bool isOlderRecoveryResponse({
+    required Map<String, dynamic> envelope,
+    required BillingRecoveryTracking tracking,
+  }) {
+    final reqId = (envelope['recoveryRequestId'] as num?)?.toInt();
+    final genMs = _readIntMs(envelope['generatedAtMs']);
+    final latestReq = tracking.latestRecoveryRequestId;
+    final latestGen = tracking.latestGeneratedAtMs;
+
+    if (reqId != null && latestReq != null) {
+      if (reqId < latestReq) return true;
+      if (reqId == latestReq) return true;
+    }
+    if (genMs != null && latestGen != null && genMs < latestGen) {
+      return true;
+    }
+    return false;
+  }
+
+  /// Bootstrapping / lower-confidence recover must not regress ACTIVE.
+  static bool shouldPreventActiveDowngrade({
+    required CallBillingState state,
+    required BillingRuntimeState targetRuntime,
+  }) {
+    return runtimeConfidence(state.runtimeState) >
+        runtimeConfidence(targetRuntime);
+  }
+
+  /// `billing:update` may promote `syncing` → `active` when authoritative.
+  static bool canPromoteFromUpdate({
+    required CallBillingState state,
+    required Map<String, dynamic> data,
+  }) {
+    if (state.runtimeState != BillingRuntimeState.syncing &&
+        state.runtimeState != BillingRuntimeState.recovering) {
+      return false;
+    }
+    final eventCallId = data['callId'] as String?;
+    if (eventCallId == null ||
+        eventCallId.isEmpty ||
+        eventCallId != state.callId) {
+      return false;
+    }
+    final incoming = (data['billingSequence'] as num?)?.toInt() ?? 0;
+    if (incoming > 0 && incoming < state.billingSequence) return false;
+    final hasCoins = data['coins'] != null;
+    final hasElapsed = data['elapsedSeconds'] != null;
+    final hasTs = _readIntMs(data['serverTimestamp']) != null;
+    if (!hasCoins && !(hasElapsed && hasTs)) return false;
+    final lifecycle =
+        data['lifecycleState']?.toString().toUpperCase() ?? 'ACTIVE';
+    if (lifecycle == 'SETTLED' || lifecycle == 'ENDED') return false;
+    return true;
+  }
+
+  /// Global stale gate for non-recovery events (strict `<=`).
+  static bool shouldRejectStaleEventSequence({
+    required CallBillingState state,
+    required Map<String, dynamic> data,
+  }) {
+    final incoming = (data['billingSequence'] as num?)?.toInt() ?? 0;
+    if (incoming <= 0) {
+      return state.billingSequence > 0;
+    }
+    return incoming <= state.billingSequence;
+  }
+
+  /// Recovery merge sequence gate: reject lower; equal only via rehydrate/refresh.
+  static bool shouldRejectRecoverMergeSequence({
+    required CallBillingState state,
+    required Map<String, dynamic> entry,
+    required String expectedCallId,
+    required Map<String, dynamic> envelope,
+    required BillingRecoveryTracking tracking,
+  }) {
+    final seq = (entry['billingSequence'] as num?)?.toInt() ?? 0;
+    if (seq <= 0) return false;
+    if (seq < state.billingSequence) return true;
+    if (seq > state.billingSequence) return false;
+    if (canRehydrateEqualSequenceRecover(
+      state: state,
+      expectedCallId: expectedCallId,
+      entry: entry,
+    )) {
+      return false;
+    }
+    if (shouldApplyEqualSequenceRefresh(
+      state: state,
+      expectedCallId: expectedCallId,
+      envelope: envelope,
+      entry: entry,
+      tracking: tracking,
+    )) {
+      return false;
+    }
+    return true;
+  }
+
+  /// Equal-seq recover blocked on ACTIVE because snapshot matches local fields.
+  static bool isActiveEqualSeqRejectedNoMaterialChange({
+    required CallBillingState state,
+    required String expectedCallId,
+    required Map<String, dynamic> envelope,
+    required Map<String, dynamic> entry,
+    required BillingRecoveryTracking tracking,
+  }) {
+    final seq = (entry['billingSequence'] as num?)?.toInt() ?? 0;
+    if (seq <= 0 || seq != state.billingSequence) return false;
+    if (state.runtimeState != BillingRuntimeState.active) return false;
+    if (state.callId != expectedCallId) return false;
+    final lifecycle = entry['lifecycleState']?.toString().toUpperCase() ?? '';
+    if (lifecycle != 'ACTIVE') return false;
+    if (!isAuthoritativeRecoverPayload(entry)) return false;
+    if (!recoveryEnvelopeIsNewer(envelope: envelope, tracking: tracking)) {
+      return false;
+    }
+    return !recoverFieldsMateriallyDiffer(state: state, entry: entry);
+  }
+}
+
+/// Result of applying a recovery envelope (for tests and reducer).
+enum BillingRecoveryApplyOutcome {
+  applied,
+  rejectedOlder,
+  rejectedDowngrade,
+  rejectedStaleSequence,
+  rejectedNotAuthoritative,
+  rejectedNotSuccess,
+  bootstrapping,
+  duplicate,
+  rejectedNoMaterialChange,
+}
+
+class BillingRecoveryMergeResult {
+  final CallBillingState state;
+  final BillingRecoveryApplyOutcome outcome;
+  final BillingRecoveryTracking tracking;
+
+  const BillingRecoveryMergeResult({
+    required this.state,
+    required this.outcome,
+    required this.tracking,
+  });
+}
+
+/// Deterministic recovery merge used by [CallBillingNotifier.mergeRecoverPayload].
+class BillingRecoveryMerge {
+  static BillingRecoveryMergeResult apply({
+    required CallBillingState state,
+    required BillingRecoveryTracking tracking,
+    required Map<String, dynamic> envelope,
+    required String expectedCallId,
+  }) {
+    final ok = envelope['success'] == true;
+    if (!ok) {
+      return BillingRecoveryMergeResult(
+        state: state,
+        outcome: BillingRecoveryApplyOutcome.rejectedNotSuccess,
+        tracking: tracking,
+      );
+    }
+
+    final status = envelope['status']?.toString();
+    if (status == 'bootstrapping') {
+      if (BillingConvergencePolicy.isOlderRecoveryResponse(
+        envelope: envelope,
+        tracking: tracking,
+      )) {
+        return BillingRecoveryMergeResult(
+          state: state,
+          outcome: BillingRecoveryApplyOutcome.rejectedOlder,
+          tracking: tracking,
+        );
+      }
+      if (BillingConvergencePolicy.shouldPreventActiveDowngrade(
+        state: state,
+        targetRuntime: BillingRuntimeState.syncing,
+      )) {
+        return BillingRecoveryMergeResult(
+          state: state,
+          outcome: BillingRecoveryApplyOutcome.rejectedDowngrade,
+          tracking: tracking,
+        );
+      }
+      tracking.recordApplied(envelope);
+      return BillingRecoveryMergeResult(
+        state: state.copyWith(
+          runtimeState: BillingRuntimeState.syncing,
+          callId: expectedCallId,
+        ),
+        outcome: BillingRecoveryApplyOutcome.bootstrapping,
+        tracking: tracking,
+      );
+    }
+
+    final list = envelope['activeCalls'];
+    if (list is! List || list.isEmpty) {
+      return BillingRecoveryMergeResult(
+        state: state,
+        outcome: BillingRecoveryApplyOutcome.rejectedNotSuccess,
+        tracking: tracking,
+      );
+    }
+
+    Map<String, dynamic>? entry;
+    for (final item in list) {
+      if (item is! Map) continue;
+      final map = Map<String, dynamic>.from(
+        item.map((k, v) => MapEntry(k.toString(), v)),
+      );
+      if (map['callId'] == expectedCallId) {
+        entry = map;
+        break;
+      }
+    }
+    if (entry == null) {
+      return BillingRecoveryMergeResult(
+        state: state,
+        outcome: BillingRecoveryApplyOutcome.rejectedNotSuccess,
+        tracking: tracking,
+      );
+    }
+
+    final envelopeKey = BillingRecoveryTracking.envelopeKey(
+      expectedCallId,
+      envelope,
+      entry,
+    );
+    if (tracking.hasAppliedEnvelope(envelopeKey)) {
+      return BillingRecoveryMergeResult(
+        state: state,
+        outcome: BillingRecoveryApplyOutcome.duplicate,
+        tracking: tracking,
+      );
+    }
+
+    if (BillingConvergencePolicy.isOlderRecoveryResponse(
+      envelope: envelope,
+      tracking: tracking,
+    )) {
+      final reqId = (envelope['recoveryRequestId'] as num?)?.toInt();
+      if (reqId != null && reqId == tracking.latestRecoveryRequestId) {
+        return BillingRecoveryMergeResult(
+          state: state,
+          outcome: BillingRecoveryApplyOutcome.duplicate,
+          tracking: tracking,
+        );
+      }
+      return BillingRecoveryMergeResult(
+        state: state,
+        outcome: BillingRecoveryApplyOutcome.rejectedOlder,
+        tracking: tracking,
+      );
+    }
+
+    if (BillingConvergencePolicy.isActiveEqualSeqRejectedNoMaterialChange(
+      state: state,
+      expectedCallId: expectedCallId,
+      envelope: envelope,
+      entry: entry,
+      tracking: tracking,
+    )) {
+      return BillingRecoveryMergeResult(
+        state: state,
+        outcome: BillingRecoveryApplyOutcome.rejectedNoMaterialChange,
+        tracking: tracking,
+      );
+    }
+
+    if (BillingConvergencePolicy.shouldRejectRecoverMergeSequence(
+      state: state,
+      entry: entry,
+      expectedCallId: expectedCallId,
+      envelope: envelope,
+      tracking: tracking,
+    )) {
+      return BillingRecoveryMergeResult(
+        state: state,
+        outcome: BillingRecoveryApplyOutcome.rejectedStaleSequence,
+        tracking: tracking,
+      );
+    }
+
+    if (!BillingConvergencePolicy.isAuthoritativeRecoverPayload(entry)) {
+      return BillingRecoveryMergeResult(
+        state: state,
+        outcome: BillingRecoveryApplyOutcome.rejectedNotAuthoritative,
+        tracking: tracking,
+      );
+    }
+
+    final coins = (entry['coins'] as num?)?.toInt() ?? state.userCoins;
+    final earnings =
+        (entry['earnings'] as num?)?.toDouble() ?? state.creatorEarnings;
+    final elapsed =
+        (entry['elapsedSeconds'] as num?)?.toInt() ?? state.elapsedSeconds;
+    final remaining = (entry['remainingSeconds'] as num?)?.toInt();
+    final pricePerSecond = entry['pricePerSecond'] as num? ?? state.pricePerSecond;
+    final serverTs = _readIntMs(entry['serverTimestamp']);
+    final startMs = _readIntMs(entry['callStartTime']);
+    final seq = (entry['billingSequence'] as num?)?.toInt() ?? 0;
+    final lifecycleState =
+        entry['lifecycleState']?.toString() ?? state.lifecycleState;
+
+    tracking.recordApplied(envelope);
+    tracking.recordAppliedEnvelope(envelopeKey);
+    final merged = state.copyWith(
+      runtimeState: BillingRuntimeState.active,
+      callId: expectedCallId,
+      billingSequence: seq > 0 ? seq : state.billingSequence,
+      lifecycleState: lifecycleState,
+      userCoins: coins,
+      creatorEarnings: earnings,
+      elapsedSeconds: elapsed,
+      remainingSeconds: remaining ?? state.remainingSeconds,
+      pricePerSecond: pricePerSecond,
+      lastServerTimestampMs: serverTs ?? state.lastServerTimestampMs,
+      callStartTimeMs: startMs ?? state.callStartTimeMs,
+    );
+    return BillingRecoveryMergeResult(
+      state: merged,
+      outcome: BillingRecoveryApplyOutcome.applied,
+      tracking: tracking,
+    );
+  }
 }
 
 // ── Notifier ───────────────────────────────────────────────────────────────
@@ -182,9 +765,16 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
   DateTime? _lastOrphanRecoveryEmit;
   bool _syncWarningReportedForCurrentCall = false;
   bool _stuckEndRequested = false;
+  final BillingRecoveryTracking _recoveryTracking = BillingRecoveryTracking();
 
   CallBillingNotifier(this._ref) : super(const CallBillingState()) {
     _onSocketReconnected = () {
+      if (shouldRejectEventAfterTerminal(
+        state: state,
+        eventCallId: state.callId,
+      )) {
+        return;
+      }
       requestBillingRecoveryForActiveCall();
       _ref
           .read(callConnectionControllerProvider.notifier)
@@ -202,10 +792,118 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
   int _readSequence(Map<String, dynamic> data) =>
       (data['billingSequence'] as num?)?.toInt() ?? 0;
 
+  void _logRecoveryDrop(
+    String reason, {
+    String? expectedCallId,
+    Map<String, dynamic>? payload,
+  }) {
+    SentryService.addThrottledBreadcrumb(
+      category: 'billing.recover',
+      message: 'billing_recover_drop',
+      data: {
+        'reason': reason,
+        if (expectedCallId != null) 'expected_call_id': expectedCallId,
+        if (payload != null) 'status': payload['status']?.toString(),
+        if (payload != null) 'response_reason': payload['reason']?.toString(),
+        if (payload != null)
+          'recovery_outcome': payload['recoveryOutcome']?.toString(),
+        if (payload != null)
+          'client_recovery_request_id':
+              payload['clientRecoveryRequestId']?.toString(),
+      },
+    );
+  }
+
+  void _recordRecoveryOutcomeTag(Map<String, dynamic> data) {
+    final outcome = data['recoveryOutcome']?.toString();
+    if (outcome == null || outcome.isEmpty) return;
+    SentryService.addThrottledBreadcrumb(
+      category: 'billing.recover',
+      message: 'billing_recovery_outcome',
+      data: {
+        'recovery_outcome': outcome,
+        'status': data['status']?.toString(),
+        'reason': data['reason']?.toString(),
+      },
+    );
+  }
+
+  void _recordClientRecoveryOutcome(String outcome, {String? reason}) {
+    SentryService.addThrottledBreadcrumb(
+      category: 'billing.recover',
+      message: 'billing_recovery_outcome_client',
+      data: {
+        'recovery_outcome': outcome,
+        if (reason != null) 'reason': reason,
+      },
+    );
+  }
+
+  void _addConvergenceBreadcrumb(String message, {Map<String, Object?>? data}) {
+    SentryService.addThrottledBreadcrumb(
+      category: 'billing.convergence',
+      message: message,
+      data: data,
+    );
+  }
+
+  bool _canPromoteFromUpdate(Map<String, dynamic> data) =>
+      BillingConvergencePolicy.canPromoteFromUpdate(state: state, data: data);
+
   bool _shouldIgnoreStaleBySequence(Map<String, dynamic> data) {
-    final incoming = _readSequence(data);
-    if (incoming <= 0) return false;
-    return incoming <= state.billingSequence;
+    final stale = BillingConvergencePolicy.shouldRejectStaleEventSequence(
+      state: state,
+      data: data,
+    );
+    if (stale) {
+      _recordClientRecoveryOutcome('recover_stale_sequence', reason: 'sequence_gate');
+      _logRecoveryDrop(
+        'stale_sequence',
+        expectedCallId: state.callId,
+        payload: data,
+      );
+    }
+    return stale;
+  }
+
+  /// Connected call without live billing: prefer `recovering` and drop stale anchors.
+  void _enterReconnectConvergenceWait() {
+    final hadPriorBillingEvidence = hadPriorBillingEvidenceForReconnect(state);
+    if (hadPriorBillingEvidence) {
+      if (state.runtimeState != BillingRuntimeState.recovering) {
+        state = state.copyWith(
+          runtimeState: BillingRuntimeState.recovering,
+          clearCallStartTimeMs: true,
+        );
+      }
+      return;
+    }
+    if (state.runtimeState == BillingRuntimeState.init) {
+      state = state.copyWith(runtimeState: BillingRuntimeState.syncing);
+      return;
+    }
+    if (state.runtimeState != BillingRuntimeState.syncing &&
+        state.runtimeState != BillingRuntimeState.recovering) {
+      state = state.copyWith(runtimeState: BillingRuntimeState.syncing);
+    }
+  }
+
+  bool _rejectIfTerminalLiveEvent(
+    Map<String, dynamic> data, {
+    required String eventKind,
+  }) {
+    final eventCallId = data['callId'] as String?;
+    if (!shouldRejectEventAfterTerminal(
+      state: state,
+      eventCallId: eventCallId,
+    )) {
+      return false;
+    }
+    debugPrint(
+      '💰 [BILLING] Ignoring $eventKind — terminal runtime (${state.runtimeState.name}) callId=${state.callId}',
+    );
+    _logRecoveryDrop('terminal_runtime_reject', payload: data);
+    return true;
   }
 
   void _startBillingRecoveryRetry() {
@@ -215,10 +913,17 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
   }
 
   void _requestBillingRecoveryWithBackoff() {
+    if (shouldRejectEventAfterTerminal(
+      state: state,
+      eventCallId: state.callId,
+    )) {
+      _stopBillingRecoveryRetry();
+      return;
+    }
     final isLive =
         state.runtimeState == BillingRuntimeState.active ||
         state.runtimeState == BillingRuntimeState.recovering;
-    if (isLive && state.callStartTimeMs != null) return;
+    if (isLive) return;
     if (_billingRecoveryAttempts >= _maxBillingRecoveryAttempts) {
       debugPrint(
         '💰 [BILLING] billing_recovery_failed attempts=$_billingRecoveryAttempts callId=${state.callId}',
@@ -226,11 +931,15 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
       return;
     }
     _billingRecoveryAttempts += 1;
+    BillingConvergenceMetrics.instance.onRecoverRetry();
     final socketService = _ref.read(socketServiceProvider);
     debugPrint(
       '💰 [BILLING] billing_recovery_requested attempt=$_billingRecoveryAttempts callId=${state.callId}',
     );
-    socketService.requestBillingStateRecovery();
+    socketService.requestBillingStateRecovery(
+      callId: state.callId,
+      phase: 'backoff_retry',
+    );
 
     final nextDelaySeconds = math.min(5, 1 << (_billingRecoveryAttempts - 1));
     _billingRecoveryRetryTimer = Timer(
@@ -255,19 +964,23 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
       _lastOrphanRecoveryEmit = null;
       return;
     }
+    if (shouldRejectEventAfterTerminal(
+      state: state,
+      eventCallId: state.callId,
+    )) {
+      return;
+    }
     final isLive =
         state.runtimeState == BillingRuntimeState.active ||
         state.runtimeState == BillingRuntimeState.recovering;
-    if (isLive || state.callStartTimeMs != null) {
+    if (isLive) {
       _connectedStuckSince = null;
       _syncWarningReportedForCurrentCall = false;
       _stuckEndRequested = false;
       _lastOrphanRecoveryEmit = null;
       return;
     }
-    if (state.runtimeState != BillingRuntimeState.syncing) {
-      state = state.copyWith(runtimeState: BillingRuntimeState.syncing);
-    }
+    _enterReconnectConvergenceWait();
 
     final activeCallId = conn.call?.id;
     if (activeCallId != null &&
@@ -340,8 +1053,18 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
     if (activeCallId != null && activeCallId.isNotEmpty) {
       state = state.copyWith(callId: activeCallId);
     }
+    if (shouldRejectEventAfterTerminal(
+      state: state,
+      eventCallId: activeCallId ?? state.callId,
+    )) {
+      return;
+    }
+    BillingConvergenceMetrics.instance.onRecoverRequest();
     final socketService = _ref.read(socketServiceProvider);
-    socketService.requestBillingStateRecovery();
+    socketService.requestBillingStateRecovery(
+      callId: activeCallId,
+      phase: conn.phase.name,
+    );
 
     if (!socketService.isConnected) {
       final firebaseUser = _ref.read(authProvider).firebaseUser;
@@ -368,15 +1091,24 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
 
     socketService.onBillingError = (data) {
       debugPrint('❌ [BILLING] billing:error: $data');
+      if (_rejectIfTerminalLiveEvent(data, eventKind: 'billing:error')) return;
       state = state.copyWith(runtimeState: BillingRuntimeState.failed);
-      requestBillingRecoveryForActiveCall();
-      _startBillingRecoveryRetry();
+      if (!shouldRejectEventAfterTerminal(
+        state: state,
+        eventCallId: data['callId'] as String?,
+      )) {
+        requestBillingRecoveryForActiveCall();
+        _startBillingRecoveryRetry();
+      }
     };
 
     socketService.onBillingUpdate = (data) {
-      if (_shouldIgnoreStaleBySequence(data)) return;
-      if (state.runtimeState == BillingRuntimeState.init ||
-          state.runtimeState == BillingRuntimeState.syncing) {
+      if (_rejectIfTerminalLiveEvent(data, eventKind: 'billing:update')) return;
+      final promote = _canPromoteFromUpdate(data);
+      if (!promote && _shouldIgnoreStaleBySequence(data)) return;
+      if (!promote &&
+          (state.runtimeState == BillingRuntimeState.init ||
+              state.runtimeState == BillingRuntimeState.syncing)) {
         return;
       }
 
@@ -399,6 +1131,16 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
           data['lifecycleState']?.toString() ?? state.lifecycleState;
       final seq = _readSequence(data);
 
+      if (promote) {
+        _addConvergenceBreadcrumb(
+          'syncing_promoted_by_update',
+          data: {
+            'call_id': eventCallId,
+            'billing_sequence': seq,
+          },
+        );
+      }
+
       state = state.copyWith(
         runtimeState: BillingRuntimeState.active,
         billingSequence: seq > 0 ? seq : state.billingSequence,
@@ -411,6 +1153,9 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
         lastServerTimestampMs: serverTs ?? state.lastServerTimestampMs,
         callStartTimeMs: startMs ?? state.callStartTimeMs,
       );
+      if (promote) {
+        _stopBillingRecoveryRetry();
+      }
     };
 
     socketService.onBillingSettled = (data) {
@@ -465,6 +1210,7 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
 
   void applyBillingStartedPayload(Map<String, dynamic> data) {
     debugPrint('💰 [BILLING] Started: $data');
+    if (_rejectIfTerminalLiveEvent(data, eventKind: 'billing:started')) return;
     if (_shouldIgnoreStaleBySequence(data)) return;
     _stopBillingRecoveryRetry();
     final callId = data['callId'] as String?;
@@ -499,6 +1245,27 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
   }
 
   void _onBillingRecoverState(Map<String, dynamic> data) {
+    _recordRecoveryOutcomeTag(data);
+    final status = data['status']?.toString();
+    if (status == 'suppressed') {
+      _recordClientRecoveryOutcome('recover_suppressed', reason: 'suppressed');
+      _logRecoveryDrop('suppressed', payload: data);
+      _billingRecoveryRetryTimer?.cancel();
+      _billingRecoveryRetryTimer = Timer(const Duration(milliseconds: 500), () {
+        requestBillingRecoveryForActiveCall();
+      });
+      return;
+    }
+    if (status == 'no_active_call') {
+      final conn = _ref.read(callConnectionControllerProvider);
+      if (conn.phase == CallConnectionPhase.connected) {
+        _recordClientRecoveryOutcome('recover_empty', reason: 'no_active_call_connected');
+        _logRecoveryDrop('no_active_call_while_connected', payload: data);
+        _startBillingRecoveryRetry();
+      }
+      return;
+    }
+
     var expected = state.callId;
     if (expected == null) {
       final list = data['activeCalls'];
@@ -508,6 +1275,7 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
     }
     if (expected == null || expected.isEmpty) {
       debugPrint('💰 [BILLING] Recover skipped — could not resolve callId');
+      _logRecoveryDrop('missing_expected_call_id', payload: data);
       return;
     }
     mergeRecoverPayload(data, expectedCallId: expected);
@@ -518,70 +1286,147 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
     Map<String, dynamic> data, {
     required String expectedCallId,
   }) {
-    final ok = data['success'] == true;
-    if (!ok) return;
-    final list = data['activeCalls'];
-    if (list is! List || list.isEmpty) return;
-
-    Map<String, dynamic>? m;
-    for (final item in list) {
-      if (item is! Map) continue;
-      final map = Map<String, dynamic>.from(
-        item.map((k, v) => MapEntry(k.toString(), v)),
+    if (shouldRejectEventAfterTerminal(
+      state: state,
+      eventCallId: expectedCallId,
+    )) {
+      _logRecoveryDrop(
+        'terminal_runtime_reject',
+        expectedCallId: expectedCallId,
+        payload: data,
       );
-      if (map['callId'] == expectedCallId) {
-        m = map;
-        break;
-      }
+      return;
     }
-    if (m == null) {
-      debugPrint('💰 [BILLING] Recover: no entry for callId=$expectedCallId');
+    final ok = data['success'] == true;
+    if (!ok) {
+      _recordClientRecoveryOutcome('recover_emit_skipped', reason: 'recover_not_success');
+      _logRecoveryDrop('recover_not_success', expectedCallId: expectedCallId, payload: data);
+      return;
+    }
+    final status = data['status']?.toString();
+    if (status == 'invalid_tuple') {
+      _recordClientRecoveryOutcome('recover_tuple_invalid', reason: 'status_invalid_tuple');
+      _logRecoveryDrop('invalid_tuple', expectedCallId: expectedCallId, payload: data);
+      _startBillingRecoveryRetry();
       return;
     }
 
-    final coins = (m['coins'] as num?)?.toInt() ?? state.userCoins;
-    final earnings =
-        (m['earnings'] as num?)?.toDouble() ?? state.creatorEarnings;
-    final elapsed =
-        (m['elapsedSeconds'] as num?)?.toInt() ?? state.elapsedSeconds;
-    final remaining = (m['remainingSeconds'] as num?)?.toInt();
-    final pricePerSecond = m['pricePerSecond'] as num? ?? state.pricePerSecond;
-    final serverTs = _readIntMs(m['serverTimestamp']);
-    final startMs = _readIntMs(m['callStartTime']);
-    final seq = (m['billingSequence'] as num?)?.toInt() ?? 0;
-    if (seq > 0 && seq <= state.billingSequence) {
-      return;
-    }
-    final lifecycleState =
-        m['lifecycleState']?.toString() ?? state.lifecycleState;
+    final mergeResult = BillingRecoveryMerge.apply(
+      state: state,
+      tracking: _recoveryTracking,
+      envelope: data,
+      expectedCallId: expectedCallId,
+    );
 
-    state = state.copyWith(
-      runtimeState: BillingRuntimeState.recovering,
-      callId: expectedCallId,
-      billingSequence: seq > 0 ? seq : state.billingSequence,
-      lifecycleState: lifecycleState,
-      userCoins: coins,
-      creatorEarnings: earnings,
-      elapsedSeconds: elapsed,
-      remainingSeconds: remaining ?? state.remainingSeconds,
-      pricePerSecond: pricePerSecond,
-      lastServerTimestampMs: serverTs ?? state.lastServerTimestampMs,
-      callStartTimeMs: startMs ?? state.callStartTimeMs,
-    );
-    state = state.copyWith(runtimeState: BillingRuntimeState.active);
-    _stopBillingRecoveryRetry();
-    debugPrint(
-      '💰 [BILLING] billing_recovery_succeeded callId=$expectedCallId',
-    );
-    debugPrint('💰 [BILLING] Recovered state for call $expectedCallId');
+    switch (mergeResult.outcome) {
+      case BillingRecoveryApplyOutcome.bootstrapping:
+        _recordClientRecoveryOutcome('recover_bootstrapping', reason: 'status_bootstrapping');
+        state = mergeResult.state;
+        _logRecoveryDrop('bootstrapping_wait', expectedCallId: expectedCallId, payload: data);
+        _startBillingRecoveryRetry();
+        return;
+      case BillingRecoveryApplyOutcome.rejectedOlder:
+        _addConvergenceBreadcrumb(
+          'recovery_order_rejected',
+          data: {'call_id': expectedCallId},
+        );
+        _addConvergenceBreadcrumb(
+          'stale_recovery_rejected',
+          data: {'call_id': expectedCallId},
+        );
+        _logRecoveryDrop(
+          'stale_recovery_response',
+          expectedCallId: expectedCallId,
+          payload: data,
+        );
+        return;
+      case BillingRecoveryApplyOutcome.rejectedDowngrade:
+        _addConvergenceBreadcrumb(
+          'active_downgrade_prevented',
+          data: {'status': status},
+        );
+        _addConvergenceBreadcrumb(
+          'recovery_confidence_rejected',
+          data: {'status': status},
+        );
+        _logRecoveryDrop(
+          'bootstrapping_downgrade_blocked',
+          expectedCallId: expectedCallId,
+          payload: data,
+        );
+        return;
+      case BillingRecoveryApplyOutcome.duplicate:
+        BillingConvergenceMetrics.instance.onRecoverDuplicate();
+        return;
+      case BillingRecoveryApplyOutcome.rejectedNoMaterialChange:
+        return;
+      case BillingRecoveryApplyOutcome.rejectedStaleSequence:
+        _recordClientRecoveryOutcome('recover_stale_sequence', reason: 'merge_gate');
+        _logRecoveryDrop(
+          'stale_sequence_merge_drop',
+          expectedCallId: expectedCallId,
+          payload: data,
+        );
+        return;
+      case BillingRecoveryApplyOutcome.rejectedNotAuthoritative:
+        _logRecoveryDrop(
+          'recover_not_authoritative',
+          expectedCallId: expectedCallId,
+          payload: data,
+        );
+        return;
+      case BillingRecoveryApplyOutcome.rejectedNotSuccess:
+        if (status != 'bootstrapping') {
+          _recordClientRecoveryOutcome('recover_empty', reason: 'empty_payload');
+          _logRecoveryDrop('empty_active_calls', expectedCallId: expectedCallId, payload: data);
+          _startBillingRecoveryRetry();
+        } else {
+          _logRecoveryDrop('call_id_mismatch', expectedCallId: expectedCallId, payload: data);
+        }
+        return;
+      case BillingRecoveryApplyOutcome.applied:
+        final seq = mergeResult.state.billingSequence;
+        final priorRuntime = state.runtimeState;
+        if (seq > 0 && seq == state.billingSequence) {
+          if (priorRuntime == BillingRuntimeState.active) {
+            _addConvergenceBreadcrumb(
+              'equal_sequence_active_refresh',
+              data: {
+                'call_id': expectedCallId,
+                'billing_sequence': seq,
+              },
+            );
+          } else {
+            _addConvergenceBreadcrumb(
+              'equal_sequence_rehydrate_allowed',
+              data: {
+                'call_id': expectedCallId,
+                'billing_sequence': seq,
+              },
+            );
+          }
+        }
+        state = mergeResult.state;
+        _stopBillingRecoveryRetry();
+        BillingConvergenceMetrics.instance.onRecoverApplied();
+        _recordClientRecoveryOutcome('recover_success', reason: 'merge_applied');
+        debugPrint(
+          '💰 [BILLING] billing_recovery_succeeded callId=$expectedCallId',
+        );
+        debugPrint('💰 [BILLING] Recovered state for call $expectedCallId');
+        return;
+    }
   }
 
   void reset() {
+    BillingConvergenceMetrics.instance.flushToSentry(callId: state.callId);
     _stopBillingRecoveryRetry();
     _connectedStuckSince = null;
     _syncWarningReportedForCurrentCall = false;
     _stuckEndRequested = false;
     _lastOrphanRecoveryEmit = null;
+    _recoveryTracking.reset();
+    BillingConvergenceMetrics.instance.reset();
     state = const CallBillingState();
   }
 

@@ -15,6 +15,10 @@ import '../../core/services/availability_socket_service.dart'
 import '../../shared/providers/image_service_degraded_provider.dart';
 import '../../features/creator/providers/creator_dashboard_provider.dart';
 import '../../features/video/controllers/call_connection_controller.dart';
+import '../../features/video/providers/call_billing_provider.dart';
+import '../../features/video/providers/call_billing_selectors.dart';
+import '../../features/home/providers/availability_provider.dart'
+    show socketServiceProvider;
 import '../../features/video/services/call_ringtone_service.dart';
 import '../../features/home/providers/home_provider.dart';
 import '../../shared/widgets/app_modal_dialog.dart';
@@ -883,6 +887,35 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     }
   }
 
+  /// Explicit billing recovery after foreground — do not rely on passive socket timing.
+  Future<void> _recoverBillingAfterForegroundResume() async {
+    final billing = ref.read(callBillingProvider);
+    if (shouldSkipForegroundBillingRecoverOnResume(billing.runtimeState)) {
+      return;
+    }
+    if (shouldForceForegroundBillingRecover(billing.runtimeState)) {
+      debugPrint(
+        '📱 [APP LIFECYCLE] Forcing billing recover on resume — runtime=recovering',
+      );
+    }
+
+    final firebaseUser = ref.read(authProvider).firebaseUser;
+    if (firebaseUser != null) {
+      try {
+        final token = await firebaseUser.getIdToken();
+        if (token != null) {
+          await ref.read(socketServiceProvider).ensureConnected(token);
+        }
+      } catch (e) {
+        debugPrint('⚠️ [APP LIFECYCLE] Billing socket ensureConnected failed: $e');
+      }
+    }
+
+    if (!mounted) return;
+    ref.read(callBillingProvider.notifier).requestBillingRecoveryForActiveCall();
+    ref.read(callConnectionControllerProvider.notifier).retryBillingStartIfNeeded();
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
@@ -908,6 +941,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
           '📱 [APP LIFECYCLE] App resumed with active call (phase: $controllerPhase)',
         );
         debugPrint('   Call screen should already be visible — not navigating');
+        unawaited(_recoverBillingAfterForegroundResume());
       }
 
       // Refresh home feed + profile when app resumes (promotion to creator syncs role)

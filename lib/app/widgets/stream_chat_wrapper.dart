@@ -135,9 +135,10 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
 
     if (role != 'creator') {
       Future<void>(() async {
+        if (!_isConnectGenerationCurrent(generation)) return;
+        await _hydrateFanCreatorPresenceFast(generation);
+        if (!_isConnectGenerationCurrent(generation)) return;
         try {
-          await Future<void>.delayed(const Duration(milliseconds: 200));
-          if (!_isConnectGenerationCurrent(generation)) return;
           final ids = await presenceHydration.collectCreatorFirebaseUids();
           if (!_isConnectGenerationCurrent(generation)) return;
           _requestCreatorAvailabilityInChunks(ids);
@@ -154,7 +155,6 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
     if (role == 'creator' || role == 'admin') {
       Future<void>(() async {
         try {
-          await Future<void>.delayed(const Duration(milliseconds: 200));
           if (!_isConnectGenerationCurrent(generation)) return;
           final ids = await presenceHydration.collectUserFirebaseUids();
           if (!_isConnectGenerationCurrent(generation)) return;
@@ -167,6 +167,23 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
           await _fallbackUserHydration(generation);
         }
       });
+    }
+  }
+
+  /// Phase A: hydrate creators already visible on the home feed (no /creator/uids wait).
+  Future<void> _hydrateFanCreatorPresenceFast(int generation) async {
+    try {
+      final creators = await ref.read(creatorsProvider.future);
+      if (!_isConnectGenerationCurrent(generation)) return;
+      final ids = <String>[
+        for (final c in creators)
+          if (c.firebaseUid != null && c.firebaseUid!.isNotEmpty) c.firebaseUid!,
+      ];
+      if (ids.isNotEmpty) {
+        _requestCreatorAvailabilityInChunks(ids);
+      }
+    } catch (_) {
+      // Feed may not be loaded yet; full UID sweep runs after.
     }
   }
 
@@ -280,7 +297,13 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
           ref.read(streamVideoProvider.notifier).disconnect();
         }
 
-        ref.read(socketServiceProvider).disconnect();
+        final prevUser = prev?.user;
+        final wasCreator = prevUser != null &&
+            (prevUser.role == 'creator' || prevUser.role == 'admin');
+        ref.read(socketServiceProvider).disconnect(
+              emitPresenceOffline: true,
+              isCreator: wasCreator,
+            );
         _socketInitialized = false;
       }
     });

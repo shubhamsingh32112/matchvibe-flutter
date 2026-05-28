@@ -6,6 +6,8 @@ class SupportTicketAttachment {
   final bool isScreenshot;
   final String? dataBase64;
   final String? dataUrl;
+  final String? imageId;
+  final String? url;
 
   SupportTicketAttachment({
     required this.name,
@@ -14,7 +16,15 @@ class SupportTicketAttachment {
     required this.isScreenshot,
     this.dataBase64,
     this.dataUrl,
+    this.imageId,
+    this.url,
   });
+
+  String? get displayUrl {
+    if (url != null && url!.isNotEmpty) return url;
+    if (dataUrl != null && dataUrl!.isNotEmpty) return dataUrl;
+    return null;
+  }
 
   factory SupportTicketAttachment.fromJson(Map<String, dynamic> json) {
     final mimeType = json['mimeType'] as String? ?? 'application/octet-stream';
@@ -30,6 +40,8 @@ class SupportTicketAttachment {
           ((base64 != null && base64.isNotEmpty)
               ? 'data:$mimeType;base64,$base64'
               : null),
+      imageId: json['imageId'] as String?,
+      url: json['url'] as String?,
     );
   }
 
@@ -40,6 +52,8 @@ class SupportTicketAttachment {
       'sizeBytes': sizeBytes,
       'isScreenshot': isScreenshot,
       if (dataBase64 != null) 'dataBase64': dataBase64,
+      if (imageId != null) 'imageId': imageId,
+      if (url != null) 'url': url,
     };
   }
 }
@@ -54,6 +68,9 @@ class SupportTicket {
   final String status; // 'open' | 'in_progress' | 'resolved' | 'closed'
   final String priority; // 'low' | 'medium' | 'high'
   final String? assignedAdminId;
+  final String? contactPhone;
+  final String? adminNotes;
+  final String? source;
   final List<SupportTicketAttachment> attachments;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -68,6 +85,9 @@ class SupportTicket {
     required this.status,
     required this.priority,
     this.assignedAdminId,
+    this.contactPhone,
+    this.adminNotes,
+    this.source,
     this.attachments = const [],
     required this.createdAt,
     required this.updatedAt,
@@ -84,6 +104,9 @@ class SupportTicket {
       status: json['status'] as String? ?? 'open',
       priority: json['priority'] as String? ?? 'medium',
       assignedAdminId: json['assignedAdminId'] as String?,
+      contactPhone: json['contactPhone'] as String?,
+      adminNotes: json['adminNotes'] as String?,
+      source: json['source'] as String?,
       attachments: ((json['attachments'] as List<dynamic>?) ?? const [])
           .whereType<Map>()
           .map(
@@ -93,11 +116,35 @@ class SupportTicket {
           )
           .toList(),
       createdAt: json['createdAt'] != null
-          ? DateTime.parse(json['createdAt'] as String)
+          ? DateTime.parse(json['createdAt'].toString())
           : DateTime.now(),
       updatedAt: json['updatedAt'] != null
-          ? DateTime.parse(json['updatedAt'] as String)
+          ? DateTime.parse(json['updatedAt'].toString())
           : DateTime.now(),
+    );
+  }
+
+  SupportTicket copyWith({
+    String? status,
+    String? adminNotes,
+    DateTime? updatedAt,
+  }) {
+    return SupportTicket(
+      id: id,
+      userId: userId,
+      role: role,
+      category: category,
+      subject: subject,
+      message: message,
+      status: status ?? this.status,
+      priority: priority,
+      assignedAdminId: assignedAdminId,
+      contactPhone: contactPhone,
+      adminNotes: adminNotes ?? this.adminNotes,
+      source: source,
+      attachments: attachments,
+      createdAt: createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 
@@ -124,6 +171,8 @@ class SupportTicket {
         return 'Medium';
       case 'high':
         return 'High';
+      case 'urgent':
+        return 'Urgent';
       default:
         return priority;
     }
@@ -133,6 +182,9 @@ class SupportTicket {
   bool get isInProgress => status == 'in_progress';
   bool get isResolved => status == 'resolved';
   bool get isClosed => status == 'closed';
+
+  bool get hasAdminReply =>
+      adminNotes != null && adminNotes!.trim().isNotEmpty;
 }
 
 /// Available support categories for the dropdown.

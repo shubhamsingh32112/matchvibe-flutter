@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../providers/call_billing_provider.dart';
+import '../providers/call_billing_selectors.dart';
+import '../utils/billing_elapsed_display.dart';
 
 /// Formats billed seconds as `M:SS` (no hours split — rare for caps).
 String formatBillingMmSs(int seconds) {
@@ -53,21 +55,8 @@ class _LiveBillingOverlayState extends State<LiveBillingOverlay> {
     final b = widget.billing;
     final scheme = Theme.of(context).colorScheme;
     final nowMs = DateTime.now().millisecondsSinceEpoch;
-    var displayElapsedSeconds = b.elapsedSeconds;
-    if (b.callStartTimeMs != null) {
-      final wallClockElapsed = ((nowMs - b.callStartTimeMs!) / 1000).floor();
-      if (wallClockElapsed > displayElapsedSeconds) {
-        displayElapsedSeconds = wallClockElapsed;
-      }
-    } else if (b.lastServerTimestampMs != null) {
-      final driftSeconds = ((nowMs - b.lastServerTimestampMs!) / 1000).floor();
-      if (driftSeconds > 0) {
-        displayElapsedSeconds += driftSeconds;
-      }
-    }
-    if (b.durationLimit != null && displayElapsedSeconds > b.durationLimit!) {
-      displayElapsedSeconds = b.durationLimit!;
-    }
+    final displayElapsedSeconds =
+        estimateBillingElapsedSeconds(b, nowMs: nowMs) ?? b.elapsedSeconds;
     final timeLabel = formatBillingMmSs(displayElapsedSeconds);
     final stale =
         b.lastServerTimestampMs != null &&

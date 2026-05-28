@@ -1,13 +1,18 @@
-import 'dart:convert';
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 
 import '../../../app/widgets/main_layout.dart';
+import '../../../core/services/image_upload_service.dart';
+import '../../home/providers/availability_provider.dart';
+import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/styles/app_brand_styles.dart';
+import '../../../shared/widgets/app_network_image.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/brand_app_chrome.dart';
 import '../../../shared/widgets/decorative_asset_image.dart';
@@ -18,6 +23,7 @@ import '../../video/providers/call_billing_selectors.dart';
 import '../models/support_ticket_model.dart';
 import '../providers/support_provider.dart';
 import '../services/support_service.dart';
+import '../utils/support_contact_phone.dart';
 
 /// Legacy wrapper — redirects to full-screen route if still invoked.
 class SupportBottomSheet extends StatelessWidget {
@@ -35,6 +41,8 @@ class SupportBottomSheet extends StatelessWidget {
   }
 }
 
+enum _SupportTab { newTicket, myTickets }
+
 class SupportScreen extends ConsumerStatefulWidget {
   const SupportScreen({super.key});
 
@@ -46,24 +54,57 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
   static const int _maxSubjectLength = 200;
   static const int _maxMessageLength = 1000;
   static const int _maxAttachments = 4;
-  static const int _maxAttachmentBytes = 1500000;
 
   final _formKey = GlobalKey<FormState>();
   final _subjectController = TextEditingController();
   final _messageController = TextEditingController();
+  final _phoneController = TextEditingController();
   final ImagePicker _picker = ImagePicker();
 
+  _SupportTab _tab = _SupportTab.newTicket;
   String _selectedCategory = 'billing';
   String _selectedPriority = 'medium';
-  final List<_SupportAttachmentDraft> _attachments =
-      <_SupportAttachmentDraft>[];
+  final List<_SupportAttachmentDraft> _attachments = <_SupportAttachmentDraft>[];
   _SupportAttachmentDraft? _screenshotAttachment;
+  Timer? _pollTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(supportProvider.notifier).loadTickets();
+    });
+  }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     _subjectController.dispose();
     _messageController.dispose();
+    _phoneController.dispose();
     super.dispose();
+  }
+
+  void _onTabChanged(_SupportTab tab) {
+    setState(() => _tab = tab);
+    if (tab == _SupportTab.myTickets) {
+      ref.read(supportProvider.notifier).loadTickets();
+      _startPollingIfNeeded();
+    } else {
+      _pollTimer?.cancel();
+      _pollTimer = null;
+    }
+  }
+
+  void _startPollingIfNeeded() {
+    _pollTimer?.cancel();
+    if (ref.read(socketServiceProvider).isConnected) return;
+    _pollTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+      if (!mounted || _tab != _SupportTab.myTickets) return;
+      if (!ref.read(socketServiceProvider).isConnected) {
+        ref.read(supportProvider.notifier).loadTickets();
+      }
+    });
   }
 
   @override
@@ -77,10 +118,15 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
         : (user?.coins ?? 0);
     final scheme = Theme.of(context).colorScheme;
 
+    if (_phoneController.text.isEmpty && (user?.phone?.trim().isNotEmpty ?? false)) {
+      _phoneController.text = user!.phone!.trim();
+    }
+
     ref.listen<SupportState>(supportProvider, (prev, next) {
       if (next.successMessage != null &&
           next.successMessage != prev?.successMessage) {
         AppToast.showSuccess(context, next.successMessage!);
+        setState(() => _tab = _SupportTab.myTickets);
       }
       if (next.error != null && next.error != prev?.error) {
         AppToast.showError(context, next.error!);
@@ -99,103 +145,212 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
         color: AppBrandGradients.accountMenuPageBackground,
         child: SafeArea(
           top: false,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _buildHeaderCard(context),
-                  const SizedBox(height: 16),
-                  _buildSection(
-                    context: context,
-                    title: 'Category',
-                    child: _buildCategoryField(context),
-                  ),
-                  const SizedBox(height: 12),
-                  _buildSection(
-                    context: context,
-                    title: 'Priority',
-                    child: _buildPrioritySelector(context),
-                  ),
-                  const SizedBox(height: 12),
-                  _buildSection(
-                    context: context,
-                    title: 'Subject',
-                    child: TextFormField(
-                      controller: _subjectController,
-                      maxLength: _maxSubjectLength,
-                      decoration: _inputDecoration(
-                        scheme,
-                        hint: 'Brief summary of your issue',
-                        icon: Icons.edit_outlined,
-                      ),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Subject is required';
-                        }
-                        if (value.trim().length < 3) {
-                          return 'Subject should be at least 3 characters';
-                        }
-                        return null;
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _buildSection(
-                    context: context,
-                    title: 'Describe your issue',
-                    child: TextFormField(
-                      controller: _messageController,
-                      maxLength: _maxMessageLength,
-                      maxLines: 6,
-                      minLines: 4,
-                      decoration: _inputDecoration(
-                        scheme,
-                        hint: 'Please provide as much detail as possible...',
-                        icon: Icons.chat_bubble_outline,
-                      ),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Description is required';
-                        }
-                        if (value.trim().length < 10) {
-                          return 'Description should be at least 10 characters';
-                        }
-                        return null;
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _buildSection(
-                    context: context,
-                    title: 'Attachments',
-                    subtitle: 'Optional',
-                    child: _buildAttachmentPicker(context),
-                  ),
-                  const SizedBox(height: 12),
-                  _buildSection(
-                    context: context,
-                    title: 'Add Screenshot',
-                    subtitle: 'Optional',
-                    child: _buildScreenshotPicker(context),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildSubmitButton(
-                    context: context,
-                    isSubmitting: supportState.isSubmitting,
-                  ),
-                ],
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                child: _buildTabSelector(),
               ),
-            ),
+              Expanded(
+                child: _tab == _SupportTab.newTicket
+                    ? _buildNewTicketTab(context, scheme, supportState)
+                    : _buildMyTicketsTab(context, supportState),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _buildHeaderCard(BuildContext context) {
+  Widget _buildTabSelector() {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: AppBrandGradients.accountMenuCardShadow,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _TabChip(
+              label: 'New ticket',
+              selected: _tab == _SupportTab.newTicket,
+              onTap: () => _onTabChanged(_SupportTab.newTicket),
+            ),
+          ),
+          Expanded(
+            child: _TabChip(
+              label: 'My tickets',
+              selected: _tab == _SupportTab.myTickets,
+              onTap: () => _onTabChanged(_SupportTab.myTickets),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNewTicketTab(
+    BuildContext context,
+    ColorScheme scheme,
+    SupportState supportState,
+  ) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildHeaderCard(context, title: 'Create New Ticket'),
+            const SizedBox(height: 16),
+            _buildSection(
+              context: context,
+              title: 'Phone number',
+              child: TextFormField(
+                controller: _phoneController,
+                keyboardType: TextInputType.phone,
+                maxLength: 20,
+                decoration: _inputDecoration(
+                  scheme,
+                  hint: 'Include country code, e.g. +91 98765 43210',
+                  icon: Icons.phone_outlined,
+                ),
+                validator: supportContactPhoneValidator,
+              ),
+            ),
+            const SizedBox(height: 12),
+            _buildSection(
+              context: context,
+              title: 'Category',
+              child: _buildCategoryField(context),
+            ),
+            const SizedBox(height: 12),
+            _buildSection(
+              context: context,
+              title: 'Priority',
+              child: _buildPrioritySelector(context),
+            ),
+            const SizedBox(height: 12),
+            _buildSection(
+              context: context,
+              title: 'Subject',
+              child: TextFormField(
+                controller: _subjectController,
+                maxLength: _maxSubjectLength,
+                decoration: _inputDecoration(
+                  scheme,
+                  hint: 'Brief summary of your issue',
+                  icon: Icons.edit_outlined,
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Subject is required';
+                  }
+                  if (value.trim().length < 3) {
+                    return 'Subject should be at least 3 characters';
+                  }
+                  return null;
+                },
+              ),
+            ),
+            const SizedBox(height: 12),
+            _buildSection(
+              context: context,
+              title: 'Describe your issue',
+              child: TextFormField(
+                controller: _messageController,
+                maxLength: _maxMessageLength,
+                maxLines: 6,
+                minLines: 4,
+                decoration: _inputDecoration(
+                  scheme,
+                  hint: 'Please provide as much detail as possible...',
+                  icon: Icons.chat_bubble_outline,
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Description is required';
+                  }
+                  if (value.trim().length < 10) {
+                    return 'Description should be at least 10 characters';
+                  }
+                  return null;
+                },
+              ),
+            ),
+            const SizedBox(height: 12),
+            _buildSection(
+              context: context,
+              title: 'Attachments',
+              subtitle: 'Optional',
+              child: _buildAttachmentPicker(context),
+            ),
+            const SizedBox(height: 12),
+            _buildSection(
+              context: context,
+              title: 'Add Screenshot',
+              subtitle: 'Optional',
+              child: _buildScreenshotPicker(context),
+            ),
+            const SizedBox(height: 16),
+            _buildSubmitButton(
+              context: context,
+              isSubmitting: supportState.isSubmitting,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMyTicketsTab(BuildContext context, SupportState supportState) {
+    if (supportState.isLoading && supportState.tickets.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return RefreshIndicator(
+      onRefresh: () => ref.read(supportProvider.notifier).loadTickets(),
+      child: supportState.tickets.isEmpty
+          ? ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(24),
+              children: [
+                _buildHeaderCard(context, title: 'My Tickets'),
+                const SizedBox(height: 24),
+                const Icon(Icons.inbox_outlined, size: 48, color: Color(0xFF8E86A3)),
+                const SizedBox(height: 12),
+                Text(
+                  'No support tickets yet',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF2A2543),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Submit a ticket from the New ticket tab and track admin replies here.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Color(0xFF655F7B)),
+                ),
+              ],
+            )
+          : ListView.separated(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+              itemCount: supportState.tickets.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (context, index) {
+                return _TicketCard(ticket: supportState.tickets[index]);
+              },
+            ),
+    );
+  }
+
+  Widget _buildHeaderCard(BuildContext context, {required String title}) {
     final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 16, 14, 14),
@@ -211,7 +366,7 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Create New Ticket',
+                  title,
                   style: theme.textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.w800,
                     color: const Color(0xFF1E1A36),
@@ -219,7 +374,9 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'We\'re here to help you',
+                  title == 'My Tickets'
+                      ? 'Track status and admin replies'
+                      : 'We\'re here to help you',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: const Color(0xFF655F7B),
                   ),
@@ -227,7 +384,6 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
               ],
             ),
           ),
-          const SizedBox(width: 12),
           const SizedBox(
             width: 94,
             height: 94,
@@ -310,15 +466,13 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
           )
           .toList(),
       onChanged: (value) {
-        if (value != null) {
-          setState(() => _selectedCategory = value);
-        }
+        if (value != null) setState(() => _selectedCategory = value);
       },
     );
   }
 
   Widget _buildPrioritySelector(BuildContext context) {
-    final options = <String>['low', 'medium', 'high'];
+    const options = <String>['low', 'medium', 'high'];
     return Row(
       children: options
           .map(
@@ -351,7 +505,7 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(14),
               color: const Color(0xFFF8F4FC),
-              border: Border.all(color: const Color(0xFFD4C3EA), width: 1),
+              border: Border.all(color: const Color(0xFFD4C3EA)),
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -365,22 +519,16 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  canAddMore
-                      ? 'Tap to upload images'
-                      : 'Attachment limit reached',
+                  canAddMore ? 'Tap to upload images' : 'Attachment limit reached',
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF3E365C),
                   ),
                 ),
-                const SizedBox(height: 2),
                 Text(
                   '${_attachments.length}/$_maxAttachments selected',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF7E7597),
-                  ),
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF7E7597)),
                 ),
               ],
             ),
@@ -393,10 +541,9 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
             runSpacing: 8,
             children: _attachments
                 .map(
-                  (attachment) => _AttachmentPreviewTile(
-                    draft: attachment,
-                    onRemove: () =>
-                        setState(() => _attachments.remove(attachment)),
+                  (a) => _AttachmentPreviewTile(
+                    draft: a,
+                    onRemove: () => setState(() => _attachments.remove(a)),
                   ),
                 )
                 .toList(),
@@ -417,26 +564,11 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
           border: Border.all(color: const Color(0xFFE2D7F0)),
         ),
         child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 2,
-          ),
-          leading: const Icon(
-            Icons.photo_library_outlined,
-            color: Color(0xFF7C4DFF),
-          ),
+          leading: const Icon(Icons.photo_library_outlined, color: Color(0xFF7C4DFF)),
           title: Text(
-            _screenshotAttachment == null
-                ? 'Take Screenshot'
-                : _screenshotAttachment!.name,
-            style: const TextStyle(
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF2F2949),
-            ),
+            _screenshotAttachment == null ? 'Add screenshot' : _screenshotAttachment!.name,
+            style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF2F2949)),
           ),
-          subtitle: _screenshotAttachment == null
-              ? const Text('Upload from gallery')
-              : Text('${(_screenshotAttachment!.sizeBytes / 1024).ceil()} KB'),
           trailing: _screenshotAttachment == null
               ? const Icon(Icons.chevron_right_rounded)
               : IconButton(
@@ -466,10 +598,7 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
             ? const SizedBox(
                 width: 18,
                 height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
-                ),
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
               )
             : const Icon(Icons.send_rounded),
         label: const Text(
@@ -483,9 +612,7 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
           disabledBackgroundColor: Colors.transparent,
           foregroundColor: Colors.white,
           padding: const EdgeInsets.symmetric(vertical: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         ),
       ),
     );
@@ -523,27 +650,22 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
   }
 
   Future<void> _pickAttachments() async {
-    final remainingSlots = _maxAttachments - _attachments.length;
-    if (remainingSlots <= 0) {
-      AppToast.showInfo(
-        context,
-        'You can upload up to $_maxAttachments files.',
-      );
+    final remaining = _maxAttachments - _attachments.length;
+    if (remaining <= 0) {
+      AppToast.showInfo(context, 'You can upload up to $_maxAttachments files.');
       return;
     }
     final picked = await _picker.pickMultiImage(
-      limit: remainingSlots,
+      limit: remaining,
       maxWidth: 1400,
       maxHeight: 1400,
       imageQuality: 82,
     );
     if (picked.isEmpty) return;
-
     for (final file in picked) {
       if (_attachments.length >= _maxAttachments) break;
       final draft = await _draftFromFile(file, isScreenshot: false);
-      if (draft == null) continue;
-      setState(() => _attachments.add(draft));
+      if (draft != null) setState(() => _attachments.add(draft));
     }
   }
 
@@ -556,8 +678,7 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
     );
     if (file == null) return;
     final draft = await _draftFromFile(file, isScreenshot: true);
-    if (draft == null) return;
-    setState(() => _screenshotAttachment = draft);
+    if (draft != null) setState(() => _screenshotAttachment = draft);
   }
 
   Future<_SupportAttachmentDraft?> _draftFromFile(
@@ -566,20 +687,10 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
   }) async {
     final bytes = await file.readAsBytes();
     if (bytes.isEmpty) return null;
-    if (bytes.length > _maxAttachmentBytes) {
-      if (!mounted) return null;
-      AppToast.showInfo(
-        context,
-        '${file.name} is too large. Max allowed is 1.5 MB.',
-      );
-      return null;
-    }
-    final mimeType = _resolveMimeType(file);
     return _SupportAttachmentDraft(
       name: file.name,
-      mimeType: mimeType,
+      mimeType: _resolveMimeType(file),
       sizeBytes: bytes.length,
-      dataBase64: base64Encode(bytes),
       bytes: bytes,
       isScreenshot: isScreenshot,
     );
@@ -597,35 +708,48 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
   Future<void> _submitTicket() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final payloadAttachments = <SupportTicketAttachmentPayload>[
-      ..._attachments.map(
-        (attachment) => SupportTicketAttachmentPayload(
-          name: attachment.name,
-          mimeType: attachment.mimeType,
-          sizeBytes: attachment.sizeBytes,
-          dataBase64: attachment.dataBase64,
-          isScreenshot: attachment.isScreenshot,
-        ),
-      ),
-      if (_screenshotAttachment != null)
-        SupportTicketAttachmentPayload(
-          name: _screenshotAttachment!.name,
-          mimeType: _screenshotAttachment!.mimeType,
-          sizeBytes: _screenshotAttachment!.sizeBytes,
-          dataBase64: _screenshotAttachment!.dataBase64,
-          isScreenshot: true,
-        ),
+    final drafts = <_SupportAttachmentDraft>[
+      ..._attachments,
+      if (_screenshotAttachment != null) _screenshotAttachment!,
     ];
 
-    final success = await ref
-        .read(supportProvider.notifier)
-        .createTicket(
-          category: _selectedCategory,
-          subject: _subjectController.text.trim(),
-          message: _messageController.text.trim(),
-          priority: _selectedPriority,
-          attachments: payloadAttachments,
+    final sessions = <CommittedSupportAttachment>[];
+    try {
+      for (var i = 0; i < drafts.length; i++) {
+        final draft = drafts[i];
+        final result = await ImageUploadService.uploadSupportTicketImage(
+          bytes: draft.bytes,
+          fileName: draft.name,
+          draftSlot: 'support-$i-${draft.name}',
         );
+        sessions.add(
+          CommittedSupportAttachment(
+            sessionId: result.sessionId,
+            name: draft.name,
+            isScreenshot: draft.isScreenshot,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      AppToast.showError(
+        context,
+        UserMessageMapper.userMessageFor(
+          e,
+          fallback: 'Could not upload images. Please try again.',
+        ),
+      );
+      return;
+    }
+
+    final success = await ref.read(supportProvider.notifier).createTicket(
+      category: _selectedCategory,
+      subject: _subjectController.text.trim(),
+      message: _messageController.text.trim(),
+      contactPhone: _phoneController.text.trim(),
+      priority: _selectedPriority,
+      attachmentSessions: sessions,
+    );
 
     if (!success) return;
 
@@ -637,6 +761,189 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
       _attachments.clear();
       _screenshotAttachment = null;
     });
+  }
+}
+
+class _TabChip extends StatelessWidget {
+  const _TabChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? const Color(0xFF6F2DFF) : Colors.transparent,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: selected ? Colors.white : const Color(0xFF655F7B),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TicketCard extends StatelessWidget {
+  const _TicketCard({required this.ticket});
+
+  final SupportTicket ticket;
+
+  @override
+  Widget build(BuildContext context) {
+    final dateFmt = DateFormat('MMM d, yyyy • HH:mm');
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE9E2F2)),
+        boxShadow: AppBrandGradients.accountMenuCardShadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  ticket.subject,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                    color: Color(0xFF1E1A36),
+                  ),
+                ),
+              ),
+              _StatusPill(label: ticket.statusLabel, status: ticket.status),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${categoryLabel(ticket.category)} • ${ticket.priorityLabel}',
+            style: const TextStyle(fontSize: 12, color: Color(0xFF8E86A3)),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            ticket.message,
+            style: const TextStyle(fontSize: 14, color: Color(0xFF3E365C)),
+          ),
+          if (ticket.attachments.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 72,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: ticket.attachments.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (context, i) {
+                  final url = ticket.attachments[i].displayUrl;
+                  if (url == null) return const SizedBox.shrink();
+                  return ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: AppNetworkImage(
+                      imageUrl: url,
+                      width: 72,
+                      height: 72,
+                      fit: BoxFit.cover,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+          if (ticket.hasAdminReply) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3EDFF),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFD4C3EA)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'ADMIN REPLY',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8,
+                      color: Color(0xFF7C4DFF),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    ticket.adminNotes!,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF2F2949),
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Text(
+            dateFmt.format(ticket.updatedAt.toLocal()),
+            style: const TextStyle(fontSize: 11, color: Color(0xFF8E86A3)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.label, required this.status});
+
+  final String label;
+  final String status;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (status) {
+      'open' => const Color(0xFF2296F3),
+      'in_progress' => const Color(0xFFF8B100),
+      'resolved' => const Color(0xFF2E7D32),
+      'closed' => const Color(0xFF8E86A3),
+      _ => const Color(0xFF8E86A3),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
+    );
   }
 }
 
@@ -745,7 +1052,6 @@ class _SupportAttachmentDraft {
     required this.name,
     required this.mimeType,
     required this.sizeBytes,
-    required this.dataBase64,
     required this.bytes,
     required this.isScreenshot,
   });
@@ -753,7 +1059,6 @@ class _SupportAttachmentDraft {
   final String name;
   final String mimeType;
   final int sizeBytes;
-  final String dataBase64;
   final Uint8List bytes;
   final bool isScreenshot;
 }

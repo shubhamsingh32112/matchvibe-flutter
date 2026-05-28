@@ -44,7 +44,8 @@ class ImageUploadResult {
 enum ImageUploadPurpose {
   creatorAvatar('creator-avatar'),
   creatorGallery('creator-gallery'),
-  userAvatar('user-avatar');
+  userAvatar('user-avatar'),
+  supportTicket('support-ticket');
 
   const ImageUploadPurpose(this.wire);
   final String wire;
@@ -205,6 +206,21 @@ class ImageUploadService {
       bytes: bytes,
       maxDim: _galleryMaxDim,
       purpose: ImageUploadPurpose.creatorGallery,
+      fileName: fileName,
+      draftSlot: draftSlot,
+    );
+  }
+
+  /// Upload a support-ticket attachment (Contact us).
+  static Future<ImageUploadResult> uploadSupportTicketImage({
+    required Uint8List bytes,
+    String? fileName,
+    String? draftSlot,
+  }) {
+    return _runPipeline(
+      bytes: bytes,
+      maxDim: _galleryMaxDim,
+      purpose: ImageUploadPurpose.supportTicket,
       fileName: fileName,
       draftSlot: draftSlot,
     );

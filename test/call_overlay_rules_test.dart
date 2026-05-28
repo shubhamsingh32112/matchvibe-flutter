@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zztherapy/features/video/providers/call_billing_provider.dart';
+import 'package:zztherapy/features/video/providers/call_billing_selectors.dart';
 import 'package:zztherapy/features/video/utils/call_overlay_rules.dart';
 
 void main() {
@@ -41,6 +42,19 @@ void main() {
         connectedFor: const Duration(seconds: 2),
       );
       expect(shouldShow, isFalse);
+    });
+
+    test('returns true when runtime regressed to recovering (reconnect wait)', () {
+      final billing = const CallBillingState(
+        runtimeState: BillingRuntimeState.recovering,
+        callStartTimeMs: null,
+      );
+      final shouldShow = CallOverlayPolicy.shouldShowBillingSyncHint(
+        isConnected: true,
+        billing: billing,
+        connectedFor: const Duration(seconds: 3),
+      );
+      expect(shouldShow, isTrue);
     });
   });
 

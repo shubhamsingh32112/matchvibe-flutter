@@ -29,13 +29,16 @@ class SupportState {
     bool? isSubmitting,
     String? error,
     String? successMessage,
+    bool clearError = false,
+    bool clearSuccess = false,
   }) {
     return SupportState(
       tickets: tickets ?? this.tickets,
       isLoading: isLoading ?? this.isLoading,
       isSubmitting: isSubmitting ?? this.isSubmitting,
-      error: error,
-      successMessage: successMessage,
+      error: clearError ? null : (error ?? this.error),
+      successMessage:
+          clearSuccess ? null : (successMessage ?? this.successMessage),
     );
   }
 }
@@ -47,7 +50,7 @@ class SupportNotifier extends StateNotifier<SupportState> {
 
   /// Load the user's tickets from backend.
   Future<void> loadTickets() async {
-    state = state.copyWith(isLoading: true, error: null);
+    state = state.copyWith(isLoading: true, clearError: true);
     try {
       final tickets = await _service.getMyTickets();
       state = state.copyWith(isLoading: false, tickets: tickets);
@@ -62,26 +65,60 @@ class SupportNotifier extends StateNotifier<SupportState> {
     }
   }
 
+  /// Merge a socket-pushed ticket update into local state.
+  void applyTicketUpdate(Map<String, dynamic> payload) {
+    final ticketId = payload['ticketId']?.toString();
+    if (ticketId == null || ticketId.isEmpty) return;
+
+    final updatedAtRaw = payload['updatedAt']?.toString();
+    final updatedAt = updatedAtRaw != null
+        ? DateTime.tryParse(updatedAtRaw) ?? DateTime.now()
+        : DateTime.now();
+
+    final idx = state.tickets.indexWhere((t) => t.id == ticketId);
+    if (idx >= 0) {
+      final existing = state.tickets[idx];
+      final updated = existing.copyWith(
+        status: payload['status']?.toString() ?? existing.status,
+        adminNotes: payload['adminNotes']?.toString() ?? existing.adminNotes,
+        updatedAt: updatedAt,
+      );
+      final next = [...state.tickets];
+      next[idx] = updated;
+      state = state.copyWith(tickets: next);
+    }
+  }
+
   /// Submit a new support ticket.
   Future<bool> createTicket({
     required String category,
     required String subject,
     required String message,
+    required String contactPhone,
     String priority = 'medium',
-    List<SupportTicketAttachmentPayload> attachments = const [],
+    String source = 'other',
+    String? relatedCallId,
+    String? creatorLookupId,
+    String? creatorFirebaseUid,
+    List<CommittedSupportAttachment> attachmentSessions = const [],
   }) async {
     state = state.copyWith(
       isSubmitting: true,
-      error: null,
-      successMessage: null,
+      clearError: true,
+      clearSuccess: true,
     );
     try {
       final ticket = await _service.createTicket(
         category: category,
         subject: subject,
         message: message,
+        contactPhone: contactPhone,
         priority: priority,
-        attachments: attachments,
+        source: source,
+        relatedCallId: relatedCallId,
+        creatorLookupId: creatorLookupId,
+        creatorFirebaseUid: creatorFirebaseUid,
+        attachmentSessions: attachmentSessions,
       );
       state = state.copyWith(
         isSubmitting: false,
@@ -102,7 +139,7 @@ class SupportNotifier extends StateNotifier<SupportState> {
   }
 
   void clearMessages() {
-    state = state.copyWith(error: null, successMessage: null);
+    state = state.copyWith(clearError: true, clearSuccess: true);
   }
 }
 

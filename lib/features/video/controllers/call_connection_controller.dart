@@ -1,3 +1,4 @@
+//D:\zztherapy\frontend\lib\features\video\controllers\call_connection_controller.dart
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -317,6 +318,13 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       _activeCallId = call.id;
       _activeCreatorFirebaseUid = creatorFirebaseUid;
       _activeCreatorMongoId = creatorMongoId;
+
+      _ref
+          .read(creatorAvailabilityProvider.notifier)
+          .applyCallLifecycleHint(creatorFirebaseUid, CreatorAvailability.busy);
+      _ref
+          .read(socketServiceProvider)
+          .requestAvailability([creatorFirebaseUid]);
 
       // 5. Transition to joining (outgoing overlay on current route)
       state = CallConnectionState(
@@ -753,6 +761,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       final socketService = _ref.read(socketServiceProvider);
       socketService.emitCallEnded(callId: _activeCallId!);
     }
+    _ref.read(callBillingProvider.notifier).reset();
     _activeCallId = null;
     _activeCreatorFirebaseUid = null;
     _activeCreatorMongoId = null;
@@ -761,6 +770,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     _billingStartRequestInFlight = false;
     _wasConnected = false;
     _isReconnecting = false;
+    _refreshCreatorPresenceAfterCall(endedCreatorFirebaseUid);
 
     if (call != null) {
       try {
@@ -825,6 +835,9 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
         debugPrint(
           '✅ [CALL_CTRL] call_reconnect_resolved callId=${call.id} phase=${state.phase}',
         );
+        if (state.phase == CallConnectionPhase.connected) {
+          _ref.read(callBillingProvider.notifier).requestBillingRecoveryForActiveCall();
+        }
       }
 
       // Creator accepted — transition from ring phase to join phase.
@@ -872,6 +885,13 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
           // ── Start billing (both user-initiated and creator-initiated calls) ────────────
           unawaited(_emitBillingStarted());
 
+          final activeCreatorUid = _activeCreatorFirebaseUid;
+          if (activeCreatorUid != null && activeCreatorUid.isNotEmpty) {
+            _ref
+                .read(socketServiceProvider)
+                .requestAvailability([activeCreatorUid]);
+          }
+
           CallNavigationService.navigateToCallScreen();
           debugPrint('✅ [CALL CTRL] phase → connected — call is live');
           _sentryCallBreadcrumb('call.connected', callId: call.id);
@@ -899,6 +919,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
             final socketService = _ref.read(socketServiceProvider);
             socketService.emitCallEnded(callId: _activeCallId!);
           }
+          _ref.read(callBillingProvider.notifier).reset();
           _activeCallId = null;
           _activeCreatorFirebaseUid = null;
           _activeCreatorMongoId = null;
@@ -907,6 +928,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
           _billingStartRequestInFlight = false;
           _wasConnected = false;
           _isReconnecting = false;
+          _refreshCreatorPresenceAfterCall(endedCreatorFirebaseUid);
 
           // Map disconnect reason → failure or clean exit
           final isRejected = reason.toString().toLowerCase().contains(
@@ -958,7 +980,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
   void retryBillingStartIfNeeded() {
     if (state.phase != CallConnectionPhase.connected) return;
     final billing = _ref.read(callBillingProvider);
-    if (billing.isBillingLive || billing.callStartTimeMs != null) return;
+    if (billing.isBillingLive) return;
     unawaited(_emitBillingStarted(forceRetry: true));
   }
 
@@ -994,13 +1016,13 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
             _activeUserFirebaseUid, // null for user-initiated, set for creator-initiated
       );
       final billing = _ref.read(callBillingProvider);
-      if (!billing.isBillingLive && billing.callStartTimeMs == null) {
+      if (!billing.isBillingLive) {
         // Immediate recovery handshake while connected + unsynced.
         billingNotifier.requestBillingRecoveryForActiveCall();
         if (!hydratedViaHttp) {
           await Future<void>.delayed(const Duration(milliseconds: 600));
           final after = _ref.read(callBillingProvider);
-          if (!after.isBillingLive && after.callStartTimeMs == null) {
+          if (!after.isBillingLive) {
             billingNotifier.requestBillingRecoveryForActiveCall();
           }
         }
@@ -1155,6 +1177,14 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     _statusSubscription?.cancel();
     _statusSubscription = null;
     _cancelWatchdog();
+  }
+
+  void _refreshCreatorPresenceAfterCall(String? creatorFirebaseUid) {
+    if (creatorFirebaseUid == null || creatorFirebaseUid.isEmpty) return;
+    _ref
+        .read(creatorAvailabilityProvider.notifier)
+        .applyCallLifecycleHint(creatorFirebaseUid, CreatorAvailability.online);
+    _ref.read(socketServiceProvider).requestAvailability([creatorFirebaseUid]);
   }
 
   @override

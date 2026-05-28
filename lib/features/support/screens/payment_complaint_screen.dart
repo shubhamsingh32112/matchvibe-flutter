@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import '../../wallet/models/transaction_model.dart';
 import '../services/support_service.dart';
+import '../utils/support_contact_phone.dart';
 import '../../../core/utils/user_message_mapper.dart';
+import '../../auth/providers/auth_provider.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/ui_primitives.dart';
 import '../../../shared/styles/app_brand_styles.dart';
@@ -30,7 +33,7 @@ class PaymentComplaintBottomSheet extends StatelessWidget {
   }
 }
 
-class PaymentComplaintScreen extends StatefulWidget {
+class PaymentComplaintScreen extends ConsumerStatefulWidget {
   final TransactionModel transaction;
   final ScrollController? scrollController;
 
@@ -41,10 +44,11 @@ class PaymentComplaintScreen extends StatefulWidget {
   });
 
   @override
-  State<PaymentComplaintScreen> createState() => _PaymentComplaintScreenState();
+  ConsumerState<PaymentComplaintScreen> createState() =>
+      _PaymentComplaintScreenState();
 }
 
-class _PaymentComplaintScreenState extends State<PaymentComplaintScreen> {
+class _PaymentComplaintScreenState extends ConsumerState<PaymentComplaintScreen> {
   static const List<String> _reasons = [
     'Amount debited but coins not added',
     'Duplicate charge',
@@ -67,6 +71,13 @@ class _PaymentComplaintScreenState extends State<PaymentComplaintScreen> {
   Future<void> _submitComplaint() async {
     if (_selectedReason == null || _isSubmitting) return;
 
+    final userPhone = ref.read(authProvider).user?.phone;
+    final contactPhone = await collectSupportContactPhone(
+      context,
+      initialValue: userPhone,
+    );
+    if (!mounted || contactPhone == null) return;
+
     setState(() => _isSubmitting = true);
     try {
       final tx = widget.transaction;
@@ -88,6 +99,7 @@ class _PaymentComplaintScreenState extends State<PaymentComplaintScreen> {
         category: 'billing',
         subject: subject,
         message: message,
+        contactPhone: contactPhone,
         priority: 'high',
       );
 

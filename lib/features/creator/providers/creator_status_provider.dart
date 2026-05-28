@@ -1,167 +1,125 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../core/services/availability_socket_service.dart';
+import '../../../core/services/socket_service.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../home/providers/availability_provider.dart';
 
 enum CreatorStatus {
   online,
   offline,
 }
 
-/// Provider to manage creator online/offline status
-/// 
-/// 🔥 AUTOMATIC STATUS: Status is automatically managed by socket connection
-/// - When creator opens app → socket connects → automatically online
-/// - When creator closes app → socket disconnects → automatically offline
-/// 
-/// This provider is READ-ONLY and reflects the backend-authoritative status.
-/// It listens to socket events for real-time updates of the creator's own status.
-/// No manual toggle is available - status is automatic based on app lifecycle.
-/// 
-/// Usage example:
-/// ```dart
-/// // Watch the status
-/// final status = ref.watch(creatorStatusProvider);
-/// final isOnline = status == CreatorStatus.online;
-/// 
-/// // Check if online
-/// final isOnline = ref.read(creatorStatusProvider.notifier).isOnline;
-/// ```
-final creatorStatusProvider = StateNotifierProvider<CreatorStatusNotifier, CreatorStatus>((ref) {
+/// Creator self online/offline status for the app bar.
+///
+/// Uses [SocketService] (not legacy AvailabilitySocketService). Optimistic
+/// online while the production socket is connected; backend [creator:status]
+/// and the availability map confirm or override (e.g. on-call → busy).
+final creatorStatusProvider =
+    StateNotifierProvider<CreatorStatusNotifier, CreatorStatus>((ref) {
   return CreatorStatusNotifier(ref);
 });
 
 class CreatorStatusNotifier extends StateNotifier<CreatorStatus> {
   final Ref _ref;
-  
+  ProviderSubscription<String?>? _ownUidSub;
+
   CreatorStatusNotifier(this._ref) : super(CreatorStatus.offline) {
     _initializeStatus();
-    _listenToSocketEvents();
+    _watchOwnAvailability();
   }
+
+  @override
+  void dispose() {
+    _ownUidSub?.close();
+    super.dispose();
+  }
+
+  bool get _isCreatorRole {
+    final user = _ref.read(authProvider).user;
+    return user != null && (user.role == 'creator' || user.role == 'admin');
+  }
+
+  SocketService get _socket => _ref.read(socketServiceProvider);
 
   void _initializeStatus() {
-    final authState = _ref.read(authProvider);
-    final user = authState.user;
-    final isCreator = user != null &&
-        (user.role == 'creator' || user.role == 'admin');
-
-    if (isCreator) {
-      final socketService = AvailabilitySocketService.instance;
-      final firebaseUid = authState.firebaseUser?.uid;
-      
-      // Check both socket connection state and availability provider
-      // This ensures we reflect the actual backend status
-      if (socketService.isConnected && firebaseUid != null) {
-        // Check availability provider for the creator's own status
-        final availabilityMap = _ref.read(creatorAvailabilityProvider);
-        final ownAvailability = availabilityMap[firebaseUid];
-        
-        // 🔥 CRITICAL FIX: If socket is connected, show online immediately
-        // Backend will broadcast status shortly, but we show online instantly for better UX
-        if (ownAvailability == CreatorAvailability.online) {
-          state = CreatorStatus.online;
-        } else {
-          // Socket is connected but status not in provider yet - show online immediately
-          // Backend will broadcast status and update provider shortly
-          state = CreatorStatus.online;
-          debugPrint('📡 [CREATOR STATUS] Initialized as online (socket connected, status pending)');
-        }
-      } else {
-        // Socket not connected - show offline
-        state = CreatorStatus.offline;
-        debugPrint('📡 [CREATOR STATUS] Initialized as offline (socket not connected)');
-      }
-    } else {
+    if (!_isCreatorRole) {
       state = CreatorStatus.offline;
+      return;
     }
+    _applyStatusFromSources();
   }
 
-  /// Listen to socket events for real-time status updates
-  /// This ensures the creator's own status updates instantly when backend broadcasts changes
-  void _listenToSocketEvents() {
-    final authState = _ref.read(authProvider);
-    final user = authState.user;
-    final isCreator = user != null &&
-        (user.role == 'creator' || user.role == 'admin');
+  /// Re-subscribe when [firebaseUser] arrives after app start (common on cold launch).
+  void _watchOwnAvailability() {
+    _ownUidSub?.close();
+    if (!_isCreatorRole) return;
 
-    if (!isCreator) return;
-
-    final firebaseUid = authState.firebaseUser?.uid;
-    if (firebaseUid == null) return;
-
-    // Listen to availability provider for the creator's own Firebase UID
-    // This will update whenever the backend broadcasts a status change
-    _ref.listen<CreatorAvailability?>(
-      creatorAvailabilityProvider.select((m) => m[firebaseUid]),
+    _ownUidSub = _ref.listen<String?>(
+      authProvider.select((s) => s.firebaseUser?.uid),
       (previous, next) {
-        if (next != null) {
-          final ownAvailability = next;
-          final newStatus = ownAvailability == CreatorAvailability.online
-              ? CreatorStatus.online
-              : CreatorStatus.offline;
-          
-          if (state != newStatus) {
-            state = newStatus;
-            debugPrint('📡 [CREATOR STATUS] Updated from socket event: ${newStatus == CreatorStatus.online ? "online" : "offline"}');
-          }
-        } else if (previous != null) {
-          // Key removed from map — fall through to socket check
-          _updateFromSocketConnection();
-        } else {
-          _updateFromSocketConnection();
-        }
+        if (!_isCreatorRole || next == null || next.isEmpty) return;
+        _applyStatusFromSources(
+          ownAvailability: _ref.read(creatorAvailabilityProvider)[next],
+        );
+      },
+      fireImmediately: true,
+    );
+
+    _ref.listen<CreatorAvailability?>(
+      creatorAvailabilityProvider.select((m) {
+        final uid = _ref.read(authProvider).firebaseUser?.uid;
+        if (uid == null || uid.isEmpty) return null;
+        return m[uid];
+      }),
+      (previous, next) {
+        if (!_isCreatorRole) return;
+        _applyStatusFromSources(ownAvailability: next);
       },
     );
   }
 
-  void _updateFromSocketConnection() {
-    final socketService = AvailabilitySocketService.instance;
-    if (socketService.isConnected) {
-      if (state != CreatorStatus.online) {
-        state = CreatorStatus.online;
-        debugPrint(
-          '📡 [CREATOR STATUS] Updated from socket connection: online',
-        );
-      }
-    } else if (state != CreatorStatus.offline) {
+  void _applyStatusFromSources({CreatorAvailability? ownAvailability}) {
+    if (!_isCreatorRole) {
       state = CreatorStatus.offline;
-      debugPrint(
-        '📡 [CREATOR STATUS] Updated from socket disconnection: offline',
-      );
+      return;
     }
+
+    final socketConnected = _socket.isConnected;
+    if (!socketConnected) {
+      state = CreatorStatus.offline;
+      return;
+    }
+
+    final uid = _ref.read(authProvider).firebaseUser?.uid;
+    ownAvailability ??=
+        uid != null ? _ref.read(creatorAvailabilityProvider)[uid] : null;
+
+    if (ownAvailability == CreatorAvailability.busy) {
+      state = CreatorStatus.offline;
+      return;
+    }
+
+    // Connected and not explicitly busy → show online immediately.
+    state = CreatorStatus.online;
   }
 
-  /// Update status based on socket connection state
-  /// Called automatically when socket connects/disconnects
+  /// Called when [SocketService] connects or disconnects (from [socketServiceProvider]).
   void updateFromSocketConnection(bool isConnected) {
-    final authState = _ref.read(authProvider);
-    final user = authState.user;
-    final isCreator = user != null &&
-        (user.role == 'creator' || user.role == 'admin');
+    if (!_isCreatorRole) return;
 
-    if (isCreator) {
-      final firebaseUid = authState.firebaseUser?.uid;
-      if (firebaseUid != null) {
-        // Check availability provider first (backend-authoritative)
-        final availabilityMap = _ref.read(creatorAvailabilityProvider);
-        final ownAvailability = availabilityMap[firebaseUid];
-        
-        if (isConnected) {
-          // Socket connected - check backend status or default to online
-          if (ownAvailability == CreatorAvailability.online) {
-            state = CreatorStatus.online;
-          } else {
-            // Backend will set online shortly, but show online immediately
-            state = CreatorStatus.online;
-          }
-        } else {
-          // Socket disconnected - definitely offline
-          state = CreatorStatus.offline;
-        }
-      } else {
-        state = isConnected ? CreatorStatus.online : CreatorStatus.offline;
-      }
-      debugPrint('📡 [CREATOR STATUS] Updated from socket connection: ${isConnected ? "online" : "offline"}');
+    if (!isConnected) {
+      state = CreatorStatus.offline;
+      debugPrint('📡 [CREATOR STATUS] Socket disconnected → offline');
+      return;
+    }
+
+    _applyStatusFromSources();
+    debugPrint('📡 [CREATOR STATUS] Socket connected → online (optimistic)');
+
+    // Hydrate own UID so on-call busy updates reach the app bar via the map.
+    final uid = _ref.read(authProvider).firebaseUser?.uid;
+    if (uid != null && uid.isNotEmpty) {
+      _socket.requestAvailability([uid]);
     }
   }
 

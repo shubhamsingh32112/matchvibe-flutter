@@ -1,9 +1,11 @@
+//D:\zztherapy\frontend\lib\core\services\socket_service.dart
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../constants/app_constants.dart';
 import '../api/api_client.dart';
 import 'sentry_service.dart';
+import '../../features/video/services/billing_convergence_metrics.dart';
 
 /// Singleton Socket.IO service for real-time creator availability
 /// and per-second call billing.
@@ -33,6 +35,8 @@ class SocketService {
   Map<String, dynamic>? _pendingCallStarted;
   Map<String, dynamic>? _pendingCallEnded;
   bool _pendingBillingRecoverState = false;
+  String? _pendingBillingRecoverRequestId;
+  int _billingRecoverRequestSeq = 0;
   final Set<String> _billingStartedSeenCallIds = <String>{};
 
   // ── Availability callbacks ──────────────────────────────────────────────
@@ -63,6 +67,12 @@ class SocketService {
   /// Response to [requestBillingStateRecovery] — same shape as server recover payload.
   void Function(Map<String, dynamic>)? onBillingRecoverState;
 
+  /// Fired after a successful Socket.IO connect (initial and reconnect).
+  void Function()? onConnected;
+
+  /// Fired when the socket disconnects.
+  void Function()? onDisconnected;
+
   /// Fired after a successful Socket.IO reconnect (not the initial connect).
   void Function()? onReconnected;
 
@@ -86,6 +96,9 @@ class SocketService {
   /// Fired when admin publishes a global app update popup payload.
   void Function(Map<String, dynamic>)? onAppUpdatePublished;
 
+  /// Fired when admin updates a support ticket (status / notes).
+  void Function(Map<String, dynamic>)? onSupportTicketUpdated;
+
   bool get isConnected => _isConnected;
 
   // ── Connect ─────────────────────────────────────────────────────────────
@@ -95,9 +108,10 @@ class SocketService {
   /// disposed and re-created.  The old code had `if (_socket != null) return`
   /// which silently skipped reconnection attempts after the first failure.
   void connect(String firebaseToken) {
-    // Already connected — nothing to do
+    // Already connected — refresh listeners (e.g. creator status provider created after connect).
     if (_socket != null && _isConnected) {
       debugPrint('🔌 [SOCKET] Already connected, skipping');
+      onConnected?.call();
       return;
     }
 
@@ -161,6 +175,7 @@ class SocketService {
 
       // Flush any pending billing events that were queued while disconnected
       _flushPendingBillingEvents();
+      onConnected?.call();
     });
 
     _socket!.on('availability:batch', (data) {
@@ -288,6 +303,21 @@ class SocketService {
     _socket!.on('billing:recover-state:response', (data) {
       debugPrint('💰 [SOCKET] billing:recover-state:response: $data');
       if (data is Map) {
+        final mapped = Map<String, dynamic>.from(data);
+        SentryService.addThrottledBreadcrumb(
+          category: 'billing.recover',
+          message: 'billing_recovery_response',
+          data: {
+            'status': mapped['status']?.toString(),
+            'reason': mapped['reason']?.toString(),
+            'recovery_outcome': mapped['recoveryOutcome']?.toString(),
+            'client_recovery_request_id':
+                mapped['clientRecoveryRequestId']?.toString(),
+            'active_calls_count': (mapped['activeCalls'] is List)
+                ? (mapped['activeCalls'] as List).length
+                : -1,
+          },
+        );
         onBillingRecoverState?.call(Map<String, dynamic>.from(data));
       }
     });
@@ -322,22 +352,37 @@ class SocketService {
       }
     });
 
+    _socket!.on('support:ticket_updated', (data) {
+      debugPrint('🎫 [SOCKET] support:ticket_updated: $data');
+      if (data is Map) {
+        onSupportTicketUpdated?.call(Map<String, dynamic>.from(data));
+      }
+    });
+
     _socket!.onDisconnect((_) {
       debugPrint('🔌 [SOCKET] Disconnected');
+      BillingConvergenceMetrics.instance.onSocketDisconnect();
       SentryService.addBreadcrumb(
         category: 'socket',
         message: 'socket.disconnect',
       );
       _isConnected = false;
       _isConnecting = false;
+      onDisconnected?.call();
     });
 
     _socket!.onReconnect((_) {
       debugPrint('🔌 [SOCKET] Reconnected');
+      BillingConvergenceMetrics.instance.onSocketReconnect();
       SentryService.addBreadcrumb(
         category: 'socket',
         message: 'socket.reconnect',
-        data: {'socket.reconnect': 'true'},
+        data: {
+          'socket.reconnect': 'true',
+          ...BillingConvergenceMetrics.instance
+              .snapshot()
+              .map((k, v) => MapEntry(k, v.toString())),
+        },
       );
       _isConnected = true;
 
@@ -352,6 +397,7 @@ class SocketService {
       // Flush any pending billing events that were queued while disconnected
       _flushPendingBillingEvents();
 
+      onConnected?.call();
       onReconnected?.call();
     });
 
@@ -401,6 +447,26 @@ class SocketService {
     } finally {
       _connectCompleter = null;
     }
+  }
+
+  /// Belt-and-suspenders: server also sets online on connect; this helps if
+  /// the gateway path is delayed.
+  void emitCreatorOnline() {
+    if (!_isConnected || _socket == null) return;
+    debugPrint('📡 [SOCKET] Emitting creator:online');
+    _socket!.emit('creator:online');
+  }
+
+  void emitCreatorOffline() {
+    if (!_isConnected || _socket == null) return;
+    debugPrint('📡 [SOCKET] Emitting creator:offline');
+    _socket!.emit('creator:offline');
+  }
+
+  void emitUserOffline() {
+    if (!_isConnected || _socket == null) return;
+    debugPrint('📡 [SOCKET] Emitting user:offline');
+    _socket!.emit('user:offline');
   }
 
   // ── Request Availability ────────────────────────────────────────────────
@@ -496,15 +562,28 @@ class SocketService {
   /// 🔥 FIX: If the socket is not connected, we now call the REST API
   /// directly as a fallback so settlement is never silently dropped.
   /// Ask the server for Redis-backed billing snapshot (mid-call reconnect).
-  void requestBillingStateRecovery() {
+  void requestBillingStateRecovery({String? callId, String? phase}) {
+    final requestId = 'rec_${DateTime.now().millisecondsSinceEpoch}_${++_billingRecoverRequestSeq}';
+    SentryService.addThrottledBreadcrumb(
+      category: 'billing.recover',
+      message: 'billing_recovery_requested',
+      data: {
+        'client_recovery_request_id': requestId,
+        if (callId != null) 'call_id': callId,
+        if (phase != null) 'phase': phase,
+        'socket_connected': _isConnected,
+      },
+    );
     if (_socket != null && _isConnected) {
       debugPrint('💰 [SOCKET] Emitting billing:recover-state');
-      _socket!.emit('billing:recover-state');
+      _socket!.emit('billing:recover-state', {'clientRecoveryRequestId': requestId});
       _pendingBillingRecoverState = false;
+      _pendingBillingRecoverRequestId = null;
       return;
     }
     // Socket not connected → queue for next reconnect.
     _pendingBillingRecoverState = true;
+    _pendingBillingRecoverRequestId = requestId;
     debugPrint('⏳ [SOCKET] Not connected — billing:recover-state queued');
   }
 
@@ -604,8 +683,12 @@ class SocketService {
 
     if (_pendingBillingRecoverState) {
       debugPrint('💰 [SOCKET] Flushing queued billing:recover-state');
-      _socket!.emit('billing:recover-state');
+      _socket!.emit('billing:recover-state', {
+        if (_pendingBillingRecoverRequestId != null)
+          'clientRecoveryRequestId': _pendingBillingRecoverRequestId,
+      });
       _pendingBillingRecoverState = false;
+      _pendingBillingRecoverRequestId = null;
     }
   }
 
@@ -622,8 +705,15 @@ class SocketService {
   }
 
   // ── Disconnect ──────────────────────────────────────────────────────────
-  void disconnect() {
+  void disconnect({bool emitPresenceOffline = false, bool isCreator = false}) {
     debugPrint('🔌 [SOCKET] Disconnecting...');
+    if (emitPresenceOffline && _isConnected && _socket != null) {
+      if (isCreator) {
+        emitCreatorOffline();
+      } else {
+        emitUserOffline();
+      }
+    }
     _socket?.disconnect();
     _socket?.dispose();
     _socket = null;
@@ -634,6 +724,7 @@ class SocketService {
     _pendingCallStarted = null;
     _pendingCallEnded = null;
     _pendingBillingRecoverState = false;
+    _pendingBillingRecoverRequestId = null;
     _billingStartedSeenCallIds.clear();
     if (_connectCompleter != null && !_connectCompleter!.isCompleted) {
       _connectCompleter!.complete(false);
