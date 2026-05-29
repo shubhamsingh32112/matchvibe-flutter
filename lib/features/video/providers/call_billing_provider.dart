@@ -197,6 +197,20 @@ bool shouldRejectEventAfterTerminal({
       eventCallId: eventCallId,
     );
 
+/// Billing error recovery decision must use pre-error state.
+///
+/// If the state is converted to `failed` first, terminal guards can block
+/// recovery for transient faults.
+bool shouldAttemptRecoveryAfterBillingError({
+  required CallBillingState priorState,
+  required String? eventCallId,
+}) {
+  return !shouldRejectEventAfterTerminal(
+    state: priorState,
+    eventCallId: eventCallId,
+  );
+}
+
 /// Prior billing evidence for reconnect convergence (not `callStartTimeMs`).
 bool hadPriorBillingEvidenceForReconnect(CallBillingState state) {
   return state.runtimeState == BillingRuntimeState.active ||
@@ -1092,11 +1106,12 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
     socketService.onBillingError = (data) {
       debugPrint('❌ [BILLING] billing:error: $data');
       if (_rejectIfTerminalLiveEvent(data, eventKind: 'billing:error')) return;
-      state = state.copyWith(runtimeState: BillingRuntimeState.failed);
-      if (!shouldRejectEventAfterTerminal(
-        state: state,
+      final shouldRecover = shouldAttemptRecoveryAfterBillingError(
+        priorState: state,
         eventCallId: data['callId'] as String?,
-      )) {
+      );
+      state = state.copyWith(runtimeState: BillingRuntimeState.failed);
+      if (shouldRecover) {
         requestBillingRecoveryForActiveCall();
         _startBillingRecoveryRetry();
       }

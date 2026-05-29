@@ -1,21 +1,16 @@
 import '../providers/call_billing_provider.dart';
 import '../providers/call_billing_selectors.dart';
 
-/// Shared elapsed-second estimate for overlay MM:SS and duration-limit watchdog.
+/// Shared elapsed-second estimate for overlay timer and duration-limit watchdog.
 ///
-/// Prefers server `remainingSeconds` when `durationLimit` is set, then server
-/// `elapsedSeconds` with drift (and optional `callStartTimeMs` smoothing when live).
+/// Uses server `elapsedSeconds` as the source of truth, with light drift
+/// smoothing from `callStartTimeMs`/`serverTimestamp` for UI continuity.
 int? estimateBillingElapsedSeconds(
   CallBillingState billing, {
   int? nowMs,
 }) {
   final now = nowMs ?? DateTime.now().millisecondsSinceEpoch;
   final limit = billing.durationLimit;
-  final remaining = billing.remainingSeconds;
-
-  if (remaining != null && limit != null && limit > 0) {
-    return (limit - remaining).clamp(0, limit);
-  }
 
   var display = billing.elapsedSeconds;
   if (billing.isBillingLive && billing.callStartTimeMs != null) {
@@ -34,6 +29,9 @@ int? estimateBillingElapsedSeconds(
 
   if (display <= 0 && billing.elapsedSeconds <= 0) {
     return null;
+  }
+  if (display < 0) {
+    display = 0;
   }
   if (limit != null && limit > 0 && display > limit) {
     display = limit;

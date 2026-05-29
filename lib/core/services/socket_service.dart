@@ -23,14 +23,20 @@ import '../../features/video/services/billing_convergence_metrics.dart';
 /// connected, [emitCallStarted] / [emitCallEnded] will call the HTTP
 /// endpoint directly so billing is never silently dropped.
 class SocketService {
+  static const int _availabilityChunkSize = 100;
   io.Socket? _socket;
   bool _isConnected = false;
   bool _isConnecting = false;
   List<String> _lastRequestedIds = [];
+  final Set<String> _trackedCreatorIds = <String>{};
 
   /// Fan UIDs last requested via [user:availability:get] (creators) — re-sent on reconnect.
   List<String> _lastRequestedUserIds = [];
+  final Set<String> _trackedUserIds = <String>{};
   Completer<bool>? _connectCompleter;
+  String? _currentAuthToken;
+  bool _isRefreshingSocketToken = false;
+  DateTime? _lastSocketTokenRefreshAt;
   // ── Pending billing events (queued when socket is disconnected) ─────────
   Map<String, dynamic>? _pendingCallStarted;
   Map<String, dynamic>? _pendingCallEnded;
@@ -98,6 +104,7 @@ class SocketService {
 
   /// Fired when admin updates a support ticket (status / notes).
   void Function(Map<String, dynamic>)? onSupportTicketUpdated;
+  Future<String?> Function()? refreshSocketAuthToken;
 
   bool get isConnected => _isConnected;
 
@@ -108,6 +115,7 @@ class SocketService {
   /// disposed and re-created.  The old code had `if (_socket != null) return`
   /// which silently skipped reconnection attempts after the first failure.
   void connect(String firebaseToken) {
+    _currentAuthToken = firebaseToken;
     // Already connected — refresh listeners (e.g. creator status provider created after connect).
     if (_socket != null && _isConnected) {
       debugPrint('🔌 [SOCKET] Already connected, skipping');
@@ -138,7 +146,7 @@ class SocketService {
       AppConstants.socketUrl,
       io.OptionBuilder()
           .setTransports(['websocket'])
-          .setAuth({'token': firebaseToken})
+          .setAuth({'token': _currentAuthToken})
           .disableAutoConnect()
           .enableReconnection()
           .setReconnectionAttempts(10)
@@ -164,13 +172,13 @@ class SocketService {
         debugPrint(
           '📡 [SOCKET] Auto-requesting availability for ${_lastRequestedIds.length} creator(s)',
         );
-        _socket!.emit('availability:get', {'creatorIds': _lastRequestedIds});
+        _emitCreatorAvailabilityHydration();
       }
       if (_lastRequestedUserIds.isNotEmpty) {
         debugPrint(
           '📡 [SOCKET] Auto-requesting user availability for ${_lastRequestedUserIds.length} user(s)',
         );
-        _socket!.emit('user:availability:get', _lastRequestedUserIds);
+        _emitUserAvailabilityHydration();
       }
 
       // Flush any pending billing events that were queued while disconnected
@@ -388,10 +396,10 @@ class SocketService {
 
       // Re-hydrate availability after reconnect
       if (_lastRequestedIds.isNotEmpty) {
-        _socket!.emit('availability:get', {'creatorIds': _lastRequestedIds});
+        _emitCreatorAvailabilityHydration();
       }
       if (_lastRequestedUserIds.isNotEmpty) {
-        _socket!.emit('user:availability:get', _lastRequestedUserIds);
+        _emitUserAvailabilityHydration();
       }
 
       // Flush any pending billing events that were queued while disconnected
@@ -404,6 +412,15 @@ class SocketService {
     _socket!.onConnectError((error) {
       debugPrint('❌ [SOCKET] Connection error: $error');
       _isConnecting = false;
+      final errorText = error.toString().toLowerCase();
+      final isAuthFailure =
+          errorText.contains('authentication error') ||
+          errorText.contains('invalid token') ||
+          errorText.contains('id-token') ||
+          errorText.contains('jwt');
+      if (isAuthFailure) {
+        unawaited(_refreshSocketTokenAndReconnect());
+      }
       if (_connectCompleter != null && !_connectCompleter!.isCompleted) {
         _connectCompleter!.complete(false);
       }
@@ -474,40 +491,52 @@ class SocketService {
   /// If the socket is not yet connected the IDs are queued and will be
   /// sent automatically when the connection is established.
   void requestAvailability(List<String> creatorIds) {
-    if (creatorIds.isEmpty) return;
+    final sanitized = creatorIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (sanitized.isEmpty) return;
 
-    _lastRequestedIds = creatorIds;
+    _trackedCreatorIds.addAll(sanitized);
+    _lastRequestedIds = _trackedCreatorIds.toList(growable: false);
 
     if (!_isConnected || _socket == null) {
       debugPrint(
-        '⏳ [SOCKET] Not connected yet — availability request queued (${creatorIds.length} IDs)',
+        '⏳ [SOCKET] Not connected yet — availability request queued (${sanitized.length} IDs)',
       );
       return;
     }
 
     debugPrint(
-      '📡 [SOCKET] Emitting availability:get for ${creatorIds.length} creator(s)',
+      '📡 [SOCKET] Emitting availability:get for ${sanitized.length} creator(s)',
     );
-    _socket!.emit('availability:get', {'creatorIds': creatorIds});
+    _socket!.emit('availability:get', {'creatorIds': sanitized});
   }
 
   /// Emit [user:availability:get] with fan Firebase UIDs (creators / admin in creator tools).
   void requestUserAvailability(List<String> userFirebaseUids) {
-    if (userFirebaseUids.isEmpty) return;
+    final sanitized = userFirebaseUids
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (sanitized.isEmpty) return;
 
-    _lastRequestedUserIds = userFirebaseUids;
+    _trackedUserIds.addAll(sanitized);
+    _lastRequestedUserIds = _trackedUserIds.toList(growable: false);
 
     if (!_isConnected || _socket == null) {
       debugPrint(
-        '⏳ [SOCKET] Not connected — user availability request queued (${userFirebaseUids.length} IDs)',
+        '⏳ [SOCKET] Not connected — user availability request queued (${sanitized.length} IDs)',
       );
       return;
     }
 
     debugPrint(
-      '📡 [SOCKET] Emitting user:availability:get for ${userFirebaseUids.length} user(s)',
+      '📡 [SOCKET] Emitting user:availability:get for ${sanitized.length} user(s)',
     );
-    _socket!.emit('user:availability:get', userFirebaseUids);
+    _socket!.emit('user:availability:get', sanitized);
   }
 
   // ── Billing Emitters ────────────────────────────────────────────────────
@@ -719,8 +748,11 @@ class SocketService {
     _socket = null;
     _isConnected = false;
     _isConnecting = false;
+    _currentAuthToken = null;
     _lastRequestedIds = [];
     _lastRequestedUserIds = [];
+    _trackedCreatorIds.clear();
+    _trackedUserIds.clear();
     _pendingCallStarted = null;
     _pendingCallEnded = null;
     _pendingBillingRecoverState = false;
@@ -730,5 +762,58 @@ class SocketService {
       _connectCompleter!.complete(false);
     }
     _connectCompleter = null;
+  }
+
+  void _emitCreatorAvailabilityHydration() {
+    if (!_isConnected || _socket == null || _lastRequestedIds.isEmpty) return;
+    for (var i = 0; i < _lastRequestedIds.length; i += _availabilityChunkSize) {
+      final end = (i + _availabilityChunkSize > _lastRequestedIds.length)
+          ? _lastRequestedIds.length
+          : i + _availabilityChunkSize;
+      _socket!.emit('availability:get', {'creatorIds': _lastRequestedIds.sublist(i, end)});
+    }
+  }
+
+  void _emitUserAvailabilityHydration() {
+    if (!_isConnected || _socket == null || _lastRequestedUserIds.isEmpty) return;
+    for (var i = 0; i < _lastRequestedUserIds.length; i += _availabilityChunkSize) {
+      final end = (i + _availabilityChunkSize > _lastRequestedUserIds.length)
+          ? _lastRequestedUserIds.length
+          : i + _availabilityChunkSize;
+      _socket!.emit('user:availability:get', _lastRequestedUserIds.sublist(i, end));
+    }
+  }
+
+  Future<void> _refreshSocketTokenAndReconnect() async {
+    if (_isRefreshingSocketToken) return;
+    final refresher = refreshSocketAuthToken;
+    if (refresher == null) return;
+    final now = DateTime.now();
+    if (_lastSocketTokenRefreshAt != null &&
+        now.difference(_lastSocketTokenRefreshAt!) < const Duration(seconds: 5)) {
+      return;
+    }
+    _isRefreshingSocketToken = true;
+    try {
+      _lastSocketTokenRefreshAt = now;
+      final refreshedToken = await refresher();
+      if (refreshedToken == null || refreshedToken.isEmpty) {
+        debugPrint('⚠️ [SOCKET] Token refresh callback returned empty token');
+        return;
+      }
+      _currentAuthToken = refreshedToken;
+      if (_socket != null) {
+        _socket!.auth = {'token': refreshedToken};
+        _socket!.disconnect();
+        _socket!.connect();
+      } else {
+        connect(refreshedToken);
+      }
+      debugPrint('🔑 [SOCKET] Refreshed auth token and retried connect');
+    } catch (e) {
+      debugPrint('⚠️ [SOCKET] Token refresh for socket failed: $e');
+    } finally {
+      _isRefreshingSocketToken = false;
+    }
   }
 }

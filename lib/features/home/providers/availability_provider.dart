@@ -55,7 +55,7 @@ class CreatorAvailabilityNotifier
     Map<String, CreatorAvailability>? newState;
     var changes = 0;
     for (final entry in data.entries) {
-      final currentVersion = _versions[entry.key] ?? 0;
+      final currentVersion = _versions[entry.key] ?? -1;
       final incomingVersion = versions[entry.key] ?? 0;
       if (incomingVersion <= currentVersion) {
         continue;
@@ -100,7 +100,7 @@ class CreatorAvailabilityNotifier
       return;
     }
     final incomingVersion = version;
-    final currentVersion = _versions[creatorId] ?? 0;
+    final currentVersion = _versions[creatorId] ?? -1;
     if (incomingVersion <= currentVersion) {
       return;
     }
@@ -130,9 +130,14 @@ class CreatorAvailabilityNotifier
     if (data.isEmpty) return;
     Map<String, CreatorAvailability>? newState;
     for (final e in data.entries) {
-      if (state.containsKey(e.key)) continue;
+      final currentVersion = _versions[e.key] ?? -1;
+      final existing = state[e.key];
+      final shouldApplySeed = existing == null || currentVersion < 0;
+      if (!shouldApplySeed) continue;
+      if (existing == e.value && currentVersion < 0) continue;
       newState ??= Map<String, CreatorAvailability>.from(state);
       newState[e.key] = e.value;
+      _versions[e.key] = -1;
     }
     if (newState != null) {
       state = newState;
@@ -187,6 +192,16 @@ final creatorStatusProvider = Provider.family<CreatorAvailability, String?>((
 /// Created once, lives for the entire app session (not autoDispose).
 final socketServiceProvider = Provider<SocketService>((ref) {
   final service = SocketService();
+  Future<void> requestVisibleCreatorHydration() async {
+    final ids = ref
+        .read(creatorAvailabilityProvider)
+        .keys
+        .where((uid) => uid.isNotEmpty)
+        .toList(growable: false);
+    if (ids.isNotEmpty) {
+      service.requestAvailability(ids);
+    }
+  }
 
   void onSocketConnected() {
     final user = ref.read(authProvider).user;
@@ -202,6 +217,7 @@ final socketServiceProvider = Provider<SocketService>((ref) {
             .refreshPresence(reason: 'socket_connected'),
       );
     }
+    unawaited(requestVisibleCreatorHydration());
   }
 
   void onSocketDisconnected() {
@@ -217,6 +233,16 @@ final socketServiceProvider = Provider<SocketService>((ref) {
 
   service.onConnected = onSocketConnected;
   service.onDisconnected = onSocketDisconnected;
+  service.onReconnected = () {
+    unawaited(requestVisibleCreatorHydration());
+  };
+  service.refreshSocketAuthToken = () async {
+    final notifier = ref.read(authProvider.notifier);
+    final refreshed = await notifier.refreshAuthToken();
+    if (!refreshed) return null;
+    final firebaseUser = ref.read(authProvider).firebaseUser;
+    return firebaseUser?.getIdToken();
+  };
 
   // Wire socket callbacks → Riverpod state
   service.onAvailabilityBatch = (data) {

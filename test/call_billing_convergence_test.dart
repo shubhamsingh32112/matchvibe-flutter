@@ -613,5 +613,33 @@ void main() {
       );
       expect(isTerminalBillingState(BillingRuntimeState.settled), isTrue);
     });
+
+    test('TEST S — billing:error recovery decision uses pre-error state', () {
+      const transientState = CallBillingState(
+        callId: callId,
+        billingSequence: 2,
+        runtimeState: BillingRuntimeState.active,
+      );
+      expect(
+        shouldAttemptRecoveryAfterBillingError(
+          priorState: transientState,
+          eventCallId: callId,
+        ),
+        isTrue,
+      );
+
+      const terminalState = CallBillingState(
+        callId: callId,
+        billingSequence: 2,
+        runtimeState: BillingRuntimeState.settled,
+      );
+      expect(
+        shouldAttemptRecoveryAfterBillingError(
+          priorState: terminalState,
+          eventCallId: callId,
+        ),
+        isFalse,
+      );
+    });
   });
 }

@@ -246,7 +246,7 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
     if (!_socketInitialized && authReady && firebaseUser != null) {
       _socketInitialized = true;
       firebaseUser
-          .getIdToken()
+          .getIdToken(true)
           .then((token) {
             if (!context.mounted) return;
             _bootstrapPresenceSockets(token);

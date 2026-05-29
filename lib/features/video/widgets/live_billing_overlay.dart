@@ -3,12 +3,17 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../providers/call_billing_provider.dart';
-import '../providers/call_billing_selectors.dart';
 import '../utils/billing_elapsed_display.dart';
 
-/// Formats billed seconds as `M:SS` (no hours split — rare for caps).
+/// Formats billed seconds as `MM:SS`, switching to `H:MM:SS` for 1h+.
 String formatBillingMmSs(int seconds) {
   if (seconds < 0) seconds = 0;
+  if (seconds >= 3600) {
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    final s = seconds % 60;
+    return '$h:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
   final m = seconds ~/ 60;
   final s = seconds % 60;
   return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
