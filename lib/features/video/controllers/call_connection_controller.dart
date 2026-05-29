@@ -16,6 +16,7 @@ import '../utils/call_remote_image_resolver.dart';
 import '../utils/remote_avatar_lookup.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../home/providers/availability_provider.dart';
+import '../../creator/providers/creator_presence_orchestrator_provider.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../core/services/sentry_service.dart';
 import '../../../core/services/sentry_error_classifier.dart';
@@ -626,6 +627,8 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       // Note: For creator-initiated calls, billing is triggered by creator's emitCallStarted,
       // but the user needs to track the call ID for proper cleanup.
       _activeCallId = call.id;
+      _activeCreatorFirebaseUid = _ref.read(authProvider).firebaseUser?.uid;
+      _activeUserFirebaseUid = extractCallerFirebaseUidFromCallId(call.id);
 
       // 3. Transition to joining
       state = CallConnectionState(
@@ -771,6 +774,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
     _wasConnected = false;
     _isReconnecting = false;
     _refreshCreatorPresenceAfterCall(endedCreatorFirebaseUid);
+    _refreshCreatorOwnPresenceAfterCallEnd();
 
     if (call != null) {
       try {
@@ -930,6 +934,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
           _wasConnected = false;
           _isReconnecting = false;
           _refreshCreatorPresenceAfterCall(endedCreatorFirebaseUid);
+          _refreshCreatorOwnPresenceAfterCallEnd();
 
           // Map disconnect reason → failure or clean exit
           final isRejected = reason.toString().toLowerCase().contains(
@@ -1186,6 +1191,14 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
         .read(creatorAvailabilityProvider.notifier)
         .applyCallLifecycleHint(creatorFirebaseUid, CreatorAvailability.online);
     _ref.read(socketServiceProvider).requestAvailability([creatorFirebaseUid]);
+  }
+
+  void _refreshCreatorOwnPresenceAfterCallEnd() {
+    unawaited(
+      _ref
+          .read(creatorPresenceOrchestratorProvider)
+          .refreshPresence(reason: 'call_ended'),
+    );
   }
 
   @override

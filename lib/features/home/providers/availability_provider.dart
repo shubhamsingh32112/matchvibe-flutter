@@ -16,6 +16,12 @@ import '../../support/services/support_realtime_handler.dart';
 // ── Enum ──────────────────────────────────────────────────────────────────
 enum CreatorAvailability { online, busy }
 
+String? _normalizeFirebaseUid(String? raw) {
+  if (raw == null) return null;
+  final trimmed = raw.trim();
+  return trimmed.isEmpty ? null : trimmed;
+}
+
 class _AvailabilityPerfProbe {
   static int _eventCount = 0;
   static DateTime _windowStart = DateTime.now();
@@ -55,20 +61,23 @@ class CreatorAvailabilityNotifier
     Map<String, CreatorAvailability>? newState;
     var changes = 0;
     for (final entry in data.entries) {
-      final currentVersion = _versions[entry.key] ?? -1;
-      final incomingVersion = versions[entry.key] ?? 0;
+      final creatorId = _normalizeFirebaseUid(entry.key);
+      if (creatorId == null) continue;
+      final currentVersion = _versions[creatorId] ?? -1;
+      final incomingVersion =
+          versions[creatorId] ?? versions[entry.key] ?? 0;
       if (incomingVersion <= currentVersion) {
         continue;
       }
       final v = entry.value == 'online'
           ? CreatorAvailability.online
           : CreatorAvailability.busy;
-      if (state[entry.key] != v) {
+      if (state[creatorId] != v) {
         newState ??= Map<String, CreatorAvailability>.from(state);
-        newState[entry.key] = v;
+        newState[creatorId] = v;
         changes++;
       }
-      _versions[entry.key] = incomingVersion;
+      _versions[creatorId] = incomingVersion;
     }
     if (newState != null) {
       state = newState;
@@ -77,30 +86,49 @@ class CreatorAvailabilityNotifier
   }
 
   void updateBatchV2(Map<String, Map<String, dynamic>> data) {
-    final statusMap = <String, String>{};
-    final versions = <String, int>{};
+    Map<String, CreatorAvailability>? newState;
+    var changes = 0;
     data.forEach((creatorId, payload) {
+      final normalizedCreatorId = _normalizeFirebaseUid(creatorId);
+      if (normalizedCreatorId == null) return;
       final status = payload['status']?.toString() == 'online'
-          ? 'online'
-          : 'busy';
-      statusMap[creatorId] = status;
-      versions[creatorId] = (payload['version'] as num?)?.toInt() ?? 0;
+          ? CreatorAvailability.online
+          : CreatorAvailability.busy;
+      final incomingVersion = (payload['version'] as num?)?.toInt() ?? 0;
+      final currentVersion = _versions[normalizedCreatorId] ?? -1;
+      final currentStatus =
+          state[normalizedCreatorId] ?? CreatorAvailability.busy;
+      final shouldApply = incomingVersion > currentVersion;
+      if (!shouldApply) {
+        return;
+      }
+      if (currentStatus != status) {
+        newState ??= Map<String, CreatorAvailability>.from(state);
+        newState![normalizedCreatorId] = status;
+        changes++;
+      }
+      _versions[normalizedCreatorId] = incomingVersion;
     });
-    updateBatch(statusMap, versions: versions);
+    if (newState != null) {
+      state = newState!;
+      _AvailabilityPerfProbe.recordEvent(changes);
+    }
   }
 
   /// Single update from a [creator:status] socket event.
   void updateSingle(String creatorId, String status, {int? version}) {
+    final normalizedCreatorId = _normalizeFirebaseUid(creatorId);
+    if (normalizedCreatorId == null) return;
     if (version == null) {
       if (!kReleaseMode) {
         debugPrint(
-          '⚠️ [AVAILABILITY] Ignoring unversioned creator:status for $creatorId',
+          '⚠️ [AVAILABILITY] Ignoring unversioned creator:status for $normalizedCreatorId',
         );
       }
       return;
     }
     final incomingVersion = version;
-    final currentVersion = _versions[creatorId] ?? -1;
+    final currentVersion = _versions[normalizedCreatorId] ?? -1;
     if (incomingVersion <= currentVersion) {
       return;
     }
@@ -109,20 +137,20 @@ class CreatorAvailabilityNotifier
         : CreatorAvailability.busy;
 
     // Always advance monotonic version even when status stays unchanged.
-    if (state[creatorId] != newAvailability) {
+    if (state[normalizedCreatorId] != newAvailability) {
       final newState = Map<String, CreatorAvailability>.from(state);
-      newState[creatorId] = newAvailability;
+      newState[normalizedCreatorId] = newAvailability;
       state = newState;
       _AvailabilityPerfProbe.recordEvent(1);
       debugPrint(
-        '📡 [AVAILABILITY] Updated creator status: $creatorId → $status',
+        '📡 [AVAILABILITY] Updated creator status: $normalizedCreatorId → $status',
       );
     } else {
       debugPrint(
-        '📡 [AVAILABILITY] Creator status unchanged: $creatorId → $status (skipping update)',
+        '📡 [AVAILABILITY] Creator status unchanged: $normalizedCreatorId → $status (skipping update)',
       );
     }
-    _versions[creatorId] = incomingVersion;
+    _versions[normalizedCreatorId] = incomingVersion;
   }
 
   /// Seed from REST (Redis-backed API). Never overwrites live socket map entries.
@@ -130,14 +158,16 @@ class CreatorAvailabilityNotifier
     if (data.isEmpty) return;
     Map<String, CreatorAvailability>? newState;
     for (final e in data.entries) {
-      final currentVersion = _versions[e.key] ?? -1;
-      final existing = state[e.key];
+      final creatorId = _normalizeFirebaseUid(e.key);
+      if (creatorId == null) continue;
+      final currentVersion = _versions[creatorId] ?? -1;
+      final existing = state[creatorId];
       final shouldApplySeed = existing == null || currentVersion < 0;
       if (!shouldApplySeed) continue;
       if (existing == e.value && currentVersion < 0) continue;
       newState ??= Map<String, CreatorAvailability>.from(state);
-      newState[e.key] = e.value;
-      _versions[e.key] = -1;
+      newState[creatorId] = e.value;
+      _versions[creatorId] = -1;
     }
     if (newState != null) {
       state = newState;
@@ -146,15 +176,18 @@ class CreatorAvailabilityNotifier
 
   /// Get availability for one creator. **Default = busy**.
   CreatorAvailability getAvailability(String? creatorId) {
-    if (creatorId == null) return CreatorAvailability.busy;
-    return state[creatorId] ?? CreatorAvailability.busy;
+    final normalizedCreatorId = _normalizeFirebaseUid(creatorId);
+    if (normalizedCreatorId == null) return CreatorAvailability.busy;
+    return state[normalizedCreatorId] ?? CreatorAvailability.busy;
   }
 
   /// Instant fan UI while call lifecycle runs — server versioned events still win when higher.
   void applyCallLifecycleHint(String creatorId, CreatorAvailability availability) {
-    final nextVersion = (_versions[creatorId] ?? 0) + 1;
+    final normalizedCreatorId = _normalizeFirebaseUid(creatorId);
+    if (normalizedCreatorId == null) return;
+    final nextVersion = (_versions[normalizedCreatorId] ?? 0) + 1;
     updateSingle(
-      creatorId,
+      normalizedCreatorId,
       availability == CreatorAvailability.online ? 'online' : 'busy',
       version: nextVersion,
     );
@@ -178,12 +211,13 @@ final creatorStatusProvider = Provider.family<CreatorAvailability, String?>((
   ref,
   creatorId,
 ) {
-  if (creatorId == null || creatorId.isEmpty) {
+  final normalizedCreatorId = _normalizeFirebaseUid(creatorId);
+  if (normalizedCreatorId == null) {
     return CreatorAvailability.busy;
   }
   return ref.watch(
     creatorAvailabilityProvider.select(
-      (map) => map[creatorId] ?? CreatorAvailability.busy,
+      (map) => map[normalizedCreatorId] ?? CreatorAvailability.busy,
     ),
   );
 });

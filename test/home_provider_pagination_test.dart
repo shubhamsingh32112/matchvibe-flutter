@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:zztherapy/core/services/socket_service.dart';
 import 'package:zztherapy/features/auth/providers/auth_provider.dart';
 import 'package:zztherapy/features/home/providers/availability_provider.dart';
 import 'package:zztherapy/features/home/providers/home_provider.dart';
@@ -34,6 +35,15 @@ Response<dynamic> _responseFor(
   );
 }
 
+class _FakeSocketService extends SocketService {
+  final List<List<String>> requestedCreatorAvailability = <List<String>>[];
+
+  @override
+  void requestAvailability(List<String> creatorIds) {
+    requestedCreatorAvailability.add(List<String>.from(creatorIds));
+  }
+}
+
 void main() {
   final testAuthState = AuthState(
     user: const UserModel(
@@ -44,11 +54,13 @@ void main() {
   );
 
   test('creators pagination loads additional pages via notifier', () async {
+    final fakeSocket = _FakeSocketService();
     final container = ProviderContainer(
       overrides: [
         authProvider.overrideWith(
           (ref) => AuthNotifier.testInitial(testAuthState),
         ),
+        socketServiceProvider.overrideWithValue(fakeSocket),
         homeApiGetProvider.overrideWith((ref) {
           return (path) async {
             if (path.contains('/creator/feed?page=1')) {
@@ -86,12 +98,17 @@ void main() {
     final firstPage = await container.read(creatorsProvider.future);
     expect(firstPage.length, 2);
     expect(container.read(creatorsFeedMetaProvider).hasMore, isTrue);
+    expect(fakeSocket.requestedCreatorAvailability.first, ['fb-1', 'fb-2']);
 
     await container.read(creatorsProvider.notifier).loadMore();
     await Future<void>.delayed(Duration.zero);
     final loaded = container.read(creatorsProvider).valueOrNull ?? const <CreatorModel>[];
     expect(loaded.length, 3);
     expect(container.read(creatorsFeedMetaProvider).hasMore, isFalse);
+    expect(
+      fakeSocket.requestedCreatorAvailability.any((ids) => ids.contains('fb-3')),
+      isTrue,
+    );
   });
 
   test('creator order notifier updates only changed entries', () {
@@ -137,5 +154,26 @@ void main() {
       throwsA(isA<Exception>()),
     );
     expect(container.read(creatorsProvider).hasError, isTrue);
+  });
+
+  test('resolveCreatorAvailabilityForFeed falls back to seeded availability when map is missing', () {
+    final creator = CreatorModel.fromJson(_creatorJson('fallback'));
+    final status = resolveCreatorAvailabilityForFeed(
+      creator,
+      const <String, CreatorAvailability>{},
+    );
+    expect(status, CreatorAvailability.online);
+  });
+
+  test('resolveCreatorAvailabilityForFeed prefers hydrated map over seeded availability', () {
+    final creator = CreatorModel.fromJson({
+      ..._creatorJson('live'),
+      'availability': 'online',
+    });
+    final status = resolveCreatorAvailabilityForFeed(
+      creator,
+      const <String, CreatorAvailability>{'fb-live': CreatorAvailability.busy},
+    );
+    expect(status, CreatorAvailability.busy);
   });
 }

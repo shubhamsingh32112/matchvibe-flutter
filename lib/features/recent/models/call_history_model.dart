@@ -93,6 +93,13 @@ class CallHistoryModel extends Equatable {
   /// Prefer durable `direction`; fall back to legacy `ownerRole` heuristic for old rows.
   bool get isOutgoing => direction == 'outgoing' || (direction == null && ownerRole == 'user');
 
+  /// Billing is role-authoritative, not direction-authoritative:
+  /// - users spend coins
+  /// - creators earn coins
+  int get ownerCoinsDeltaAbs => ownerRole == 'creator' ? coinsEarned : coinsDeducted;
+
+  bool get ownerCoinsPositive => ownerRole == 'creator';
+
   @override
   List<Object?> get props => [id, callId, ownerUserId, otherUserId, otherCreatorId, direction, createdAt];
 }

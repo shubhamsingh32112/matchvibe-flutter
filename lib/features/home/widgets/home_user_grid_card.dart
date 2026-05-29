@@ -45,6 +45,12 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
   bool _isInitiatingCall = false;
   bool _isOpeningChat = false;
 
+  String? _normalizedFirebaseUid(String? raw) {
+    if (raw == null) return null;
+    final trimmed = raw.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
   /// Initiate a video call to the creator via [CallConnectionController].
   ///
   /// All call logic (permissions, getOrCreate, join, navigation) is
@@ -52,7 +58,7 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
   Future<void> _initiateVideoCall() async {
     if (widget.creator == null || _isInitiatingCall) return;
 
-    final creatorFirebaseUid = widget.creator!.firebaseUid;
+    final creatorFirebaseUid = _normalizedFirebaseUid(widget.creator!.firebaseUid);
     if (creatorFirebaseUid == null) {
       if (mounted) {
         AppToast.showError(context, 'Creator information not available');
@@ -66,7 +72,7 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
     if (user != null && user.spendableCallCoins < 10) {
       if (mounted) {
         final c = widget.creator!;
-        final fb = c.firebaseUid;
+        final fb = _normalizedFirebaseUid(c.firebaseUid);
         ref.read(coinPurchasePopupProvider.notifier).state = CoinPopupIntent(
           reason: 'preflight_low_coins_grid',
           dedupeKey: 'low-coins-grid-${c.id}',
@@ -208,10 +214,23 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
         : CallButtonVariant.normal;
 
     // ── Availability (only relevant for creator cards) ────────────────────
-    final creatorAvailability = ref.watch(
-      creatorStatusProvider(widget.creator?.firebaseUid),
+    final creatorFirebaseUid = _normalizedFirebaseUid(widget.creator?.firebaseUid);
+    final hasHydratedLiveStatus = ref.watch(
+      creatorAvailabilityProvider.select((map) {
+        if (creatorFirebaseUid == null || creatorFirebaseUid.isEmpty) {
+          return false;
+        }
+        return map.containsKey(creatorFirebaseUid);
+      }),
     );
-    final isCreatorOnline = creatorAvailability == CreatorAvailability.online;
+    final liveAvailability = ref.watch(creatorStatusProvider(creatorFirebaseUid));
+    final seededAvailability = widget.creator?.availability == 'online'
+        ? CreatorAvailability.online
+        : CreatorAvailability.busy;
+    final effectiveAvailability = hasHydratedLiveStatus
+        ? liveAvailability
+        : seededAvailability;
+    final isCreatorOnline = effectiveAvailability == CreatorAvailability.online;
 
     return AppCard(
       padding: EdgeInsets.zero,

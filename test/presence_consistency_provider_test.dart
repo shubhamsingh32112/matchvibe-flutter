@@ -65,4 +65,12 @@ void main() {
 
     expect(notifier.state['c1'], CreatorAvailability.online);
   });
+
+  test('versioned socket update overrides API seed fallback', () {
+    final notifier = CreatorAvailabilityNotifier();
+    notifier.seedFromApi({'c1': CreatorAvailability.online});
+    notifier.updateSingle('c1', 'busy', version: 1);
+
+    expect(notifier.state['c1'], CreatorAvailability.busy);
+  });
 }

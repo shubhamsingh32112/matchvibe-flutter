@@ -135,38 +135,58 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
 
     if (role != 'creator') {
       Future<void>(() async {
-        if (!_isConnectGenerationCurrent(generation)) return;
-        await _hydrateFanCreatorPresenceFast(generation);
-        if (!_isConnectGenerationCurrent(generation)) return;
-        try {
-          final ids = await presenceHydration.collectCreatorFirebaseUids();
-          if (!_isConnectGenerationCurrent(generation)) return;
-          _requestCreatorAvailabilityInChunks(ids);
-        } catch (e) {
-          debugPrint(
-            '⚠️  [STREAM WRAPPER] Creator sweep hydration failed, falling back to first page: $e',
-          );
-          if (!_isConnectGenerationCurrent(generation)) return;
-          await _fallbackCreatorHydration(generation);
-        }
+        await _rehydrateCreatorPresenceForFan(
+          generation,
+          presenceHydration: presenceHydration,
+        );
       });
     }
 
     if (role == 'creator' || role == 'admin') {
       Future<void>(() async {
-        try {
-          if (!_isConnectGenerationCurrent(generation)) return;
-          final ids = await presenceHydration.collectUserFirebaseUids();
-          if (!_isConnectGenerationCurrent(generation)) return;
-          _requestUserAvailabilityInChunks(ids);
-        } catch (e) {
-          debugPrint(
-            '⚠️  [STREAM WRAPPER] User sweep hydration failed, falling back to first page: $e',
-          );
-          if (!_isConnectGenerationCurrent(generation)) return;
-          await _fallbackUserHydration(generation);
-        }
+        await _rehydrateUserPresenceForCreatorTools(
+          generation,
+          presenceHydration: presenceHydration,
+        );
       });
+    }
+  }
+
+  Future<void> _rehydrateCreatorPresenceForFan(
+    int generation, {
+    required PresenceHydrationService presenceHydration,
+  }) async {
+    if (!_isConnectGenerationCurrent(generation)) return;
+    await _hydrateFanCreatorPresenceFast(generation);
+    if (!_isConnectGenerationCurrent(generation)) return;
+    try {
+      final ids = await presenceHydration.collectCreatorFirebaseUids();
+      if (!_isConnectGenerationCurrent(generation)) return;
+      _requestCreatorAvailabilityInChunks(ids);
+    } catch (e) {
+      debugPrint(
+        '⚠️  [STREAM WRAPPER] Creator sweep hydration failed, falling back to first page: $e',
+      );
+      if (!_isConnectGenerationCurrent(generation)) return;
+      await _fallbackCreatorHydration(generation);
+    }
+  }
+
+  Future<void> _rehydrateUserPresenceForCreatorTools(
+    int generation, {
+    required PresenceHydrationService presenceHydration,
+  }) async {
+    try {
+      if (!_isConnectGenerationCurrent(generation)) return;
+      final ids = await presenceHydration.collectUserFirebaseUids();
+      if (!_isConnectGenerationCurrent(generation)) return;
+      _requestUserAvailabilityInChunks(ids);
+    } catch (e) {
+      debugPrint(
+        '⚠️  [STREAM WRAPPER] User sweep hydration failed, falling back to first page: $e',
+      );
+      if (!_isConnectGenerationCurrent(generation)) return;
+      await _fallbackUserHydration(generation);
     }
   }
 
@@ -279,6 +299,24 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
               _isConnecting = false;
             }
           });
+        final role = next.user?.role;
+        final presenceHydration = ref.read(presenceHydrationServiceProvider);
+        final generation = _connectGeneration;
+        if (role == 'creator' || role == 'admin') {
+          Future<void>(() async {
+            await _rehydrateUserPresenceForCreatorTools(
+              generation,
+              presenceHydration: presenceHydration,
+            );
+          });
+        } else {
+          Future<void>(() async {
+            await _rehydrateCreatorPresenceForFan(
+              generation,
+              presenceHydration: presenceHydration,
+            );
+          });
+        }
         }
       }
 

@@ -72,6 +72,25 @@ class _FeedPerfProbe {
   }
 }
 
+String? _normalizeFirebaseUid(String? raw) {
+  if (raw == null) return null;
+  final trimmed = raw.trim();
+  return trimmed.isEmpty ? null : trimmed;
+}
+
+CreatorAvailability resolveCreatorAvailabilityForFeed(
+  CreatorModel creator,
+  Map<String, CreatorAvailability> availabilityMap,
+) {
+  final uid = _normalizeFirebaseUid(creator.firebaseUid);
+  if (uid != null && availabilityMap.containsKey(uid)) {
+    return availabilityMap[uid]!;
+  }
+  return creator.availability == 'online'
+      ? CreatorAvailability.online
+      : CreatorAvailability.busy;
+}
+
 class CreatorFeedNotifier extends AsyncNotifier<List<CreatorModel>> {
   int _nextPage = 1;
   int _total = 0;
@@ -197,8 +216,9 @@ class CreatorFeedNotifier extends AsyncNotifier<List<CreatorModel>> {
 
     final apiAvailability = <String, CreatorAvailability>{};
     for (final creator in creators) {
-      if (creator.firebaseUid != null) {
-        apiAvailability[creator.firebaseUid!] = creator.availability == 'online'
+      final uid = _normalizeFirebaseUid(creator.firebaseUid);
+      if (uid != null) {
+        apiAvailability[uid] = creator.availability == 'online'
             ? CreatorAvailability.online
             : CreatorAvailability.busy;
       }
@@ -431,11 +451,10 @@ class CreatorOrderNotifier extends StateNotifier<CreatorOrderState> {
       if (firebaseUid == null || firebaseUid.isEmpty) continue;
       final score = _stableScore(userId, firebaseUid);
       _scoreById[firebaseUid] = score;
-      final availability =
-          availabilityMap[firebaseUid] ??
-          (creator.availability == 'online'
-              ? CreatorAvailability.online
-              : CreatorAvailability.busy);
+      final availability = resolveCreatorAvailabilityForFeed(
+        creator,
+        availabilityMap,
+      );
       _statusById[firebaseUid] = availability;
       if (availability == CreatorAvailability.online) {
         _onlineIds.add(firebaseUid);

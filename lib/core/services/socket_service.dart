@@ -42,6 +42,7 @@ class SocketService {
   Map<String, dynamic>? _pendingCallEnded;
   bool _pendingBillingRecoverState = false;
   String? _pendingBillingRecoverRequestId;
+  String? _pendingBillingRecoverCallId;
   int _billingRecoverRequestSeq = 0;
   final Set<String> _billingStartedSeenCallIds = <String>{};
 
@@ -598,21 +599,26 @@ class SocketService {
       message: 'billing_recovery_requested',
       data: {
         'client_recovery_request_id': requestId,
-        if (callId != null) 'call_id': callId,
-        if (phase != null) 'phase': phase,
+        ...?callId == null ? null : {'call_id': callId},
+        ...?phase == null ? null : {'phase': phase},
         'socket_connected': _isConnected,
       },
     );
     if (_socket != null && _isConnected) {
       debugPrint('💰 [SOCKET] Emitting billing:recover-state');
-      _socket!.emit('billing:recover-state', {'clientRecoveryRequestId': requestId});
+      _socket!.emit('billing:recover-state', {
+        'clientRecoveryRequestId': requestId,
+        if (callId != null && callId.isNotEmpty) 'callId': callId,
+      });
       _pendingBillingRecoverState = false;
       _pendingBillingRecoverRequestId = null;
+      _pendingBillingRecoverCallId = null;
       return;
     }
     // Socket not connected → queue for next reconnect.
     _pendingBillingRecoverState = true;
     _pendingBillingRecoverRequestId = requestId;
+    _pendingBillingRecoverCallId = callId;
     debugPrint('⏳ [SOCKET] Not connected — billing:recover-state queued');
   }
 
@@ -715,9 +721,13 @@ class SocketService {
       _socket!.emit('billing:recover-state', {
         if (_pendingBillingRecoverRequestId != null)
           'clientRecoveryRequestId': _pendingBillingRecoverRequestId,
+        if (_pendingBillingRecoverCallId != null &&
+            _pendingBillingRecoverCallId!.isNotEmpty)
+          'callId': _pendingBillingRecoverCallId,
       });
       _pendingBillingRecoverState = false;
       _pendingBillingRecoverRequestId = null;
+      _pendingBillingRecoverCallId = null;
     }
   }
 
@@ -729,7 +739,7 @@ class SocketService {
     SentryService.addBreadcrumb(
       category: 'socket',
       message: event,
-      data: {'event': event, if (callId != null) 'callId': callId},
+      data: {'event': event, ...?callId == null ? null : {'callId': callId}},
     );
   }
 
@@ -757,6 +767,7 @@ class SocketService {
     _pendingCallEnded = null;
     _pendingBillingRecoverState = false;
     _pendingBillingRecoverRequestId = null;
+    _pendingBillingRecoverCallId = null;
     _billingStartedSeenCallIds.clear();
     if (_connectCompleter != null && !_connectCompleter!.isCompleted) {
       _connectCompleter!.complete(false);

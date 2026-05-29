@@ -195,9 +195,9 @@ class _CallHistoryTile extends StatelessWidget {
           const GemIcon(size: 12),
           const SizedBox(width: 2),
           Text(
-            isOutgoing ? '-${call.coinsDeducted}' : '+${call.coinsEarned}',
+            '${call.ownerCoinsPositive ? '+' : '-'}${call.ownerCoinsDeltaAbs}',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: isOutgoing ? scheme.error : AppPalette.success,
+                  color: call.ownerCoinsPositive ? AppPalette.success : scheme.error,
                   fontWeight: FontWeight.w500,
                 ),
           ),

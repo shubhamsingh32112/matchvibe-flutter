@@ -773,6 +773,9 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
   Timer? _billingRecoveryRetryTimer;
   int _billingRecoveryAttempts = 0;
   static const int _maxBillingRecoveryAttempts = 10;
+  static const Duration _suppressedRecoveryRetryDelay = Duration(
+    milliseconds: 900,
+  );
   static const Duration _billingStuckEndGrace = Duration(seconds: 20);
   Timer? _connectedWithoutBillingTimer;
   DateTime? _connectedStuckSince;
@@ -816,7 +819,9 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
       message: 'billing_recover_drop',
       data: {
         'reason': reason,
-        if (expectedCallId != null) 'expected_call_id': expectedCallId,
+        ...?expectedCallId == null
+            ? null
+            : {'expected_call_id': expectedCallId},
         if (payload != null) 'status': payload['status']?.toString(),
         if (payload != null) 'response_reason': payload['reason']?.toString(),
         if (payload != null)
@@ -848,7 +853,7 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
       message: 'billing_recovery_outcome_client',
       data: {
         'recovery_outcome': outcome,
-        if (reason != null) 'reason': reason,
+        ...?reason == null ? null : {'reason': reason},
       },
     );
   }
@@ -1156,6 +1161,7 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
         );
       }
 
+      final keepLiveRemaining = !_isTerminalCallState();
       state = state.copyWith(
         runtimeState: BillingRuntimeState.active,
         billingSequence: seq > 0 ? seq : state.billingSequence,
@@ -1163,7 +1169,11 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
         userCoins: coins ?? state.userCoins,
         creatorEarnings: earnings ?? state.creatorEarnings,
         elapsedSeconds: elapsed ?? state.elapsedSeconds,
-        remainingSeconds: remaining ?? state.remainingSeconds,
+        remainingSeconds: _coerceRemainingSeconds(
+          incoming: remaining,
+          fallback: state.remainingSeconds,
+          keepLiveRemainingOnZero: keepLiveRemaining,
+        ),
         durationLimit: durationLimit ?? state.durationLimit,
         lastServerTimestampMs: serverTs ?? state.lastServerTimestampMs,
         callStartTimeMs: startMs ?? state.callStartTimeMs,
@@ -1180,6 +1190,17 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
       if (eventCallId == null || eventCallId != state.callId) {
         debugPrint(
           '💰 [BILLING] Ignoring billing:settled for different call: event=$eventCallId current=${state.callId}',
+        );
+        return;
+      }
+      if (_isCallStillJoinedOrConnected()) {
+        debugPrint(
+          '⚠️ [BILLING] Ignoring premature settled state while call is still joined/connected: callId=$eventCallId',
+        );
+        SentryService.addThrottledBreadcrumb(
+          category: 'billing.convergence',
+          message: 'premature_settled_ignored_joined',
+          data: {'call_id': eventCallId},
         );
         return;
       }
@@ -1242,6 +1263,11 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
     final seq = _readSequence(data);
     final lifecycleState = data['lifecycleState']?.toString() ?? 'ACTIVE';
 
+    final remainingValue = _coerceRemainingSeconds(
+      incoming: remainingFromPayload,
+      fallback: maxSeconds,
+      keepLiveRemainingOnZero: true,
+    );
     state = CallBillingState(
       runtimeState: BillingRuntimeState.active,
       callId: callId,
@@ -1250,7 +1276,7 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
       userCoins: coins ?? 0,
       creatorEarnings: earnings ?? 0,
       elapsedSeconds: elapsed,
-      remainingSeconds: remainingFromPayload ?? maxSeconds,
+      remainingSeconds: remainingValue,
       durationLimit: durationLimit,
       pricePerSecond: pricePerSecond,
       introPromoActive: introPromoActive,
@@ -1266,7 +1292,7 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
       _recordClientRecoveryOutcome('recover_suppressed', reason: 'suppressed');
       _logRecoveryDrop('suppressed', payload: data);
       _billingRecoveryRetryTimer?.cancel();
-      _billingRecoveryRetryTimer = Timer(const Duration(milliseconds: 500), () {
+      _billingRecoveryRetryTimer = Timer(_suppressedRecoveryRetryDelay, () {
         requestBillingRecoveryForActiveCall();
       });
       return;
@@ -1278,6 +1304,37 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
         _logRecoveryDrop('no_active_call_while_connected', payload: data);
         _startBillingRecoveryRetry();
       }
+      return;
+    }
+    if (status == 'terminal_settled') {
+      final list = data['activeCalls'];
+      if (list is List && list.isNotEmpty && list.first is Map) {
+        final entry = Map<String, dynamic>.from(list.first as Map);
+        final callId = entry['callId']?.toString();
+        if (callId != null &&
+            callId.isNotEmpty &&
+            (state.callId == null || state.callId == callId)) {
+          if (_isCallStillJoinedOrConnected()) {
+            debugPrint(
+              '⚠️ [BILLING] Ignoring terminal_settled recovery while call still connected: callId=$callId',
+            );
+            return;
+          }
+          final seq = _readSequence(entry);
+          state = state.copyWith(
+            runtimeState: BillingRuntimeState.settled,
+            callId: callId,
+            billingSequence: seq > 0 ? seq : state.billingSequence,
+            lifecycleState: 'SETTLED',
+            finalCoins: (entry['finalCoins'] as num?)?.toInt(),
+            totalDeducted: (entry['totalDeducted'] as num?)?.toInt(),
+            totalEarned: (entry['totalEarned'] as num?)?.toInt(),
+            durationSeconds: (entry['durationSeconds'] as num?)?.toInt(),
+          );
+          return;
+        }
+      }
+      _startBillingRecoveryRetry();
       return;
     }
 
@@ -1421,7 +1478,7 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
             );
           }
         }
-        state = mergeResult.state;
+        state = _freezeRemainingIfZero(mergeResult.state);
         _stopBillingRecoveryRetry();
         BillingConvergenceMetrics.instance.onRecoverApplied();
         _recordClientRecoveryOutcome('recover_success', reason: 'merge_applied');
@@ -1463,6 +1520,61 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
       socketService.onBillingError = null;
     } catch (_) {}
     super.dispose();
+  }
+
+  bool _isTerminalCallState() {
+    final lifecycle = state.lifecycleState.toUpperCase();
+    return lifecycle == 'SETTLED' || lifecycle == 'ENDING' || lifecycle == 'FAILED';
+  }
+
+  bool _isCallStillJoinedOrConnected() {
+    final conn = _ref.read(callConnectionControllerProvider);
+    if (conn.phase == CallConnectionPhase.connected) {
+      return true;
+    }
+    final call = conn.call;
+    if (call == null) return false;
+    try {
+      // ignore: avoid_dynamic_calls
+      final callState = (call as dynamic).state?.value;
+      // ignore: avoid_dynamic_calls
+      final callingState = callState?.callingState?.toString().toLowerCase();
+      if (callingState == null) return false;
+      return callingState.contains('joined') || callingState.contains('join');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  int? _coerceRemainingSeconds({
+    required int? incoming,
+    required int? fallback,
+    required bool keepLiveRemainingOnZero,
+  }) {
+    if (incoming == null) return fallback;
+    if (!keepLiveRemainingOnZero) return incoming;
+    if (incoming > 0) return incoming;
+    if (_isCallStillJoinedOrConnected() && fallback != null && fallback > 0) {
+      return fallback;
+    }
+    return incoming;
+  }
+
+  CallBillingState _freezeRemainingIfZero(CallBillingState nextState) {
+    if (nextState.remainingSeconds == null || nextState.remainingSeconds! > 0) {
+      return nextState;
+    }
+    if (!(_isCallStillJoinedOrConnected() && !_isTerminalCallState())) {
+      return nextState;
+    }
+    final priorRemaining = state.remainingSeconds;
+    if (priorRemaining == null || priorRemaining <= 0) {
+      return nextState.copyWith(runtimeState: BillingRuntimeState.syncing);
+    }
+    return nextState.copyWith(
+      runtimeState: BillingRuntimeState.syncing,
+      remainingSeconds: priorRemaining,
+    );
   }
 }
 
