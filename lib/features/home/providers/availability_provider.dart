@@ -14,7 +14,7 @@ import '../../../shared/providers/app_update_popup_provider.dart';
 import '../../support/services/support_realtime_handler.dart';
 
 // ── Enum ──────────────────────────────────────────────────────────────────
-enum CreatorAvailability { online, busy }
+enum CreatorAvailability { online, onCall, offline }
 
 String? _normalizeFirebaseUid(String? raw) {
   if (raw == null) return null;
@@ -71,7 +71,9 @@ class CreatorAvailabilityNotifier
       }
       final v = entry.value == 'online'
           ? CreatorAvailability.online
-          : CreatorAvailability.busy;
+          : entry.value == 'on_call'
+          ? CreatorAvailability.onCall
+          : CreatorAvailability.offline;
       if (state[creatorId] != v) {
         newState ??= Map<String, CreatorAvailability>.from(state);
         newState[creatorId] = v;
@@ -93,11 +95,13 @@ class CreatorAvailabilityNotifier
       if (normalizedCreatorId == null) return;
       final status = payload['status']?.toString() == 'online'
           ? CreatorAvailability.online
-          : CreatorAvailability.busy;
+          : payload['status']?.toString() == 'on_call'
+          ? CreatorAvailability.onCall
+          : CreatorAvailability.offline;
       final incomingVersion = (payload['version'] as num?)?.toInt() ?? 0;
       final currentVersion = _versions[normalizedCreatorId] ?? -1;
       final currentStatus =
-          state[normalizedCreatorId] ?? CreatorAvailability.busy;
+          state[normalizedCreatorId] ?? CreatorAvailability.offline;
       final shouldApply = incomingVersion > currentVersion;
       if (!shouldApply) {
         return;
@@ -134,7 +138,9 @@ class CreatorAvailabilityNotifier
     }
     final newAvailability = status == 'online'
         ? CreatorAvailability.online
-        : CreatorAvailability.busy;
+        : status == 'on_call'
+        ? CreatorAvailability.onCall
+        : CreatorAvailability.offline;
 
     // Always advance monotonic version even when status stays unchanged.
     if (state[normalizedCreatorId] != newAvailability) {
@@ -174,11 +180,11 @@ class CreatorAvailabilityNotifier
     }
   }
 
-  /// Get availability for one creator. **Default = busy**.
+  /// Get availability for one creator. **Default = offline**.
   CreatorAvailability getAvailability(String? creatorId) {
     final normalizedCreatorId = _normalizeFirebaseUid(creatorId);
-    if (normalizedCreatorId == null) return CreatorAvailability.busy;
-    return state[normalizedCreatorId] ?? CreatorAvailability.busy;
+    if (normalizedCreatorId == null) return CreatorAvailability.offline;
+    return state[normalizedCreatorId] ?? CreatorAvailability.offline;
   }
 
   /// Instant fan UI while call lifecycle runs — server versioned events still win when higher.
@@ -188,7 +194,11 @@ class CreatorAvailabilityNotifier
     final nextVersion = (_versions[normalizedCreatorId] ?? 0) + 1;
     updateSingle(
       normalizedCreatorId,
-      availability == CreatorAvailability.online ? 'online' : 'busy',
+      availability == CreatorAvailability.online
+          ? 'online'
+          : availability == CreatorAvailability.onCall
+          ? 'on_call'
+          : 'offline',
       version: nextVersion,
     );
   }
@@ -196,7 +206,7 @@ class CreatorAvailabilityNotifier
 
 // ── Providers ─────────────────────────────────────────────────────────────
 
-/// The reactive availability map: `{ firebaseUid → online | busy }`.
+/// The reactive availability map: `{ firebaseUid → online | on_call | offline }`.
 /// Widgets that call `ref.watch(creatorAvailabilityProvider)` will rebuild
 /// whenever a batch or incremental update arrives via Socket.IO.
 final creatorAvailabilityProvider =
@@ -213,11 +223,11 @@ final creatorStatusProvider = Provider.family<CreatorAvailability, String?>((
 ) {
   final normalizedCreatorId = _normalizeFirebaseUid(creatorId);
   if (normalizedCreatorId == null) {
-    return CreatorAvailability.busy;
+    return CreatorAvailability.offline;
   }
   return ref.watch(
     creatorAvailabilityProvider.select(
-      (map) => map[normalizedCreatorId] ?? CreatorAvailability.busy,
+      (map) => map[normalizedCreatorId] ?? CreatorAvailability.offline,
     ),
   );
 });

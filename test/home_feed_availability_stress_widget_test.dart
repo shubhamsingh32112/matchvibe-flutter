@@ -2,9 +2,11 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:zztherapy/features/auth/providers/auth_provider.dart';
 import 'package:zztherapy/features/home/providers/availability_provider.dart';
 import 'package:zztherapy/features/home/providers/home_provider.dart';
 import 'package:zztherapy/shared/models/creator_model.dart';
+import 'package:zztherapy/shared/models/user_model.dart';
 
 Map<String, dynamic> _creatorJson(String id) {
   return {
@@ -17,7 +19,7 @@ Map<String, dynamic> _creatorJson(String id) {
     'galleryImages': const [],
     'categories': const ['Stress'],
     'price': 10,
-    'availability': 'busy',
+    'availability': 'offline',
   };
 }
 
@@ -96,6 +98,13 @@ void main() {
 
     final container = ProviderContainer(
       overrides: [
+        authProvider.overrideWith(
+          (ref) => AuthNotifier.testInitial(
+            AuthState(
+              user: const UserModel(id: 'stress-user', role: 'user', coins: 0),
+            ),
+          ),
+        ),
         homeApiGetProvider.overrideWith((ref) {
           return (path) async {
             if (path.contains('/creator/feed?page=1')) {
@@ -167,13 +176,13 @@ void main() {
         if ((i + burst) % 5 == 0) {
           updates['fb-$i'] = (i + burst) % 2 == 0
               ? CreatorAvailability.online
-              : CreatorAvailability.busy;
+              : CreatorAvailability.offline;
         }
       }
       container.read(creatorAvailabilityProvider.notifier).updateBatch(
             updates.map((key, value) => MapEntry(
                   key,
-                  value == CreatorAvailability.online ? 'online' : 'busy',
+                  value == CreatorAvailability.online ? 'online' : 'offline',
                 )),
           );
       container.read(creatorOrderProvider.notifier).updateBatch(updates);

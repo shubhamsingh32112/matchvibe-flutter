@@ -108,7 +108,7 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
     }
   }
 
-  void _openCreatorProfileModal({required bool isCreatorOnline}) {
+  void _openCreatorProfileModal({required CreatorAvailability creatorAvailability}) {
     if (widget.creator == null) return;
     final creatorId = widget.creator!.id;
     unawaited(
@@ -127,7 +127,7 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
         builder: (pageContext) => _CreatorProfilePage(
           callVariant: modalCallVariant,
           creator: widget.creator!,
-          isOnline: isCreatorOnline,
+          availability: creatorAvailability,
           onCallPressed: _isInitiatingCall
               ? null
               : () {
@@ -226,7 +226,9 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
     final liveAvailability = ref.watch(creatorStatusProvider(creatorFirebaseUid));
     final seededAvailability = widget.creator?.availability == 'online'
         ? CreatorAvailability.online
-        : CreatorAvailability.busy;
+        : widget.creator?.availability == 'on_call'
+        ? CreatorAvailability.onCall
+        : CreatorAvailability.offline;
     final effectiveAvailability = hasHydratedLiveStatus
         ? liveAvailability
         : seededAvailability;
@@ -237,7 +239,7 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: widget.creator != null
-            ? () => _openCreatorProfileModal(isCreatorOnline: isCreatorOnline)
+            ? () => _openCreatorProfileModal(creatorAvailability: effectiveAvailability)
             : null,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
@@ -268,7 +270,7 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
                 Positioned(
                   top: AppSpacing.md,
                   right: AppSpacing.md,
-                  child: _AvailabilityTag(isOnline: isCreatorOnline),
+                  child: _AvailabilityTag(availability: effectiveAvailability),
                 ),
               if (widget.creator != null)
                 Positioned(
@@ -548,18 +550,20 @@ class _VideoCallButtonState extends State<_VideoCallButton>
 
 // ── Availability tag (Online / Busy) ──────────────────────────────────────
 class _AvailabilityTag extends StatelessWidget {
-  final bool isOnline;
+  final CreatorAvailability availability;
 
-  const _AvailabilityTag({required this.isOnline});
+  const _AvailabilityTag({required this.availability});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: isOnline
+        color: availability == CreatorAvailability.online
             ? AppPalette.success.withValues(alpha: 0.92)
-            : AppPalette.warning.withValues(alpha: 0.92),
+            : availability == CreatorAvailability.onCall
+            ? AppPalette.warning.withValues(alpha: 0.92)
+            : AppPalette.subtitle.withValues(alpha: 0.92),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -575,7 +579,11 @@ class _AvailabilityTag extends StatelessWidget {
           ),
           const SizedBox(width: 4),
           Text(
-            isOnline ? 'Online' : 'Busy',
+            availability == CreatorAvailability.online
+                ? 'Online'
+                : availability == CreatorAvailability.onCall
+                ? 'On call'
+                : 'Offline',
             style: const TextStyle(
               color: Colors.white,
               fontSize: 9,
@@ -641,7 +649,7 @@ class _CreatorInfoText extends StatelessWidget {
 class _CreatorProfilePage extends ConsumerStatefulWidget {
   final CallButtonVariant callVariant;
   final CreatorModel creator;
-  final bool isOnline;
+  final CreatorAvailability availability;
   final VoidCallback? onCallPressed;
   final bool isCalling;
   final VoidCallback? onChatPressed;
@@ -652,7 +660,7 @@ class _CreatorProfilePage extends ConsumerStatefulWidget {
   const _CreatorProfilePage({
     required this.callVariant,
     required this.creator,
-    required this.isOnline,
+    required this.availability,
     required this.onCallPressed,
     required this.isCalling,
     required this.onChatPressed,
@@ -760,11 +768,17 @@ class _CreatorProfilePageState extends ConsumerState<_CreatorProfilePage> {
                     const SizedBox(height: AppSpacing.sm),
                     Center(
                       child: Text(
-                        widget.isOnline ? '● Online' : '● Busy',
+                        widget.availability == CreatorAvailability.online
+                            ? '● Online'
+                            : widget.availability == CreatorAvailability.onCall
+                            ? '● On call'
+                            : '● Offline',
                         style: TextStyle(
-                          color: widget.isOnline
+                          color: widget.availability == CreatorAvailability.online
                               ? AppPalette.success
-                              : AppPalette.warning,
+                              : widget.availability == CreatorAvailability.onCall
+                              ? AppPalette.warning
+                              : AppPalette.subtitle,
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
                         ),
@@ -950,7 +964,8 @@ class _CreatorProfilePageState extends ConsumerState<_CreatorProfilePage> {
                     const SizedBox(width: AppSpacing.md),
                     Expanded(
                       child: FilledButton.icon(
-                        onPressed: widget.isOnline ? widget.onCallPressed : null,
+                        onPressed:
+                            widget.availability == CreatorAvailability.online ? widget.onCallPressed : null,
                         icon: widget.isCalling
                             ? const SizedBox(
                                 width: 16,

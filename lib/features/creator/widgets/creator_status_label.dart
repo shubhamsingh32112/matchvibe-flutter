@@ -20,7 +20,7 @@ class CreatorStatusLabel extends StatelessWidget {
         return 'Syncing';
       case CreatorStatus.online:
         return 'Online';
-      case CreatorStatus.busy:
+      case CreatorStatus.onCall:
         return 'On a call';
       case CreatorStatus.offline:
         return 'Offline';
@@ -32,7 +32,7 @@ class CreatorStatusLabel extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final isSyncing = status == CreatorStatus.syncing;
     final isOnline = status == CreatorStatus.online;
-    final isBusy = status == CreatorStatus.busy;
+    final isOnCall = status == CreatorStatus.onCall;
 
     final Color dotColor;
     final Color textColor;
@@ -41,7 +41,7 @@ class CreatorStatusLabel extends StatelessWidget {
           ? const Color(0xFF4CAF50)
           : isSyncing
               ? const Color(0xFF81D4FA)
-          : isBusy
+          : isOnCall
               ? const Color(0xFFFFB74D)
               : Colors.white.withValues(alpha: 0.55);
       textColor = isOnline
@@ -52,7 +52,7 @@ class CreatorStatusLabel extends StatelessWidget {
           ? scheme.primary
           : isSyncing
               ? scheme.secondary
-          : isBusy
+          : isOnCall
               ? scheme.tertiary
               : scheme.outlineVariant;
       textColor = scheme.onSurface;

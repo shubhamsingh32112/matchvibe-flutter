@@ -9,15 +9,15 @@ import '../../home/providers/availability_provider.dart';
 enum CreatorStatus {
   syncing,
   online,
-  busy,
+  onCall,
   offline,
 }
 
-/// Creator self online/offline/busy status for the app bar.
+/// Creator self online/offline/on_call status for the app bar.
 ///
 /// Uses [SocketService] (not legacy AvailabilitySocketService). Optimistic
 /// online while the production socket is connected; backend [creator:status]
-/// and the availability map confirm or override (e.g. on-call → busy).
+/// and the availability map confirm or override (e.g. on-call → onCall).
 final creatorStatusProvider =
     StateNotifierProvider<CreatorStatusNotifier, CreatorStatus>((ref) {
   return CreatorStatusNotifier(ref);
@@ -108,8 +108,13 @@ class CreatorStatusNotifier extends StateNotifier<CreatorStatus> {
     ownAvailability ??=
         uid != null ? _ref.read(creatorAvailabilityProvider)[uid] : null;
 
-    if (ownAvailability == CreatorAvailability.busy) {
-      state = CreatorStatus.busy;
+    if (ownAvailability == CreatorAvailability.onCall) {
+      state = CreatorStatus.onCall;
+      return;
+    }
+
+    if (ownAvailability == CreatorAvailability.offline) {
+      state = CreatorStatus.offline;
       return;
     }
 
@@ -160,5 +165,5 @@ class CreatorStatusNotifier extends StateNotifier<CreatorStatus> {
   }
 
   bool get isOnline => state == CreatorStatus.online;
-  bool get isBusy => state == CreatorStatus.busy;
+  bool get isOnCall => state == CreatorStatus.onCall;
 }

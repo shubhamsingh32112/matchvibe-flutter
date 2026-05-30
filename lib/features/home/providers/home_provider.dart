@@ -88,7 +88,9 @@ CreatorAvailability resolveCreatorAvailabilityForFeed(
   }
   return creator.availability == 'online'
       ? CreatorAvailability.online
-      : CreatorAvailability.busy;
+      : creator.availability == 'on_call'
+      ? CreatorAvailability.onCall
+      : CreatorAvailability.offline;
 }
 
 class CreatorFeedNotifier extends AsyncNotifier<List<CreatorModel>> {
@@ -220,7 +222,9 @@ class CreatorFeedNotifier extends AsyncNotifier<List<CreatorModel>> {
       if (uid != null) {
         apiAvailability[uid] = creator.availability == 'online'
             ? CreatorAvailability.online
-            : CreatorAvailability.busy;
+            : creator.availability == 'on_call'
+            ? CreatorAvailability.onCall
+            : CreatorAvailability.offline;
       }
     }
     ref.read(creatorAvailabilityProvider.notifier).seedFromApi(apiAvailability);
@@ -427,7 +431,7 @@ class CreatorOrderNotifier extends StateNotifier<CreatorOrderState> {
   final Map<String, CreatorAvailability> _statusById =
       <String, CreatorAvailability>{};
   final List<String> _onlineIds = <String>[];
-  final List<String> _busyIds = <String>[];
+  final List<String> _unavailableIds = <String>[];
   String? _lastUserId;
   String _lastCreatorFingerprint = '';
 
@@ -444,7 +448,7 @@ class CreatorOrderNotifier extends StateNotifier<CreatorOrderState> {
     _scoreById.clear();
     _statusById.clear();
     _onlineIds.clear();
-    _busyIds.clear();
+    _unavailableIds.clear();
 
     for (final creator in creators) {
       final firebaseUid = creator.firebaseUid;
@@ -459,12 +463,12 @@ class CreatorOrderNotifier extends StateNotifier<CreatorOrderState> {
       if (availability == CreatorAvailability.online) {
         _onlineIds.add(firebaseUid);
       } else {
-        _busyIds.add(firebaseUid);
+        _unavailableIds.add(firebaseUid);
       }
     }
 
     _onlineIds.sort(_sortByScore);
-    _busyIds.sort(_sortByScore);
+    _unavailableIds.sort(_sortByScore);
     _lastUserId = userId;
     _lastCreatorFingerprint = creatorFingerprint;
     _emit();
@@ -481,11 +485,11 @@ class CreatorOrderNotifier extends StateNotifier<CreatorOrderState> {
       if (previous == nextStatus) continue;
       _statusById[id] = nextStatus;
       _onlineIds.remove(id);
-      _busyIds.remove(id);
+      _unavailableIds.remove(id);
       if (nextStatus == CreatorAvailability.online) {
         _insertSorted(_onlineIds, id);
       } else {
-        _insertSorted(_busyIds, id);
+        _insertSorted(_unavailableIds, id);
       }
       changed = true;
     }
@@ -549,7 +553,7 @@ class CreatorOrderNotifier extends StateNotifier<CreatorOrderState> {
   }
 
   void _emit() {
-    final ordered = [..._onlineIds, ..._busyIds];
+    final ordered = [..._onlineIds, ..._unavailableIds];
     state = CreatorOrderState(orderedIds: ordered);
   }
 }
@@ -650,7 +654,7 @@ final homeFeedProvider = Provider<List<dynamic>>((ref) {
   }
 
   // If user is a regular user, show ALL creators.
-  // Availability (online/busy) is managed via Socket.IO + Redis in real-time.
+  // Availability (online/on_call/offline) is managed via Socket.IO + Redis in real-time.
   final creatorsAsync = ref.watch(creatorsProvider);
   final orderState = ref.watch(creatorOrderProvider);
 

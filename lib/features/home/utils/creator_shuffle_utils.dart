@@ -49,7 +49,7 @@ int generateSeedFromUserId(String userId) {
 
 /// Sort and shuffle creators by availability:
 /// - Online creators first (shuffled within group)
-/// - Busy creators at bottom (shuffled within group)
+/// - Unavailable creators (on_call/offline) at bottom (shuffled within group)
 /// 
 /// Uses real-time availability from creatorAvailabilityProvider for accurate status.
 /// Shuffling is seeded by user ID to ensure consistent order per user session.
@@ -60,9 +60,9 @@ List<CreatorModel> sortAndShuffleCreatorsByAvailability(
 ) {
   if (creators.isEmpty) return creators;
 
-  // Separate creators into online and busy groups
+  // Separate creators into online and unavailable groups
   final onlineCreators = <CreatorModel>[];
-  final busyCreators = <CreatorModel>[];
+  final unavailableCreators = <CreatorModel>[];
 
   for (final creator in creators) {
     // Use real-time availability if available, otherwise fall back to model's availability
@@ -70,15 +70,19 @@ List<CreatorModel> sortAndShuffleCreatorsByAvailability(
         ? (availabilityMap[creator.firebaseUid] ??
             (creator.availability == 'online'
                 ? CreatorAvailability.online
-                : CreatorAvailability.busy))
+                : creator.availability == 'on_call'
+                ? CreatorAvailability.onCall
+                : CreatorAvailability.offline))
         : (creator.availability == 'online'
             ? CreatorAvailability.online
-            : CreatorAvailability.busy);
+            : creator.availability == 'on_call'
+            ? CreatorAvailability.onCall
+            : CreatorAvailability.offline);
 
     if (availability == CreatorAvailability.online) {
       onlineCreators.add(creator);
     } else {
-      busyCreators.add(creator);
+      unavailableCreators.add(creator);
     }
   }
 
@@ -87,9 +91,9 @@ List<CreatorModel> sortAndShuffleCreatorsByAvailability(
 
   // Shuffle each group independently
   final shuffledOnline = seededShuffle(onlineCreators, seed);
-  // Use a different seed offset for busy creators to ensure different shuffle
-  final shuffledBusy = seededShuffle(busyCreators, seed + 1);
+  // Use a different seed offset for unavailable creators to ensure different shuffle
+  final shuffledUnavailable = seededShuffle(unavailableCreators, seed + 1);
 
-  // Combine: online first, then busy
-  return [...shuffledOnline, ...shuffledBusy];
+  // Combine: online first, then unavailable
+  return [...shuffledOnline, ...shuffledUnavailable];
 }

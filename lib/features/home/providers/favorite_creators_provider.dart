@@ -85,7 +85,9 @@ class FavoriteCreatorsNotifier extends AsyncNotifier<List<CreatorModel>> {
       if (creator.firebaseUid != null) {
         apiAvailability[creator.firebaseUid!] = creator.availability == 'online'
             ? CreatorAvailability.online
-            : CreatorAvailability.busy;
+            : creator.availability == 'on_call'
+            ? CreatorAvailability.onCall
+            : CreatorAvailability.offline;
       }
     }
     ref.read(creatorAvailabilityProvider.notifier).seedFromApi(apiAvailability);

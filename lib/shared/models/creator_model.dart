@@ -76,8 +76,8 @@ class CreatorModel extends Equatable {
   final bool isOnline;
   final bool isFavorite; // User-only: whether current user favorited this creator
   /// Real-time availability from Redis (authoritative).
-  /// 'online' = available for calls, 'busy' = unavailable/offline/on-call.
-  /// Defaults to 'busy' if not provided (safe default).
+  /// 'online' = available, 'on_call' = currently in a call, 'offline' = unavailable.
+  /// Defaults to 'offline' if not provided (safe default).
   final String availability;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -95,7 +95,7 @@ class CreatorModel extends Equatable {
     this.age,
     this.isOnline = false,
     this.isFavorite = false,
-    this.availability = 'busy',
+    this.availability = 'offline',
     this.createdAt,
     this.updatedAt,
   });
@@ -113,9 +113,9 @@ class CreatorModel extends Equatable {
     if (id.isEmpty) {
       throw const FormatException('CreatorModel: missing id');
     }
-    var availability = readOptionalString(json['availability']) ?? 'busy';
-    if (availability != 'online' && availability != 'busy') {
-      availability = 'busy';
+    var availability = readOptionalString(json['availability']) ?? 'offline';
+    if (availability != 'online' && availability != 'on_call' && availability != 'offline') {
+      availability = 'offline';
     }
     return CreatorModel(
       id: id,

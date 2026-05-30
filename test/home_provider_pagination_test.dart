@@ -172,8 +172,8 @@ void main() {
     });
     final status = resolveCreatorAvailabilityForFeed(
       creator,
-      const <String, CreatorAvailability>{'fb-live': CreatorAvailability.busy},
+      const <String, CreatorAvailability>{'fb-live': CreatorAvailability.offline},
     );
-    expect(status, CreatorAvailability.busy);
+    expect(status, CreatorAvailability.offline);
   });
 }

@@ -322,7 +322,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
 
       _ref
           .read(creatorAvailabilityProvider.notifier)
-          .applyCallLifecycleHint(creatorFirebaseUid, CreatorAvailability.busy);
+          .applyCallLifecycleHint(creatorFirebaseUid, CreatorAvailability.onCall);
       _ref
           .read(socketServiceProvider)
           .requestAvailability([creatorFirebaseUid]);
@@ -1066,7 +1066,7 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
           _creatorAccepted = false;
           // Navigate to home and show toast instead of full-page failed view
           _ref.read(creatorBusyToastProvider.notifier).state =
-              'Creator is busy';
+              'Creator is on call';
           CallNavigationService.navigateToHome();
           state = const CallConnectionState.idle();
         }

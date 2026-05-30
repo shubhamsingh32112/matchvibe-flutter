@@ -5,7 +5,7 @@ void main() {
   test('rejects stale overwrite for creator:status', () {
     final notifier = CreatorAvailabilityNotifier();
     notifier.updateSingle('c1', 'online', version: 3);
-    notifier.updateSingle('c1', 'busy', version: 2);
+    notifier.updateSingle('c1', 'on_call', version: 2);
 
     expect(notifier.state['c1'], CreatorAvailability.online);
   });
@@ -13,7 +13,7 @@ void main() {
   test('rejects unversioned creator status updates', () {
     final notifier = CreatorAvailabilityNotifier();
     notifier.updateSingle('c1', 'online', version: 2);
-    notifier.updateSingle('c1', 'busy');
+    notifier.updateSingle('c1', 'on_call');
 
     expect(notifier.state['c1'], CreatorAvailability.online);
   });
@@ -21,7 +21,7 @@ void main() {
   test('rejects unversioned batch updates', () {
     final notifier = CreatorAvailabilityNotifier();
     notifier.updateSingle('c1', 'online', version: 2);
-    notifier.updateBatch({'c1': 'busy'});
+    notifier.updateBatch({'c1': 'on_call'});
 
     expect(notifier.state['c1'], CreatorAvailability.online);
   });
@@ -30,14 +30,14 @@ void main() {
     final notifier = CreatorAvailabilityNotifier();
     notifier.updateSingle('c1', 'online', version: 5);
     notifier.updateBatchV2({
-      'c1': {'status': 'busy', 'version': 4},
+      'c1': {'status': 'on_call', 'version': 4},
       'c2': {'status': 'online', 'version': 1},
     });
     notifier.updateBatchV2({
-      'c1': {'status': 'busy', 'version': 6},
+      'c1': {'status': 'on_call', 'version': 6},
     });
 
-    expect(notifier.state['c1'], CreatorAvailability.busy);
+    expect(notifier.state['c1'], CreatorAvailability.onCall);
     expect(notifier.state['c2'], CreatorAvailability.online);
   });
 
@@ -52,16 +52,16 @@ void main() {
 
   test('delayed offline replay is rejected', () {
     final notifier = CreatorAvailabilityNotifier();
-    notifier.updateSingle('c1', 'busy', version: 12);
+    notifier.updateSingle('c1', 'offline', version: 12);
     notifier.updateSingle('c1', 'online', version: 11);
 
-    expect(notifier.state['c1'], CreatorAvailability.busy);
+    expect(notifier.state['c1'], CreatorAvailability.offline);
   });
 
   test('seedFromApi does not overwrite live socket value', () {
     final notifier = CreatorAvailabilityNotifier();
     notifier.updateSingle('c1', 'online', version: 4);
-    notifier.seedFromApi({'c1': CreatorAvailability.busy});
+    notifier.seedFromApi({'c1': CreatorAvailability.onCall});
 
     expect(notifier.state['c1'], CreatorAvailability.online);
   });
@@ -69,8 +69,8 @@ void main() {
   test('versioned socket update overrides API seed fallback', () {
     final notifier = CreatorAvailabilityNotifier();
     notifier.seedFromApi({'c1': CreatorAvailability.online});
-    notifier.updateSingle('c1', 'busy', version: 1);
+    notifier.updateSingle('c1', 'on_call', version: 1);
 
-    expect(notifier.state['c1'], CreatorAvailability.busy);
+    expect(notifier.state['c1'], CreatorAvailability.onCall);
   });
 }

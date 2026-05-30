@@ -452,15 +452,15 @@ final availabilitySocketServiceProvider = Provider<AvailabilitySocketService>((r
 /// final status = ref.watch(creatorStatusProvider(creatorId));
 /// ```
 /// 
-/// Returns CreatorAvailability.busy if not found (safe default)
+/// Returns CreatorAvailability.offline if not found (safe default)
 final creatorStatusProvider = Provider.family<CreatorAvailability, String?>((ref, creatorId) {
   if (creatorId == null || creatorId.isEmpty) {
-    return CreatorAvailability.busy;
+    return CreatorAvailability.offline;
   }
 
   return ref.watch(
     creatorAvailabilityProvider.select(
-      (map) => map[creatorId] ?? CreatorAvailability.busy,
+      (map) => map[creatorId] ?? CreatorAvailability.offline,
     ),
   );
 });

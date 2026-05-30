@@ -879,14 +879,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Check if creator is online
     final availabilityMap = ref.read(creatorAvailabilityProvider);
     final isCreatorOnline =
-        (availabilityMap[creatorFirebaseUid!] ?? CreatorAvailability.busy) ==
+        (availabilityMap[creatorFirebaseUid!] ?? CreatorAvailability.offline) ==
         CreatorAvailability.online;
 
     if (!isCreatorOnline) {
       if (mounted) {
         AppToast.showError(
           context,
-          'Creator is busy',
+          'Creator is unavailable',
           duration: const Duration(seconds: 2),
         );
       }
