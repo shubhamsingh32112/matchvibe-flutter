@@ -438,11 +438,13 @@ class CreatorOrderNotifier extends StateNotifier<CreatorOrderState> {
   void syncCreators(
     List<CreatorModel> creators,
     Map<String, CreatorAvailability> availabilityMap,
-    String userId,
-  ) {
+    String userId, {
+    bool force = false,
+  }) {
     final creatorFingerprint = _buildCreatorFingerprint(creators);
-    final shouldRebuild =
-        userId != _lastUserId || creatorFingerprint != _lastCreatorFingerprint;
+    final shouldRebuild = force ||
+        userId != _lastUserId ||
+        creatorFingerprint != _lastCreatorFingerprint;
     if (!shouldRebuild) return;
 
     _scoreById.clear();
@@ -563,7 +565,58 @@ final creatorOrderProvider =
       (_) => CreatorOrderNotifier(),
     );
 
+/// Keeps fan home presence live: tracks feed UIDs on socket, hydrates on connect/reconnect.
+final creatorPresenceBackboneProvider = Provider<void>((ref) {
+  final service = ref.read(socketServiceProvider);
+
+  void hydrateLoadedFeedCreators(String reason) {
+    final user = ref.read(authProvider).user;
+    if (user == null || user.role != 'user') return;
+
+    final uids = (ref.read(creatorsProvider).valueOrNull ?? const <CreatorModel>[])
+        .map((c) => _normalizeFirebaseUid(c.firebaseUid))
+        .whereType<String>()
+        .toList(growable: false);
+    if (uids.isEmpty) return;
+    if (!kReleaseMode) {
+      debugPrint(
+        '📡 [PRESENCE BACKBONE] Hydrating ${uids.length} feed creator(s) ($reason)',
+      );
+    }
+    service.requestAvailability(uids);
+  }
+
+  final previousOnConnected = service.onConnected;
+  final previousOnReconnected = service.onReconnected;
+  service.onConnected = () {
+    previousOnConnected?.call();
+    hydrateLoadedFeedCreators('socket_connected');
+  };
+  service.onReconnected = () {
+    previousOnReconnected?.call();
+    hydrateLoadedFeedCreators('socket_reconnected');
+  };
+
+  ref.listen<AsyncValue<List<CreatorModel>>>(creatorsProvider, (prev, next) {
+    next.whenData((creators) {
+      final uids = creators
+          .map((c) => _normalizeFirebaseUid(c.firebaseUid))
+          .whereType<String>()
+          .toList(growable: false);
+      if (uids.isEmpty) return;
+      service.requestAvailability(uids);
+    });
+  });
+
+  ref.onDispose(() {
+    service.onConnected = previousOnConnected;
+    service.onReconnected = previousOnReconnected;
+  });
+});
+
 final creatorOrderBridgeProvider = Provider<void>((ref) {
+  ref.watch(creatorPresenceBackboneProvider);
+
   ref.listen<AsyncValue<List<CreatorModel>>>(creatorsProvider, (prev, next) {
     next.whenData((creators) {
       final userId = ref.read(authProvider).user?.id;
@@ -589,8 +642,20 @@ final creatorOrderBridgeProvider = Provider<void>((ref) {
           updates[entry.key] = entry.value;
         }
       }
-      if (updates.isNotEmpty) {
-        ref.read(creatorOrderProvider.notifier).updateBatch(updates);
+      if (updates.isEmpty) return;
+
+      final orderNotifier = ref.read(creatorOrderProvider.notifier);
+      orderNotifier.updateBatch(updates);
+
+      final creators = ref.read(creatorsProvider).valueOrNull;
+      final userId = ref.read(authProvider).user?.id;
+      if (creators == null || userId == null) return;
+
+      final orderedIds = ref.read(creatorOrderProvider).orderedIds;
+      final needsResync = orderedIds.isEmpty ||
+          updates.keys.any((id) => !orderedIds.contains(id));
+      if (needsResync) {
+        orderNotifier.syncCreators(creators, next, userId, force: true);
       }
     },
   );

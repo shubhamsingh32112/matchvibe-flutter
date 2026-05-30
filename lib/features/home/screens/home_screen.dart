@@ -93,6 +93,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   bool _isRequestingBundledPermissions = false;
   bool _isUserHomePresenceRefreshInFlight = false;
   DateTime? _lastUserHomePresenceRefreshAt;
+  /// Poll Redis-backed presence while home is open (covers missed socket events).
+  Timer? _homePresenceRefreshTimer;
   // Watchdog to prevent onboarding deadlocks if user never interacts.
   Timer? _onboardingPopupWatchdog;
   String? _onboardingSessionId;
@@ -131,6 +133,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       }
     });
     _homeScrollController.addListener(_onHomeScroll);
+    _homePresenceRefreshTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (!mounted) return;
+      unawaited(
+        _rehydrateUserHomeCreatorPresence(
+          reason: 'home_periodic',
+          includeSweep: false,
+        ),
+      );
+    });
     _setupReactiveListeners();
     _startFrameTimingSampling();
     // Note: Coin purchase popup is now handled in AppLifecycleWrapper
@@ -145,6 +156,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _feedbackPromptSub?.close();
     _authSub?.close();
     _onboardingPopupWatchdog?.cancel();
+    _homePresenceRefreshTimer?.cancel();
     if (_homeTimingsCallback != null) {
       WidgetsBinding.instance.removeTimingsCallback(_homeTimingsCallback!);
     }
@@ -359,8 +371,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final authState = ref.read(authProvider);
     if (!authState.isAuthenticated || authState.firebaseUser == null) return;
 
-    // Get a fresh Firebase ID token for the socket auth handshake
-    final token = await authState.firebaseUser!.getIdToken();
+    // Force-refresh token so socket auth does not fail with id-token-expired (breaks live presence).
+    final token = await authState.firebaseUser!.getIdToken(true);
     if (token == null || !mounted) return;
 
     // Connect socket (no-op if already connected)
@@ -375,7 +387,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (!mounted || _isUserHomePresenceRefreshInFlight) return;
     final now = DateTime.now();
     final last = _lastUserHomePresenceRefreshAt;
-    if (last != null && now.difference(last) < const Duration(seconds: 8)) {
+    if (last != null && now.difference(last) < const Duration(seconds: 3)) {
       return;
     }
 

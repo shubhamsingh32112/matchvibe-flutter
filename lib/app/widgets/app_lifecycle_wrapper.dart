@@ -112,6 +112,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     _setupProviderListeners();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(socketServiceProvider);
+      ref.read(creatorPresenceBackboneProvider);
       _ensureCreatorOnline();
       unawaited(_retryDeferredUpdateAcks());
       unawaited(_refreshPendingAppUpdate());
@@ -948,14 +949,18 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
         unawaited(_recoverBillingAfterForegroundResume());
       }
 
-      // Refresh home feed + profile when app resumes (promotion to creator syncs role)
+      // User resume: refresh profile/role without reloading feed (socket presence stays live).
       if (user != null && user.role == 'user') {
         debugPrint(
-          '📱 [APP LIFECYCLE] App resumed — refreshing home feed + user for user',
+          '📱 [APP LIFECYCLE] App resumed — refreshing auth + live creator presence',
         );
-        ref.invalidate(homeFeedProvider);
-        ref.invalidate(creatorsProvider);
         unawaited(() async {
+          await ref.read(authProvider.notifier).refreshAuthToken();
+          final firebaseUser = ref.read(authProvider).firebaseUser;
+          final token = await firebaseUser?.getIdToken();
+          if (token != null) {
+            await ref.read(socketServiceProvider).ensureConnected(token);
+          }
           await ref.read(authProvider.notifier).refreshUser();
           if (!mounted) return;
           _maybeNavigateHostOnboarding(ref.read(authProvider).user);

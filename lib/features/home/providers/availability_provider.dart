@@ -236,6 +236,7 @@ final creatorStatusProvider = Provider.family<CreatorAvailability, String?>((
 /// Created once, lives for the entire app session (not autoDispose).
 final socketServiceProvider = Provider<SocketService>((ref) {
   final service = SocketService();
+
   Future<void> requestVisibleCreatorHydration() async {
     final ids = ref
         .read(creatorAvailabilityProvider)
@@ -309,6 +310,7 @@ final socketServiceProvider = Provider<SocketService>((ref) {
   };
   service.onCreatorStatusV2 =
       (creatorId, status, {int? version, int? updatedAt}) {
+        service.trackCreatorForPresence(creatorId);
         ref
             .read(creatorAvailabilityProvider.notifier)
             .updateSingle(creatorId, status, version: version);

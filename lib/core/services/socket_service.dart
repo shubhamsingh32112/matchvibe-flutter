@@ -230,6 +230,7 @@ class SocketService {
               '⚠️  [SOCKET] onCreatorStatus callback skipped (prefer v2/versioned path).',
             );
           }
+          _trackCreatorId(creatorId);
           onCreatorStatusV2?.call(
             creatorId,
             status,
@@ -394,17 +395,7 @@ class SocketService {
         },
       );
       _isConnected = true;
-
-      // Re-hydrate availability after reconnect
-      if (_lastRequestedIds.isNotEmpty) {
-        _emitCreatorAvailabilityHydration();
-      }
-      if (_lastRequestedUserIds.isNotEmpty) {
-        _emitUserAvailabilityHydration();
-      }
-
-      // Flush any pending billing events that were queued while disconnected
-      _flushPendingBillingEvents();
+      unawaited(_afterSocketReconnected());
 
       onConnected?.call();
       onReconnected?.call();
@@ -512,7 +503,19 @@ class SocketService {
     debugPrint(
       '📡 [SOCKET] Emitting availability:get for ${sanitized.length} creator(s)',
     );
-    _socket!.emit('availability:get', {'creatorIds': sanitized});
+    _emitCreatorAvailabilityHydrationFor(sanitized);
+  }
+
+  /// Remember a creator so reconnect re-hydrates them even if they were not on the first feed page.
+  void trackCreatorForPresence(String creatorId) {
+    _trackCreatorId(creatorId);
+  }
+
+  void _trackCreatorId(String creatorId) {
+    final normalized = creatorId.trim();
+    if (normalized.isEmpty) return;
+    _trackedCreatorIds.add(normalized);
+    _lastRequestedIds = _trackedCreatorIds.toList(growable: false);
   }
 
   /// Emit [user:availability:get] with fan Firebase UIDs (creators / admin in creator tools).
@@ -776,12 +779,43 @@ class SocketService {
   }
 
   void _emitCreatorAvailabilityHydration() {
-    if (!_isConnected || _socket == null || _lastRequestedIds.isEmpty) return;
-    for (var i = 0; i < _lastRequestedIds.length; i += _availabilityChunkSize) {
-      final end = (i + _availabilityChunkSize > _lastRequestedIds.length)
-          ? _lastRequestedIds.length
+    if (_lastRequestedIds.isEmpty) return;
+    _emitCreatorAvailabilityHydrationFor(_lastRequestedIds);
+  }
+
+  void _emitCreatorAvailabilityHydrationFor(List<String> creatorIds) {
+    if (!_isConnected || _socket == null || creatorIds.isEmpty) return;
+    for (var i = 0; i < creatorIds.length; i += _availabilityChunkSize) {
+      final end = (i + _availabilityChunkSize > creatorIds.length)
+          ? creatorIds.length
           : i + _availabilityChunkSize;
-      _socket!.emit('availability:get', {'creatorIds': _lastRequestedIds.sublist(i, end)});
+      _socket!.emit('availability:get', {
+        'creatorIds': creatorIds.sublist(i, end),
+      });
+    }
+  }
+
+  Future<void> _afterSocketReconnected() async {
+    await _refreshSocketAuthIfPossible();
+    _emitCreatorAvailabilityHydration();
+    if (_lastRequestedUserIds.isNotEmpty) {
+      _emitUserAvailabilityHydration();
+    }
+    _flushPendingBillingEvents();
+  }
+
+  Future<void> _refreshSocketAuthIfPossible() async {
+    final refresher = refreshSocketAuthToken;
+    if (refresher == null) return;
+    try {
+      final refreshedToken = await refresher();
+      if (refreshedToken == null || refreshedToken.isEmpty) return;
+      _currentAuthToken = refreshedToken;
+      if (_socket != null) {
+        _socket!.auth = {'token': refreshedToken};
+      }
+    } catch (e) {
+      debugPrint('⚠️ [SOCKET] Proactive token refresh on reconnect failed: $e');
     }
   }
 
