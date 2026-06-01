@@ -642,4 +642,33 @@ void main() {
       );
     });
   });
+
+  group('billingUpdatesAreStale', () {
+    test('detects stale server timestamps for active billing', () {
+      const nowMs = 1_700_000_020_000;
+      const billing = CallBillingState(
+        callId: 'call-stale',
+        runtimeState: BillingRuntimeState.active,
+        lastServerTimestampMs: 1_700_000_010_000,
+        userCoins: 50,
+      );
+      expect(
+        billingUpdatesAreStale(billing, nowMs: nowMs, staleThresholdMs: 4000),
+        isTrue,
+      );
+      expect(
+        billingUpdatesAreStale(billing, nowMs: nowMs, staleThresholdMs: 15_000),
+        isFalse,
+      );
+    });
+
+    test('returns false when no server timestamp yet', () {
+      const billing = CallBillingState(
+        callId: 'call-new',
+        runtimeState: BillingRuntimeState.active,
+      );
+      expect(billingUpdatesAreStale(billing), isFalse);
+      expect(billingUpdatesStaleMs(billing), isNull);
+    });
+  });
 }

@@ -65,7 +65,7 @@ class _LiveBillingOverlayState extends State<LiveBillingOverlay> {
     final timeLabel = formatBillingMmSs(displayElapsedSeconds);
     final stale =
         b.lastServerTimestampMs != null &&
-        nowMs - b.lastServerTimestampMs! > 3500;
+        nowMs - b.lastServerTimestampMs! > 5000;
 
     final accent = scheme.primary;
     final fg = scheme.onSurface;

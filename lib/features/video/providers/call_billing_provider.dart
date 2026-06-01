@@ -284,6 +284,25 @@ class BillingRecoveryTracking {
   }
 }
 
+/// Milliseconds since last authoritative `serverTimestamp` from billing events.
+int? billingUpdatesStaleMs(CallBillingState billing, {int? nowMs}) {
+  final ts = billing.lastServerTimestampMs;
+  if (ts == null) return null;
+  final now = nowMs ?? DateTime.now().millisecondsSinceEpoch;
+  return now - ts;
+}
+
+/// True when connected billing is live but server updates stopped (cloud icon path).
+bool billingUpdatesAreStale(
+  CallBillingState billing, {
+  int? nowMs,
+  int staleThresholdMs = 4000,
+}) {
+  final staleMs = billingUpdatesStaleMs(billing, nowMs: nowMs);
+  if (staleMs == null) return false;
+  return staleMs > staleThresholdMs;
+}
+
 /// Pure convergence policy for reconnect/recovery reducers.
 ///
 /// Distributed semantics: equal `billingSequence` on a live socket usually
@@ -777,11 +796,18 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
     milliseconds: 900,
   );
   static const Duration _billingStuckEndGrace = Duration(seconds: 20);
+  static const Duration _staleActiveRecoveryThreshold = Duration(seconds: 4);
+  static const Duration _staleActiveSyncWarningThreshold = Duration(seconds: 6);
+  static const Duration _staleActiveSafetyEndThreshold = Duration(seconds: 18);
   Timer? _connectedWithoutBillingTimer;
   DateTime? _connectedStuckSince;
   DateTime? _lastOrphanRecoveryEmit;
+  DateTime? _lastStaleWhileActiveRecovery;
+  DateTime? _billingUpdatesStaleSince;
   bool _syncWarningReportedForCurrentCall = false;
+  bool _staleActiveSyncWarningReported = false;
   bool _stuckEndRequested = false;
+  bool _staleActiveSafetyEndRequested = false;
   final BillingRecoveryTracking _recoveryTracking = BillingRecoveryTracking();
 
   CallBillingNotifier(this._ref) : super(const CallBillingState()) {
@@ -997,8 +1023,13 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
       _syncWarningReportedForCurrentCall = false;
       _stuckEndRequested = false;
       _lastOrphanRecoveryEmit = null;
+      _onStaleWhileActiveWatch(phase);
       return;
     }
+    _billingUpdatesStaleSince = null;
+    _staleActiveSyncWarningReported = false;
+    _staleActiveSafetyEndRequested = false;
+    _lastStaleWhileActiveRecovery = null;
     _enterReconnectConvergenceWait();
 
     final activeCallId = conn.call?.id;
@@ -1062,6 +1093,78 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
     } else if (stuckFor > const Duration(seconds: 8) &&
         _billingRecoveryAttempts < _maxBillingRecoveryAttempts) {
       _startBillingRecoveryRetry();
+    }
+  }
+
+  /// Connected + converged billing, but server updates stopped (cloud icon path).
+  void _onStaleWhileActiveWatch(CallConnectionPhase phase) {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final staleMs = billingUpdatesStaleMs(state, nowMs: nowMs);
+    if (staleMs == null) {
+      return;
+    }
+    if (staleMs <= _staleActiveRecoveryThreshold.inMilliseconds) {
+      _billingUpdatesStaleSince = null;
+      _staleActiveSyncWarningReported = false;
+      _staleActiveSafetyEndRequested = false;
+      _lastStaleWhileActiveRecovery = null;
+      return;
+    }
+
+    _billingUpdatesStaleSince ??= DateTime.now();
+
+    if (state.runtimeState == BillingRuntimeState.active) {
+      state = state.copyWith(runtimeState: BillingRuntimeState.recovering);
+    }
+
+    final conn = _ref.read(callConnectionControllerProvider);
+    final activeCallId = conn.call?.id ?? state.callId;
+    if (activeCallId == null || activeCallId.isEmpty) {
+      return;
+    }
+
+    final now = DateTime.now();
+    if (_lastStaleWhileActiveRecovery == null ||
+        now.difference(_lastStaleWhileActiveRecovery!) >=
+            const Duration(seconds: 2)) {
+      _lastStaleWhileActiveRecovery = now;
+      requestBillingRecoveryForActiveCall();
+    }
+
+    if (staleMs >= _staleActiveSyncWarningThreshold.inMilliseconds &&
+        !_staleActiveSyncWarningReported) {
+      _staleActiveSyncWarningReported = true;
+      final stuckSeconds = (staleMs / 1000).ceil();
+      _ref.read(socketServiceProvider).emitBillingSyncWarning(
+        callId: activeCallId,
+        stuckSeconds: stuckSeconds,
+        phase: phase.name,
+      );
+      SentryService.addThrottledBreadcrumb(
+        category: 'billing.sync',
+        message: 'billing_stale_while_active',
+        data: {
+          'call_id': activeCallId,
+          'stuck_seconds': stuckSeconds,
+          'phase': phase.name,
+        },
+      );
+    }
+
+    if (staleMs >= _staleActiveSafetyEndThreshold.inMilliseconds &&
+        !_staleActiveSafetyEndRequested) {
+      final remaining = state.remainingSeconds;
+      final estimatedCoins = state.estimatedUserCoins;
+      if ((remaining != null && remaining <= 0) ||
+          state.userCoins <= 0 ||
+          estimatedCoins <= 0) {
+        _staleActiveSafetyEndRequested = true;
+        debugPrint(
+          '💰 [BILLING] stale_active_safety_end_call staleMs=$staleMs '
+          'remaining=$remaining userCoins=${state.userCoins} estimated=$estimatedCoins',
+        );
+        unawaited(_ref.read(callConnectionControllerProvider.notifier).endCall());
+      }
     }
   }
 
@@ -1497,6 +1600,10 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
     _syncWarningReportedForCurrentCall = false;
     _stuckEndRequested = false;
     _lastOrphanRecoveryEmit = null;
+    _billingUpdatesStaleSince = null;
+    _staleActiveSyncWarningReported = false;
+    _staleActiveSafetyEndRequested = false;
+    _lastStaleWhileActiveRecovery = null;
     _recoveryTracking.reset();
     BillingConvergenceMetrics.instance.reset();
     state = const CallBillingState();
