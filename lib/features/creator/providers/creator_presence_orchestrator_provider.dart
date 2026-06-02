@@ -5,7 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/providers/auth_provider.dart';
 import '../../home/providers/availability_provider.dart' show socketServiceProvider;
-import 'creator_status_provider.dart';
+import 'creator_availability_toggle_provider.dart';
+import 'creator_status_provider.dart' as creator_self_status;
 
 final creatorPresenceOrchestratorProvider = Provider<CreatorPresenceOrchestrator>(
   (ref) => CreatorPresenceOrchestrator(ref),
@@ -35,15 +36,21 @@ class CreatorPresenceOrchestrator {
       if (token != null && token.isNotEmpty) {
         await socket.ensureConnected(token);
       }
+      final toggleOn = _ref.read(creatorAvailabilityToggleProvider).toggleOn;
       if (socket.isConnected) {
-        socket.emitCreatorOnline();
+        if (toggleOn) {
+          final status = _ref.read(creator_self_status.creatorStatusProvider);
+          socket.emitCreatorOnline(
+            clearStuckCall: status == creator_self_status.CreatorStatus.onCall,
+          );
+        }
         socket.requestAvailability([uid]);
       }
-      _ref.read(creatorStatusProvider.notifier).refreshOnResume();
+      _ref.read(creator_self_status.creatorStatusProvider.notifier).refreshOnResume();
       debugPrint('📡 [CREATOR PRESENCE] refresh complete (reason=$reason)');
     } catch (e) {
       debugPrint('⚠️ [CREATOR PRESENCE] refresh failed (reason=$reason): $e');
-      _ref.read(creatorStatusProvider.notifier).refreshOnResume();
+      _ref.read(creator_self_status.creatorStatusProvider.notifier).refreshOnResume();
     } finally {
       _isRefreshing = false;
     }

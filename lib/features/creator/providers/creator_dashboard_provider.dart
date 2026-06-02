@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/creator_dashboard_model.dart';
@@ -5,6 +7,7 @@ import '../services/creator_dashboard_service.dart';
 import '../../wallet/models/earnings_model.dart';
 import '../models/creator_task_model.dart';
 import '../../auth/providers/auth_provider.dart';
+import 'creator_availability_toggle_provider.dart';
 
 // ── Service provider ──────────────────────────────────────────────────────
 final creatorDashboardServiceProvider = Provider<CreatorDashboardService>(
@@ -26,7 +29,19 @@ final creatorDashboardServiceProvider = Provider<CreatorDashboardService>(
 final creatorDashboardProvider = FutureProvider<CreatorDashboard>((ref) async {
   final service = ref.read(creatorDashboardServiceProvider);
   debugPrint('📊 [PROVIDER] Fetching creator dashboard...');
-  return await service.getCreatorDashboard();
+  final dashboard = await service.getCreatorDashboard();
+  final profileOnline = dashboard.creatorProfile.isOnline;
+  unawaited(
+    ref
+        .read(creatorAvailabilityToggleProvider.notifier)
+        .seedFromProfileIfNeeded(profileOnline),
+  );
+  unawaited(
+    ref
+        .read(creatorAvailabilityToggleProvider.notifier)
+        .reconcileFromProfile(profileOnline),
+  );
+  return dashboard;
 });
 
 // ── Derived providers for convenience ─────────────────────────────────────

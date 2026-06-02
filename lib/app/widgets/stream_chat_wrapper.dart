@@ -1,5 +1,8 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../features/creator/providers/creator_availability_toggle_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/services/push_notification_service.dart';
@@ -338,6 +341,13 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
         final prevUser = prev?.user;
         final wasCreator = prevUser != null &&
             (prevUser.role == 'creator' || prevUser.role == 'admin');
+        if (wasCreator) {
+          unawaited(
+            ref
+                .read(creatorAvailabilityToggleProvider.notifier)
+                .setIntentOfflineForLogout(),
+          );
+        }
         ref.read(socketServiceProvider).disconnect(
               emitPresenceOffline: true,
               isCreator: wasCreator,

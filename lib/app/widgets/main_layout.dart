@@ -7,9 +7,8 @@ import '../../core/constants/app_constants.dart';
 import '../../features/auth/providers/auth_provider.dart';
 import '../../features/chat/providers/stream_chat_provider.dart';
 import '../../features/creator/providers/creator_dashboard_provider.dart';
-import '../../features/creator/providers/creator_status_provider.dart';
 import '../../features/creator/providers/creator_presence_orchestrator_provider.dart';
-import '../../features/creator/widgets/creator_status_label.dart';
+import '../../features/creator/widgets/creator_availability_toggle.dart';
 import '../../features/recent/providers/recent_provider.dart';
 import '../../features/video/providers/call_billing_provider.dart';
 import '../../features/video/providers/call_billing_selectors.dart';
@@ -112,21 +111,14 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                   context,
                   title: AppConstants.appName,
                   actions: [
-                    if (showStatusToggle) ...[
-                      Consumer(
-                        builder: (context, ref, child) {
-                          final status = ref.watch(creatorStatusProvider);
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            child: CreatorStatusLabel(
-                              status: status,
-                              compact: true,
-                              useAppBarColors: true,
-                            ),
-                          );
-                        },
+                    if (showStatusToggle)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 4),
+                        child: CreatorAvailabilityToggle(
+                          compact: true,
+                          useAppBarColors: true,
+                        ),
                       ),
-                    ],
                     if (isHomePage && isRegularUser)
                       IconButton(
                         tooltip: 'Favorite creators',

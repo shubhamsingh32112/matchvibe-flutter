@@ -24,8 +24,11 @@ void setGlobalProviderContainer(ProviderContainer container) {
   _globalContainer = container;
 }
 
-/// 🔥 Socket.IO Availability Service
-/// 
+/// **Deprecated for creator presence.** Production uses [SocketService] + availability toggle.
+/// Do not auto-emit `creator:online` on connect — runtime is restored from Mongo intent on server.
+///
+/// Socket.IO Availability Service (legacy)
+///
 /// Connects to backend Socket.IO server for real-time availability updates.
 /// 
 /// 🔥 FIX 1: Socket connections are AUTHENTICATED
@@ -147,17 +150,10 @@ class AvailabilitySocketService {
         message: 'availability.connect',
       );
       
-      // 🔥 AUTOMATIC ONLINE: Creators are automatically online when app opens
-      // Backend socket handler will also set online on connect
-      // This ensures instant online status when socket connects
       if (_isCreator) {
-        debugPrint('📤 [SOCKET] Creator connected - automatically emitting online');
-        _socket!.emit('creator:online');
-        _availabilityToggleOn = true;
-        _persistToggleState(true);
-        
-        // Do not locally force-write presence state. Wait for backend versioned
-        // creator:status so the authoritative reducer keeps strict monotonic merges.
+        debugPrint(
+          '📤 [SOCKET] Legacy creator connect — presence via SocketService toggle only',
+        );
       }
       
       // 🔥 AUTOMATIC ONLINE: Regular users are automatically online when app opens

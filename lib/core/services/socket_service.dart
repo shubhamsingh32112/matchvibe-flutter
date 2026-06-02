@@ -460,10 +460,16 @@ class SocketService {
 
   /// Belt-and-suspenders: server also sets online on connect; this helps if
   /// the gateway path is delayed.
-  void emitCreatorOnline() {
+  void emitCreatorOnline({bool clearStuckCall = false}) {
     if (!_isConnected || _socket == null) return;
-    debugPrint('📡 [SOCKET] Emitting creator:online');
-    _socket!.emit('creator:online');
+    debugPrint(
+      '📡 [SOCKET] Emitting creator:online clearStuckCall=$clearStuckCall',
+    );
+    if (clearStuckCall) {
+      _socket!.emit('creator:online', {'clearStuckCall': true});
+    } else {
+      _socket!.emit('creator:online');
+    }
   }
 
   void emitCreatorOffline() {

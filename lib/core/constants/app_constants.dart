@@ -62,5 +62,8 @@ class AppConstants {
 
   /// Set after first Play Install Referrer read attempt (Android only).
   static const String keyInstallReferrerConsumed = 'install_referrer_consumed';
+
+  /// Creator availability toggle (explicit online/offline intent).
+  static const String keyCreatorAvailabilityToggle = 'creator_availability_toggle';
 }
 

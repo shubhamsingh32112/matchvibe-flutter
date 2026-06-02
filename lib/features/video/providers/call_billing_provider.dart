@@ -1419,8 +1419,13 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
             (state.callId == null || state.callId == callId)) {
           if (_isCallStillJoinedOrConnected()) {
             debugPrint(
-              '⚠️ [BILLING] Ignoring terminal_settled recovery while call still connected: callId=$callId',
+              '⚠️ [BILLING] terminal_settled while connected — forcing billing heal: callId=$callId',
             );
+            requestBillingRecoveryForActiveCall();
+            _ref
+                .read(callConnectionControllerProvider.notifier)
+                .retryBillingStartIfNeeded();
+            _startBillingRecoveryRetry();
             return;
           }
           final seq = _readSequence(entry);

@@ -14,6 +14,7 @@ import '../../core/services/availability_socket_service.dart'
     as socket_availability;
 import '../../shared/providers/image_service_degraded_provider.dart';
 import '../../features/creator/providers/creator_dashboard_provider.dart';
+import '../../features/creator/providers/creator_availability_toggle_provider.dart';
 import '../../features/creator/providers/creator_presence_orchestrator_provider.dart';
 import '../../features/video/controllers/call_connection_controller.dart';
 import '../../features/video/providers/call_billing_provider.dart';
@@ -999,11 +1000,10 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       CallRingtoneService.stop();
-      // Keep creators online while app is alive, including background.
-      // Socket connection remains active, so creator stays online
+      // Socket stays connected in background; availability follows the toggle.
       if (user != null && (user.role == 'creator' || user.role == 'admin')) {
         debugPrint(
-          '📱 [APP LIFECYCLE] App backgrounded — socket keeps creator online',
+          '📱 [APP LIFECYCLE] App backgrounded — socket active; presence follows toggle',
         );
       }
     } else if (state == AppLifecycleState.detached) {
@@ -1028,6 +1028,14 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
 
     // Only creators/admins have availability state.
     if (user == null || (user.role != 'creator' && user.role != 'admin')) {
+      return;
+    }
+
+    final toggleOn = ref.read(creatorAvailabilityToggleProvider).toggleOn;
+    if (!toggleOn) {
+      debugPrint(
+        '📱 [APP LIFECYCLE] Skipping presence refresh — availability toggle is OFF',
+      );
       return;
     }
 
