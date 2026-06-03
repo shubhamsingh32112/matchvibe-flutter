@@ -55,6 +55,7 @@ class SocketService {
     String status, {
     int? version,
     int? updatedAt,
+    Map<String, dynamic>? creatorSummary,
   })?
   onCreatorStatusV2;
 
@@ -105,6 +106,14 @@ class SocketService {
 
   /// Fired when admin updates a support ticket (status / notes).
   void Function(Map<String, dynamic>)? onSupportTicketUpdated;
+
+  /// Moments / stories realtime events.
+  void Function(Map<String, dynamic>)? onMomentUploaded;
+  void Function(Map<String, dynamic>)? onStoryUploaded;
+  void Function(Map<String, dynamic>)? onMomentPurchased;
+  void Function(Map<String, dynamic>)? onCreatorFollowed;
+  void Function(Map<String, dynamic>)? onMediaReady;
+
   Future<String?> Function()? refreshSocketAuthToken;
 
   bool get isConnected => _isConnected;
@@ -231,11 +240,19 @@ class SocketService {
             );
           }
           _trackCreatorId(creatorId);
+          Map<String, dynamic>? creatorSummary;
+          final summaryRaw = data['creatorSummary'];
+          if (summaryRaw is Map) {
+            creatorSummary = Map<String, dynamic>.from(
+              summaryRaw.map((k, v) => MapEntry(k.toString(), v)),
+            );
+          }
           onCreatorStatusV2?.call(
             creatorId,
             status,
             version: version,
             updatedAt: updatedAt,
+            creatorSummary: creatorSummary,
           );
         } else {
           debugPrint(
@@ -366,6 +383,36 @@ class SocketService {
       debugPrint('🎫 [SOCKET] support:ticket_updated: $data');
       if (data is Map) {
         onSupportTicketUpdated?.call(Map<String, dynamic>.from(data));
+      }
+    });
+
+    _socket!.on('moment:uploaded', (data) {
+      if (data is Map) {
+        onMomentUploaded?.call(Map<String, dynamic>.from(data));
+      }
+    });
+
+    _socket!.on('story:uploaded', (data) {
+      if (data is Map) {
+        onStoryUploaded?.call(Map<String, dynamic>.from(data));
+      }
+    });
+
+    _socket!.on('moment:purchased', (data) {
+      if (data is Map) {
+        onMomentPurchased?.call(Map<String, dynamic>.from(data));
+      }
+    });
+
+    _socket!.on('creator:followed', (data) {
+      if (data is Map) {
+        onCreatorFollowed?.call(Map<String, dynamic>.from(data));
+      }
+    });
+
+    _socket!.on('media:ready', (data) {
+      if (data is Map) {
+        onMediaReady?.call(Map<String, dynamic>.from(data));
       }
     });
 

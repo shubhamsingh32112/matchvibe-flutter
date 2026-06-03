@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/images/image_cache_managers.dart';
 import '../../../core/services/image_precache_service.dart';
 import '../../../core/services/meta_app_events_service.dart';
+import '../../video/utils/call_admission_constants.dart';
 import '../../../shared/models/creator_model.dart';
 import '../../../shared/models/profile_model.dart';
 import '../../../shared/styles/app_brand_styles.dart';
@@ -17,15 +18,14 @@ import '../../../shared/widgets/ui_primitives.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../chat/services/chat_service.dart';
 import '../providers/availability_provider.dart';
-import '../providers/home_provider.dart';
 import '../../video/controllers/call_connection_controller.dart';
 import 'call_button_variant.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/providers/coin_purchase_popup_provider.dart';
 import '../../../shared/widgets/app_toast.dart';
-import '../../../shared/widgets/brand_app_chrome.dart';
 import '../../../shared/widgets/creator_price_per_minute_label.dart';
+import 'creator_profile_screen.dart';
 
 class HomeUserGridCard extends ConsumerStatefulWidget {
   final CreatorModel? creator;
@@ -69,7 +69,7 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
     // PHASE 2: Check coins before initiating call
     final authState = ref.read(authProvider);
     final user = authState.user;
-    if (user != null && user.spendableCallCoins < 10) {
+    if (user != null && user.spendableCallCoins < kMinCoinsToCall) {
       if (mounted) {
         final c = widget.creator!;
         final fb = _normalizedFirebaseUid(c.firebaseUid);
@@ -117,17 +117,12 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
         contentType: 'creator_profile',
       ),
     );
-    final u = ref.read(authProvider).user;
-    final modalCallVariant = u?.welcomeFreeCallEligible == true
-        ? CallButtonVariant.welcomeFree
-        : CallButtonVariant.normal;
     ImagePrecacheService.precacheCreatorGallery(context, widget.creator!);
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (pageContext) => _CreatorProfilePage(
-          callVariant: modalCallVariant,
-          creator: widget.creator!,
-          availability: creatorAvailability,
+        builder: (pageContext) => CreatorProfileScreen(
+          creatorId: creatorId,
+          initialCreator: widget.creator!,
           onCallPressed: _isInitiatingCall
               ? null
               : () {
@@ -142,8 +137,6 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
                   _openCreatorChat();
                 },
           isOpeningChat: _isOpeningChat,
-          country: _creatorCountry(),
-          age: _creatorAge(),
         ),
       ),
     );
@@ -642,414 +635,6 @@ class _CreatorInfoText extends StatelessWidget {
           style: subtitleStyle,
         ),
       ],
-    );
-  }
-}
-
-class _CreatorProfilePage extends ConsumerStatefulWidget {
-  final CallButtonVariant callVariant;
-  final CreatorModel creator;
-  final CreatorAvailability availability;
-  final VoidCallback? onCallPressed;
-  final bool isCalling;
-  final VoidCallback? onChatPressed;
-  final bool isOpeningChat;
-  final String country;
-  final int age;
-
-  const _CreatorProfilePage({
-    required this.callVariant,
-    required this.creator,
-    required this.availability,
-    required this.onCallPressed,
-    required this.isCalling,
-    required this.onChatPressed,
-    required this.isOpeningChat,
-    required this.country,
-    required this.age,
-  });
-
-  @override
-  ConsumerState<_CreatorProfilePage> createState() => _CreatorProfilePageState();
-}
-
-class _CreatorProfilePageState extends ConsumerState<_CreatorProfilePage> {
-  static List<({
-    String thumbUrl,
-    String fullUrl,
-    String? blurhash,
-    String? heroTag,
-  })> _galleryItems(CreatorModel c) {
-    final sorted = List<CreatorGalleryImage>.from(c.galleryImages)
-      ..sort((a, b) => a.position.compareTo(b.position));
-    final out = <({
-      String thumbUrl,
-      String fullUrl,
-      String? blurhash,
-      String? heroTag,
-    })>[];
-    for (final e in sorted) {
-      final viewer = e.viewerUrl?.trim();
-      if (viewer == null || viewer.isEmpty) continue;
-      final thumb = e.previewUrl?.trim();
-      out.add((
-        thumbUrl: (thumb != null && thumb.isNotEmpty) ? thumb : viewer,
-        fullUrl: viewer,
-        blurhash: e.asset?.blurhash,
-        heroTag: e.asset != null ? 'gallery-${e.asset!.imageId}' : null,
-      ));
-    }
-    return out;
-  }
-
-  void _openGalleryImage(
-    BuildContext context,
-    String fullUrl, {
-    String? blurhash,
-    String? heroTag,
-  }) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (ctx) => _CreatorGalleryImageViewer(
-          url: fullUrl,
-          blurhash: blurhash,
-          heroTag: heroTag,
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final detailAsync = ref.watch(creatorDetailProvider(widget.creator.id));
-    final merged = detailAsync.maybeWhen(
-      data: (d) => widget.creator.copyWith(
-        about: d.about,
-        galleryImages: d.galleryImages,
-        avatar: d.avatar,
-      ),
-      orElse: () => widget.creator,
-    );
-
-    final galleryItems = _galleryItems(merged);
-    final galleryLoading =
-        detailAsync.isLoading && widget.creator.galleryImages.isEmpty;
-    // memCacheWidth/Height now computed inside AppNetworkImage / AppAvatar.
-
-    return Scaffold(
-      appBar: buildBrandAppBar(context, title: merged.name),
-      body: ColoredBox(
-        color: AppBrandGradients.accountMenuPageBackground,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.lg,
-                  AppSpacing.sm,
-                  AppSpacing.lg,
-                  AppSpacing.md,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(
-                      child: AppAvatar(
-                        avatarAsset: merged.avatar,
-                        size: 100,
-                        heroTag: 'creator-avatar-${merged.id}',
-                        fallbackText: merged.name.isNotEmpty
-                            ? merged.name[0]
-                            : 'C',
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    Center(
-                      child: Text(
-                        widget.availability == CreatorAvailability.online
-                            ? '● Online'
-                            : widget.availability == CreatorAvailability.onCall
-                            ? '● On call'
-                            : '● Offline',
-                        style: TextStyle(
-                          color: widget.availability == CreatorAvailability.online
-                              ? AppPalette.success
-                              : widget.availability == CreatorAvailability.onCall
-                              ? AppPalette.warning
-                              : AppPalette.subtitle,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    Center(
-                      child: Text(
-                        '${merged.name} ${widget.age}',
-                        style: Theme.of(context).textTheme.headlineSmall
-                            ?.copyWith(fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                    Center(
-                      child: Text(
-                        widget.country,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(color: scheme.onSurfaceVariant),
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    Center(
-                      child: CreatorPricePerMinuteLabel(
-                        price: merged.price,
-                        iconColor: scheme.onSurface,
-                        textStyle: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(
-                              fontWeight: FontWeight.w600,
-                              color: scheme.onSurface,
-                            ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                    Text(
-                      'About Me',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    if (detailAsync.isLoading && merged.about.trim().isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-                        child: Center(
-                          child: SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: scheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ),
-                      )
-                    else
-                      Text(
-                        merged.about.trim().isNotEmpty
-                            ? merged.about
-                            : 'No bio available.',
-                        style: Theme.of(context).textTheme.bodyLarge,
-                      ),
-                    const SizedBox(height: AppSpacing.lg),
-                    Text(
-                      'Pictures',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    if (galleryLoading)
-                      GridView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 3,
-                              crossAxisSpacing: AppSpacing.sm,
-                              mainAxisSpacing: AppSpacing.sm,
-                              childAspectRatio: 0.85,
-                            ),
-                        itemCount: 6,
-                        itemBuilder: (_, __) => DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: scheme.surfaceContainerHigh,
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Center(
-                            child: SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: scheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                        ),
-                      )
-                    else if (galleryItems.isEmpty)
-                      Text(
-                        'no pictures added',
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      )
-                    else
-                      GridView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 3,
-                              crossAxisSpacing: AppSpacing.sm,
-                              mainAxisSpacing: AppSpacing.sm,
-                              childAspectRatio: 0.85,
-                            ),
-                        itemCount: galleryItems.length,
-                        itemBuilder: (context, index) {
-                          final item = galleryItems[index];
-                          return Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              onTap: () => _openGalleryImage(
-                                context,
-                                item.fullUrl,
-                                blurhash: item.blurhash,
-                                heroTag: item.heroTag,
-                              ),
-                              borderRadius: BorderRadius.circular(14),
-                              child: AppNetworkImage(
-                                imageUrl: item.thumbUrl,
-                                width: 140,
-                                height: 180,
-                                fit: BoxFit.cover,
-                                borderRadius: BorderRadius.circular(14),
-                                cacheManager: galleryCacheManager,
-                                blurhash: item.blurhash,
-                                heroTag: item.heroTag,
-                                variantTag: 'galleryThumb',
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.lg,
-                AppSpacing.sm,
-                AppSpacing.lg,
-                AppSpacing.lg,
-              ),
-              child: SafeArea(
-                top: false,
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed:
-                            widget.isOpeningChat ? null : widget.onChatPressed,
-                        icon: widget.isOpeningChat
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.chat_bubble_outline),
-                        label: const Text('Chat'),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(26),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed:
-                            widget.availability == CreatorAvailability.online ? widget.onCallPressed : null,
-                        icon: widget.isCalling
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : Icon(
-                                widget.callVariant.showWelcomePromo
-                                    ? Icons.phone
-                                    : Icons.videocam,
-                              ),
-                        label: Text(
-                          widget.callVariant.showWelcomePromo
-                              ? 'Free intro call'
-                              : 'Video Call',
-                        ),
-                        style: FilledButton.styleFrom(
-                          backgroundColor:
-                              widget.callVariant.showWelcomePromo
-                              ? AppPalette.success
-                              : AppBrandGradients.userHomeVideoCall,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(26),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Full-screen gallery image with pinch-zoom.
-/// Uses the `galleryXl` variant (1600x1600 contain), NOT true original —
-/// keeps memory + bandwidth bounded.
-class _CreatorGalleryImageViewer extends StatelessWidget {
-  final String url;
-  final String? blurhash;
-  final String? heroTag;
-
-  const _CreatorGalleryImageViewer({
-    required this.url,
-    this.blurhash,
-    this.heroTag,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-        elevation: 0,
-      ),
-      body: Center(
-        child: InteractiveViewer(
-          minScale: 0.5,
-          maxScale: 4,
-          child: AppNetworkImage(
-            imageUrl: url,
-            width: size.width,
-            height: size.height,
-            fit: BoxFit.contain,
-            blurhash: blurhash,
-            heroTag: heroTag,
-            cacheManager: galleryCacheManager,
-            errorIcon: Icons.broken_image_outlined,
-            variantTag: 'galleryXl',
-          ),
-        ),
-      ),
     );
   }
 }

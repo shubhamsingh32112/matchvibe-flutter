@@ -16,6 +16,7 @@ class CreatorDashboard extends Equatable {
   final CreatorTasksResponse tasks;
   final int coins;
   final CreatorProfileSummary creatorProfile;
+  final CreatorMomentsAnalytics? momentsAnalytics;
   /// Seconds in “online” (available) state this task day; from GET /creator/dashboard.
   final int onlineTodaySeconds;
   final String? onlineTodayResetsAt;
@@ -26,6 +27,7 @@ class CreatorDashboard extends Equatable {
     required this.tasks,
     required this.coins,
     required this.creatorProfile,
+    this.momentsAnalytics,
     this.onlineTodaySeconds = 0,
     this.onlineTodayResetsAt,
   });
@@ -37,6 +39,7 @@ class CreatorDashboard extends Equatable {
 
     // todayEarnings may be absent in older API responses — default to zeroes
     final todayJson = json['todayEarnings'] as Map<String, dynamic>?;
+    final momentsJson = json['momentsAnalytics'] as Map<String, dynamic>?;
 
     return CreatorDashboard(
       earnings: CreatorEarnings.fromJson(earningsJson),
@@ -46,6 +49,9 @@ class CreatorDashboard extends Equatable {
       tasks: CreatorTasksResponse.fromJson(tasksJson),
       coins: (json['coins'] as num?)?.toInt() ?? 0,
       creatorProfile: CreatorProfileSummary.fromJson(profileJson),
+      momentsAnalytics: momentsJson != null
+          ? CreatorMomentsAnalytics.fromJson(momentsJson)
+          : null,
       onlineTodaySeconds: (json['onlineTodaySeconds'] as num?)?.toInt() ?? 0,
       onlineTodayResetsAt: json['onlineTodayResetsAt'] as String?,
     );
@@ -58,9 +64,37 @@ class CreatorDashboard extends Equatable {
         tasks,
         coins,
         creatorProfile,
+        momentsAnalytics,
         onlineTodaySeconds,
         onlineTodayResetsAt,
       ];
+}
+
+class CreatorMomentsAnalytics extends Equatable {
+  final int momentsEarnings;
+  final int purchaseCount;
+  final int totalViews;
+  final int postCount;
+
+  const CreatorMomentsAnalytics({
+    required this.momentsEarnings,
+    required this.purchaseCount,
+    required this.totalViews,
+    required this.postCount,
+  });
+
+  factory CreatorMomentsAnalytics.fromJson(Map<String, dynamic> json) {
+    return CreatorMomentsAnalytics(
+      momentsEarnings: (json['momentsEarnings'] as num?)?.toInt() ?? 0,
+      purchaseCount: (json['purchaseCount'] as num?)?.toInt() ?? 0,
+      totalViews: (json['totalViews'] as num?)?.toInt() ?? 0,
+      postCount: (json['postCount'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  @override
+  List<Object?> get props =>
+      [momentsEarnings, purchaseCount, totalViews, postCount];
 }
 
 /// Today's earnings summary for the current daily period.

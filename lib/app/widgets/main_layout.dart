@@ -5,9 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/constants/app_constants.dart';
 import '../../features/auth/providers/auth_provider.dart';
-import '../../features/chat/providers/stream_chat_provider.dart';
 import '../../features/creator/providers/creator_dashboard_provider.dart';
 import '../../features/creator/providers/creator_presence_orchestrator_provider.dart';
+import '../../features/home/providers/home_provider.dart';
 import '../../features/creator/widgets/creator_availability_toggle.dart';
 import '../../features/recent/providers/recent_provider.dart';
 import '../../features/video/providers/call_billing_provider.dart';
@@ -16,6 +16,8 @@ import '../../shared/styles/app_brand_styles.dart';
 import '../../shared/widgets/loading_indicator.dart';
 import '../../shared/widgets/gem_icon.dart';
 import '../../shared/widgets/brand_app_chrome.dart';
+import 'app_bottom_nav_bar.dart';
+import 'app_nav_destinations.dart';
 
 class MainLayout extends ConsumerStatefulWidget {
   final Widget child;
@@ -40,66 +42,54 @@ class MainLayout extends ConsumerStatefulWidget {
 
 class _MainLayoutState extends ConsumerState<MainLayout> {
   void _onItemTapped(int index) {
-    switch (index) {
-      case 0:
-        final role = ref.read(authProvider).user?.role;
-        if (role == 'creator' || role == 'admin') {
-          unawaited(
-            ref
-                .read(creatorPresenceOrchestratorProvider)
-                .refreshPresence(reason: 'home_tab_tap'),
-          );
-        }
-        context.go('/home');
-        break;
-      case 1:
-        context.go('/recent');
-        break;
-      case 2:
-        context.go('/chat-list');
-        break;
-      case 3:
-        context.go('/account');
-        break;
+    final role = ref.read(authProvider).user?.role;
+    if (index == AppNavDestinations.homeIndex) {
+      if (AppNavDestinations.isCreatorOrAdmin(role)) {
+        unawaited(
+          ref
+              .read(creatorPresenceOrchestratorProvider)
+              .refreshPresence(reason: 'home_tab_tap'),
+        );
+      } else if (role == 'user') {
+        unawaited(
+          resyncUserHomeFeedPresenceAndOrder(
+            ref,
+            reason: 'home_tab_tap',
+            bypassThrottle: true,
+          ),
+        );
+      }
     }
+    context.go(AppNavDestinations.routeForIndex(role, index));
   }
 
   @override
   Widget build(BuildContext context) {
     final userRole = ref.watch(authProvider.select((s) => s.user?.role));
-    final isCreator = userRole == 'creator' || userRole == 'admin';
+    final isCreator = AppNavDestinations.isCreatorOrAdmin(userRole);
     final isRegularUser = userRole == 'user';
-    final isHomePage = widget.selectedIndex == 0;
+    final isHomePage = widget.selectedIndex == AppNavDestinations.homeIndex;
+    final showVipCenter = isRegularUser;
 
-    // Refresh user data + call history when billing settles
-    // 🔥 OPTIMIZED: Socket events (coins_updated, creator:data_updated) handle most updates instantly
-    // This listener is a fallback safety net for edge cases
     ref.listen<CallBillingState>(callBillingProvider, (prev, next) {
       if (prev?.isBillingSettled != true && next.isBillingSettled) {
-        // 🔥 FIX: Only refresh if socket events haven't already updated (fallback)
-        // Socket events fire immediately after settlement, so this is rarely needed
-        // But keep it as a safety net for edge cases (socket disconnected, etc.)
         ref.read(authProvider.notifier).refreshUser();
-        ref.invalidate(recentCallsProvider); // Refresh recent calls list
-        // Also refresh creator dashboard if user is a creator (for earnings/stats)
-        // Note: Coins are updated instantly via socket events, so this mainly updates earnings/stats
+        ref.invalidate(recentCallsProvider);
         final role = ref.read(authProvider).user?.role;
-        if (role == 'creator' || role == 'admin') {
+        if (AppNavDestinations.isCreatorOrAdmin(role)) {
           ref.invalidate(creatorDashboardProvider);
         }
-        // Reset billing state after a short delay
         Future.delayed(const Duration(seconds: 2), () {
           ref.read(callBillingProvider.notifier).reset();
         });
       }
     });
 
-    // Show online/offline toggle only for creators on homepage
     final showStatusToggle = isCreator && isHomePage;
-
     final scheme = Theme.of(context).colorScheme;
 
     final scaffold = Scaffold(
+      extendBody: false,
       backgroundColor: widget.accountMenuStyle
           ? scheme.surface
           : AppBrandGradients.accountMenuPageBackground,
@@ -134,29 +124,10 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
               color: AppBrandGradients.accountMenuPageBackground,
               child: widget.child,
             ),
-      bottomNavigationBar: NavigationBar(
-        backgroundColor: scheme.surface,
-        surfaceTintColor: Colors.transparent,
+      bottomNavigationBar: AppBottomNavBar(
         selectedIndex: widget.selectedIndex,
         onDestinationSelected: _onItemTapped,
-        destinations: [
-          const NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Home',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.history_outlined),
-            selectedIcon: Icon(Icons.history),
-            label: 'Recent',
-          ),
-          const _MainLayoutChatNavDestination(),
-          const NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: 'Account',
-          ),
-        ],
+        showVipCenter: showVipCenter,
       ),
     );
 
@@ -187,9 +158,7 @@ class _MainLayoutCoinChip extends ConsumerWidget {
     final useLiveCoins = !isCreator &&
         (billingSlice.$1 == BillingRuntimeState.active ||
             billingSlice.$1 == BillingRuntimeState.recovering);
-    final coins = useLiveCoins
-        ? billingSlice.$2
-        : authCoins.$1;
+    final coins = useLiveCoins ? billingSlice.$2 : authCoins.$1;
     final isLoading = authCoins.$2;
 
     return InkWell(
@@ -228,32 +197,6 @@ class _MainLayoutCoinChip extends ConsumerWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// Chat tab badge — watches unread count only.
-class _MainLayoutChatNavDestination extends ConsumerWidget {
-  const _MainLayoutChatNavDestination();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final unreadCount = ref.watch(
-      chatUnreadCountProvider.select((a) => a.valueOrNull ?? 0),
-    );
-
-    return NavigationDestination(
-      icon: Badge(
-        isLabelVisible: unreadCount > 0,
-        label: Text(unreadCount.toString()),
-        child: const Icon(Icons.chat_bubble_outline),
-      ),
-      selectedIcon: Badge(
-        isLabelVisible: unreadCount > 0,
-        label: Text(unreadCount.toString()),
-        child: const Icon(Icons.chat_bubble),
-      ),
-      label: 'Chat',
     );
   }
 }

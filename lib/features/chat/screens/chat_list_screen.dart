@@ -7,29 +7,42 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/widgets/app_avatar.dart';
 import '../../../shared/widgets/app_toast.dart';
+import '../../../app/widgets/app_nav_destinations.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../../shared/models/profile_model.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../recent/widgets/recent_calls_tab.dart';
 import '../../user/providers/online_users_provider.dart';
 import '../services/chat_service.dart';
 import '../utils/chat_utils.dart';
 
 class ChatListScreen extends ConsumerStatefulWidget {
-  const ChatListScreen({super.key});
+  final int initialTabIndex;
+
+  const ChatListScreen({super.key, this.initialTabIndex = 0});
 
   @override
   ConsumerState<ChatListScreen> createState() => _ChatListScreenState();
 }
 
 class _ChatListScreenState extends ConsumerState<ChatListScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   StreamChannelListController? _controller;
-  TabController? _tabController;
+  TabController? _creatorTabController;
+  TabController? _userTabController;
 
   @override
   void initState() {
     super.initState();
     _initializeController();
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    _creatorTabController?.dispose();
+    _userTabController?.dispose();
+    super.dispose();
   }
 
   void _initializeController() {
@@ -54,21 +67,23 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
         });
       }
 
-      // Create tab controller for creators
       final authState = ref.read(authProvider);
       final isCreator = authState.user?.role == 'creator' ||
           authState.user?.role == 'admin';
-      if (isCreator && _tabController == null) {
-        _tabController = TabController(length: 2, vsync: this);
+      final isUser = authState.user?.role == 'user';
+
+      if (isCreator && _creatorTabController == null) {
+        _creatorTabController = TabController(length: 2, vsync: this);
+      }
+      if (isUser && _userTabController == null) {
+        final tabIndex = widget.initialTabIndex.clamp(0, 1);
+        _userTabController = TabController(
+          length: 2,
+          vsync: this,
+          initialIndex: tabIndex,
+        );
       }
     });
-  }
-
-  @override
-  void dispose() {
-    _controller?.dispose();
-    _tabController?.dispose();
-    super.dispose();
   }
 
   void _onChannelTap(Channel channel) {
@@ -82,45 +97,49 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
     final userRole = ref.watch(authProvider.select((s) => s.user?.role));
     final isCreator =
         userRole == 'creator' || userRole == 'admin';
+    final isUser = userRole == 'user';
 
-    // Wait for StreamChat to be ready
     if (streamChat == null || streamChat.client.state.currentUser == null) {
       return MainLayout(
-        selectedIndex: 2,
+        selectedIndex: AppNavDestinations.chatIndex,
         child: const Center(
           child: CircularProgressIndicator(),
         ),
       );
     }
 
-    // Initialize controller if not ready
     if (_controller == null) {
       _initializeController();
       return MainLayout(
-        selectedIndex: 2,
+        selectedIndex: AppNavDestinations.chatIndex,
         child: const Center(
           child: CircularProgressIndicator(),
         ),
       );
     }
 
-    // Initialize tab controller for creators if not ready
-    if (isCreator && _tabController == null) {
-      _tabController = TabController(length: 2, vsync: this);
+    if (isCreator && _creatorTabController == null) {
+      _creatorTabController = TabController(length: 2, vsync: this);
+    }
+    if (isUser && _userTabController == null) {
+      final tabIndex = widget.initialTabIndex.clamp(0, 1);
+      _userTabController = TabController(
+        length: 2,
+        vsync: this,
+        initialIndex: tabIndex,
+      );
     }
 
-    // ── Creator view: two tabs ───────────────────────────────────────────
-    if (isCreator && _tabController != null) {
+    if (isCreator && _creatorTabController != null) {
       return MainLayout(
-        selectedIndex: 2,
+        selectedIndex: AppNavDestinations.chatIndex,
         child: Scaffold(
           body: Column(
             children: [
-              // Tab bar
               Material(
                 color: Theme.of(context).colorScheme.surface,
                 child: TabBar(
-                  controller: _tabController,
+                  controller: _creatorTabController,
                   labelColor: Theme.of(context).colorScheme.primary,
                   unselectedLabelColor:
                       Theme.of(context).colorScheme.onSurfaceVariant,
@@ -131,19 +150,16 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
                   ],
                 ),
               ),
-              // Tab views
               Expanded(
                 child: TabBarView(
-                  controller: _tabController,
+                  controller: _creatorTabController,
                   children: [
-                    // Tab 1: Recent chats
                     _controller != null
                         ? _RecentChatsTab(
                             controller: _controller!,
                             onChannelTap: _onChannelTap,
                           )
                         : const Center(child: CircularProgressIndicator()),
-                    // Tab 2: Online users
                     const _OnlineUsersTab(),
                   ],
                 ),
@@ -154,9 +170,47 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
       );
     }
 
-    // ── Regular user view: same tile titles as creators (other member, not channel name)
+    if (isUser && _userTabController != null) {
+      return MainLayout(
+        selectedIndex: AppNavDestinations.chatIndex,
+        child: Scaffold(
+          body: Column(
+            children: [
+              Material(
+                color: Theme.of(context).colorScheme.surface,
+                child: TabBar(
+                  controller: _userTabController,
+                  labelColor: Theme.of(context).colorScheme.primary,
+                  unselectedLabelColor:
+                      Theme.of(context).colorScheme.onSurfaceVariant,
+                  indicatorColor: Theme.of(context).colorScheme.primary,
+                  tabs: const [
+                    Tab(text: 'Chats'),
+                    Tab(text: 'Recent Calls'),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: TabBarView(
+                  controller: _userTabController,
+                  children: [
+                    _RecentChatsChannelList(
+                      controller: _controller!,
+                      onChannelTap: _onChannelTap,
+                      emptyBuilder: (context) => _buildEmptyState(),
+                    ),
+                    const RecentCallsTab(),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return MainLayout(
-      selectedIndex: 2,
+      selectedIndex: AppNavDestinations.chatIndex,
       child: Scaffold(
         body: _RecentChatsChannelList(
           controller: _controller!,
@@ -199,10 +253,6 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
     );
   }
 }
-
-// ═════════════════════════════════════════════════════════════════════════════
-// Recent chats list — shared between regular users and creators (tab 1)
-// ═════════════════════════════════════════════════════════════════════════════
 
 class _RecentChatsChannelList extends StatelessWidget {
   final StreamChannelListController controller;
@@ -257,10 +307,6 @@ class _RecentChatsChannelList extends StatelessWidget {
   }
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// Tab 1 — Recent Chats (creator shell)
-// ═════════════════════════════════════════════════════════════════════════════
-
 class _RecentChatsTab extends StatelessWidget {
   final StreamChannelListController controller;
   final void Function(Channel) onChannelTap;
@@ -308,10 +354,6 @@ class _RecentChatsTab extends StatelessWidget {
   }
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// Tab 2 — Online Users (all users list with chat action)
-// ═════════════════════════════════════════════════════════════════════════════
-
 class _OnlineUsersTab extends ConsumerStatefulWidget {
   const _OnlineUsersTab();
 
@@ -322,16 +364,6 @@ class _OnlineUsersTab extends ConsumerStatefulWidget {
 class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
   final Set<String> _loadingUserIds = {};
 
-  @override
-  void initState() {
-    super.initState();
-  }
-
-  @override
-  void dispose() {
-    super.dispose();
-  }
-
   Future<void> _openChat(UserProfileModel user) async {
     if (_loadingUserIds.contains(user.id)) return;
 
@@ -339,7 +371,6 @@ class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
 
     try {
       final chatService = ChatService();
-      // Backend accepts MongoDB ID — resolves to Firebase UID internally
       final result = await chatService.createOrGetChannel(user.id);
       final channelId = result['channelId'] as String?;
 
@@ -360,7 +391,6 @@ class _OnlineUsersTabState extends ConsumerState<_OnlineUsersTab> {
       if (mounted) setState(() => _loadingUserIds.remove(user.id));
     }
   }
-
 
   @override
   Widget build(BuildContext context) {

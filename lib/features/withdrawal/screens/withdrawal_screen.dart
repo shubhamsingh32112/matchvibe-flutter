@@ -663,7 +663,7 @@ class _InfoSection extends StatelessWidget {
           const SizedBox(height: 8),
           _InfoRow(
             icon: Icons.looks_3_outlined,
-            text: 'Admin reviews & approves (coins deducted)',
+            text: 'Admin reviews & approves, then marks paid (coins deducted)',
           ),
           const SizedBox(height: 8),
           _InfoRow(

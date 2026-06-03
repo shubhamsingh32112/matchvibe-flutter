@@ -11,6 +11,8 @@ class AppScaffold extends StatelessWidget {
   final Widget? bottomNavigationBar;
   final Widget? floatingActionButton;
   final bool padded;
+  /// When false, bottom inset is omitted (use inside [MainLayout] — nav handles it).
+  final bool safeAreaBottom;
   final Widget child;
 
   const AppScaffold({
@@ -19,6 +21,7 @@ class AppScaffold extends StatelessWidget {
     this.bottomNavigationBar,
     this.floatingActionButton,
     this.padded = true,
+    this.safeAreaBottom = true,
     required this.child,
   });
 
@@ -27,6 +30,7 @@ class AppScaffold extends StatelessWidget {
     Widget body = ColoredBox(
       color: AppBrandGradients.accountMenuPageBackground,
       child: SafeArea(
+        bottom: safeAreaBottom,
         child: padded
             ? Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),

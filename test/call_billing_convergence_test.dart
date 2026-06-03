@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zztherapy/features/video/providers/call_billing_provider.dart';
 import 'package:zztherapy/features/video/providers/call_billing_selectors.dart';
@@ -669,6 +671,23 @@ void main() {
       );
       expect(billingUpdatesAreStale(billing), isFalse);
       expect(billingUpdatesStaleMs(billing), isNull);
+    });
+  });
+
+  group('recovery request debounce contract', () {
+    test('requestBillingRecoveryForActiveCall debounces rapid repeats', () {
+      final source = File(
+        'lib/features/video/providers/call_billing_provider.dart',
+      ).readAsStringSync();
+      expect(source.contains('_recoveryRequestDebounce'), isTrue);
+      expect(source.contains('_lastRecoveryRequestAt'), isTrue);
+      expect(
+        source.contains(
+          'now.difference(_lastRecoveryRequestAt!) < _recoveryRequestDebounce',
+        ),
+        isTrue,
+      );
+      expect(source.contains('_lastRecoveryRequestAt = null'), isTrue);
     });
   });
 }

@@ -12,6 +12,7 @@ import '../../user/providers/user_availability_provider.dart';
 import '../../../shared/models/app_update_model.dart';
 import '../../../shared/providers/app_update_popup_provider.dart';
 import '../../support/services/support_realtime_handler.dart';
+import '../../moments/services/moments_realtime_handler.dart';
 
 // ── Enum ──────────────────────────────────────────────────────────────────
 enum CreatorAvailability { online, onCall, offline }
@@ -309,7 +310,7 @@ final socketServiceProvider = Provider<SocketService>((ref) {
     }
   };
   service.onCreatorStatusV2 =
-      (creatorId, status, {int? version, int? updatedAt}) {
+      (creatorId, status, {int? version, int? updatedAt, creatorSummary}) {
         service.trackCreatorForPresence(creatorId);
         ref
             .read(creatorAvailabilityProvider.notifier)
@@ -394,6 +395,22 @@ final socketServiceProvider = Provider<SocketService>((ref) {
 
   service.onSupportTicketUpdated = (data) {
     handleSupportTicketSocketUpdate(ref, data);
+  };
+
+  service.onMomentUploaded = (data) {
+    handleMomentsSocketEvent(ref, 'moment:uploaded', data);
+  };
+  service.onStoryUploaded = (data) {
+    handleMomentsSocketEvent(ref, 'story:uploaded', data);
+  };
+  service.onMomentPurchased = (data) {
+    handleMomentsSocketEvent(ref, 'moment:purchased', data);
+  };
+  service.onCreatorFollowed = (data) {
+    handleMomentsSocketEvent(ref, 'creator:followed', data);
+  };
+  service.onMediaReady = (data) {
+    handleMomentsSocketEvent(ref, 'media:ready', data);
   };
 
   ref.onDispose(() {

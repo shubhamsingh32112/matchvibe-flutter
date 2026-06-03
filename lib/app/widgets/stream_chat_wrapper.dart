@@ -138,10 +138,7 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
 
     if (role != 'creator') {
       Future<void>(() async {
-        await _rehydrateCreatorPresenceForFan(
-          generation,
-          presenceHydration: presenceHydration,
-        );
+        await _rehydrateCreatorPresenceForFan(generation);
       });
     }
 
@@ -155,24 +152,11 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
     }
   }
 
-  Future<void> _rehydrateCreatorPresenceForFan(
-    int generation, {
-    required PresenceHydrationService presenceHydration,
-  }) async {
+  Future<void> _rehydrateCreatorPresenceForFan(int generation) async {
     if (!_isConnectGenerationCurrent(generation)) return;
     await _hydrateFanCreatorPresenceFast(generation);
     if (!_isConnectGenerationCurrent(generation)) return;
-    try {
-      final ids = await presenceHydration.collectCreatorFirebaseUids();
-      if (!_isConnectGenerationCurrent(generation)) return;
-      _requestCreatorAvailabilityInChunks(ids);
-    } catch (e) {
-      debugPrint(
-        '⚠️  [STREAM WRAPPER] Creator sweep hydration failed, falling back to first page: $e',
-      );
-      if (!_isConnectGenerationCurrent(generation)) return;
-      await _fallbackCreatorHydration(generation);
-    }
+    await _fallbackCreatorHydration(generation);
   }
 
   Future<void> _rehydrateUserPresenceForCreatorTools(
@@ -206,7 +190,7 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
         _requestCreatorAvailabilityInChunks(ids);
       }
     } catch (_) {
-      // Feed may not be loaded yet; full UID sweep runs after.
+      // Feed may not be loaded yet; fallback hydration runs after.
     }
   }
 
@@ -314,10 +298,7 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
           });
         } else {
           Future<void>(() async {
-            await _rehydrateCreatorPresenceForFan(
-              generation,
-              presenceHydration: presenceHydration,
-            );
+            await _rehydrateCreatorPresenceForFan(generation);
           });
         }
         }

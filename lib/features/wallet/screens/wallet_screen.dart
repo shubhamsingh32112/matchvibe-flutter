@@ -257,6 +257,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
       child: AppScaffold(
         // Full-width white sheet (no duplicate horizontal inset vs. inner padding).
         padded: false,
+        safeAreaBottom: false,
         child: walletPricingAsync!.when(
           data: (pricingData) => SizedBox(
             width: double.infinity,

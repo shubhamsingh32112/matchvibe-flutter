@@ -137,7 +137,7 @@ class _BecomeCreatorScreenState extends ConsumerState<BecomeCreatorScreen> {
     });
 
     return MainLayout(
-      selectedIndex: 3,
+      selectedIndex: 4,
       accountMenuStyle: true,
       appBar: buildAccountFlowAppBar(
         context,

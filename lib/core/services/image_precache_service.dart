@@ -92,6 +92,28 @@ class ImagePrecacheService {
     });
   }
 
+  /// Viewer XL URLs around [centerIndex] (default ±1). Bounded for swipe UX.
+  static void precacheGalleryViewerNeighbors(
+    BuildContext context,
+    List<String> urls, {
+    required int centerIndex,
+    int radius = 1,
+    BaseCacheManager? cacheManager,
+  }) {
+    if (urls.isEmpty) return;
+    final manager = cacheManager ?? galleryCacheManager;
+    final safeCenter = centerIndex.clamp(0, urls.length - 1);
+    _afterFrame(() {
+      for (var offset = -radius; offset <= radius; offset++) {
+        final i = safeCenter + offset;
+        if (i < 0 || i >= urls.length) continue;
+        final url = urls[i].trim();
+        if (url.isEmpty) continue;
+        _precache(context, url, manager);
+      }
+    });
+  }
+
   static void _afterFrame(VoidCallback fn) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       try {

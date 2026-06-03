@@ -45,7 +45,10 @@ enum ImageUploadPurpose {
   creatorAvatar('creator-avatar'),
   creatorGallery('creator-gallery'),
   userAvatar('user-avatar'),
-  supportTicket('support-ticket');
+  supportTicket('support-ticket'),
+  storyImage('story-image'),
+  momentPhoto('moment-photo'),
+  momentThumbnail('moment-thumbnail');
 
   const ImageUploadPurpose(this.wire);
   final String wire;
@@ -223,6 +226,42 @@ class ImageUploadService {
       purpose: ImageUploadPurpose.supportTicket,
       fileName: fileName,
       draftSlot: draftSlot,
+    );
+  }
+
+  static Future<ImageUploadResult> uploadStoryImage({
+    required Uint8List bytes,
+    String? fileName,
+  }) {
+    return _runPipeline(
+      bytes: bytes,
+      maxDim: _galleryMaxDim,
+      purpose: ImageUploadPurpose.storyImage,
+      fileName: fileName,
+    );
+  }
+
+  static Future<ImageUploadResult> uploadMomentPhoto({
+    required Uint8List bytes,
+    String? fileName,
+  }) {
+    return _runPipeline(
+      bytes: bytes,
+      maxDim: _galleryMaxDim,
+      purpose: ImageUploadPurpose.momentPhoto,
+      fileName: fileName,
+    );
+  }
+
+  static Future<ImageUploadResult> uploadMomentThumbnail({
+    required Uint8List bytes,
+    String? fileName,
+  }) {
+    return _runPipeline(
+      bytes: bytes,
+      maxDim: _galleryMaxDim,
+      purpose: ImageUploadPurpose.momentThumbnail,
+      fileName: fileName,
     );
   }
 

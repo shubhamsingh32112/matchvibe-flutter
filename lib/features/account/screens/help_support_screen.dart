@@ -74,7 +74,7 @@ class _HelpSupportScreenState extends ConsumerState<HelpSupportScreen> {
         : (user?.coins ?? 0);
 
     return MainLayout(
-      selectedIndex: 3,
+      selectedIndex: 4,
       accountMenuStyle: true,
       appBar: buildAccountFlowAppBar(
         context,

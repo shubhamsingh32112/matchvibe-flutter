@@ -7,6 +7,9 @@ import '../../features/onboarding/screens/gender_selection_screen.dart';
 import '../../features/home/screens/home_screen.dart';
 import '../../features/home/screens/favorite_creators_screen.dart';
 import '../../features/recent/screens/recent_screen.dart';
+import '../../features/moments/screens/moments_screen.dart';
+import '../../features/moments/screens/my_moments_screen.dart';
+import '../../features/vip/screens/vip_screen.dart';
 import '../../features/account/screens/account_screen.dart';
 import '../../features/account/screens/account_settings_screen.dart';
 import '../../features/account/screens/blocked_buddies_screen.dart';
@@ -81,12 +84,28 @@ final appRouter = GoRouter(
             builder: (context, state) => const FavoriteCreatorsScreen(),
           ),
     GoRoute(
+      path: '/moments',
+      builder: (context, state) => const MomentsScreen(),
+    ),
+    GoRoute(
+      path: '/account/my-moments',
+      builder: (context, state) => const MyMomentsScreen(),
+    ),
+    GoRoute(
+      path: '/vip',
+      builder: (context, state) => const VipScreen(),
+    ),
+    GoRoute(
       path: '/recent',
       builder: (context, state) => const RecentScreen(),
     ),
     GoRoute(
       path: '/chat-list',
-      builder: (context, state) => const ChatListScreen(),
+      builder: (context, state) {
+        final tab = state.uri.queryParameters['tab'];
+        final initialTab = tab == 'calls' ? 1 : 0;
+        return ChatListScreen(initialTabIndex: initialTab);
+      },
     ),
           GoRoute(
             path: '/account',

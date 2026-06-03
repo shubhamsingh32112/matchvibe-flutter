@@ -18,6 +18,7 @@ import '../exceptions/chat_send_exceptions.dart';
 import '../utils/chat_utils.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../home/providers/availability_provider.dart';
+import '../../video/utils/call_admission_constants.dart';
 import '../../video/controllers/call_connection_controller.dart';
 import '../../support/services/support_service.dart';
 import '../../support/utils/support_contact_phone.dart';
@@ -896,7 +897,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Check coin balance (for regular users)
     final authState = ref.read(authProvider);
     final user = authState.user;
-    if (user != null && user.spendableCallCoins < 10) {
+    if (user != null && user.spendableCallCoins < kMinCoinsToCall) {
       if (mounted) {
         ref.read(coinPurchasePopupProvider.notifier).state = CoinPopupIntent(
           reason: 'preflight_low_coins_chat',

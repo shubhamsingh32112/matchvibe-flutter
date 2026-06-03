@@ -26,7 +26,6 @@ import '../../../core/services/welcome_service.dart';
 import '../../../core/services/permission_prompt_service.dart';
 import '../providers/home_provider.dart';
 import '../providers/availability_provider.dart';
-import '../services/presence_hydration_service.dart';
 import '../widgets/home_user_grid_card.dart';
 import '../../creator/providers/creator_dashboard_provider.dart';
 import '../../creator/providers/creator_presence_orchestrator_provider.dart';
@@ -91,8 +90,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   TimingsCallback? _homeTimingsCallback;
   bool _isOnboardingRunnerActive = false;
   bool _isRequestingBundledPermissions = false;
-  bool _isUserHomePresenceRefreshInFlight = false;
-  DateTime? _lastUserHomePresenceRefreshAt;
   /// Poll Redis-backed presence while home is open (covers missed socket events).
   Timer? _homePresenceRefreshTimer;
   // Watchdog to prevent onboarding deadlocks if user never interacts.
@@ -127,7 +124,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         unawaited(
           _rehydrateUserHomeCreatorPresence(
             reason: 'home_screen_init',
-            includeSweep: true,
+            bypassThrottle: true,
           ),
         );
       }
@@ -136,10 +133,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _homePresenceRefreshTimer = Timer.periodic(const Duration(seconds: 20), (_) {
       if (!mounted) return;
       unawaited(
-        _rehydrateUserHomeCreatorPresence(
-          reason: 'home_periodic',
-          includeSweep: false,
-        ),
+        _rehydrateUserHomeCreatorPresence(reason: 'home_periodic'),
       );
     });
     _setupReactiveListeners();
@@ -313,10 +307,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (state == AppLifecycleState.resumed) {
       unawaited(_checkAndShowWelcomeDialog());
       unawaited(
-        _rehydrateUserHomeCreatorPresence(
-          reason: 'app_resumed',
-          includeSweep: false,
-        ),
+        _rehydrateUserHomeCreatorPresence(reason: 'app_resumed'),
       );
     }
   }
@@ -382,71 +373,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   Future<void> _rehydrateUserHomeCreatorPresence({
     required String reason,
-    required bool includeSweep,
+    bool bypassThrottle = false,
   }) async {
-    if (!mounted || _isUserHomePresenceRefreshInFlight) return;
-    final now = DateTime.now();
-    final last = _lastUserHomePresenceRefreshAt;
-    if (last != null && now.difference(last) < const Duration(seconds: 3)) {
-      return;
-    }
-
-    final auth = ref.read(authProvider);
-    final role = auth.user?.role;
-    final adminViewMode = ref.read(adminViewModeProvider);
-    final creatorLikeView =
-        role == 'creator' ||
-        (role == 'admin' && adminViewMode == AdminViewMode.creator);
-    if (creatorLikeView) return;
-
-    _isUserHomePresenceRefreshInFlight = true;
-    _lastUserHomePresenceRefreshAt = now;
-    final socket = ref.read(socketServiceProvider);
-    try {
-      var visibleIds = (ref.read(creatorsProvider).valueOrNull ?? const <CreatorModel>[])
-          .map((creator) => creator.firebaseUid)
-          .whereType<String>()
-          .where((id) => id.isNotEmpty)
-          .toSet()
-          .toList(growable: false);
-
-      if (visibleIds.isEmpty) {
-        final creators = await ref.read(creatorsProvider.future);
-        if (!mounted) return;
-        visibleIds = creators
-            .map((creator) => creator.firebaseUid)
-            .whereType<String>()
-            .where((id) => id.isNotEmpty)
-            .toSet()
-            .toList(growable: false);
-      }
-
-      if (visibleIds.isNotEmpty) {
-        socket.requestAvailability(visibleIds);
-      }
-
-      if (includeSweep) {
-        final presenceHydration = ref.read(presenceHydrationServiceProvider);
-        final sweepIds = await presenceHydration.collectCreatorFirebaseUids();
-        if (!mounted || sweepIds.isEmpty) return;
-        const batchSize = 100;
-        for (var i = 0; i < sweepIds.length; i += batchSize) {
-          final end = (i + batchSize > sweepIds.length)
-              ? sweepIds.length
-              : i + batchSize;
-          socket.requestAvailability(sweepIds.sublist(i, end));
-        }
-      }
-      debugPrint(
-        '📡 [HOME] User-home creator presence rehydrated (reason=$reason, includeSweep=$includeSweep)',
-      );
-    } catch (e) {
-      debugPrint(
-        '⚠️ [HOME] User-home presence rehydrate failed (reason=$reason): $e',
-      );
-    } finally {
-      _isUserHomePresenceRefreshInFlight = false;
-    }
+    if (!mounted) return;
+    await resyncUserHomeFeedPresenceAndOrder(
+      ref,
+      reason: reason,
+      bypassThrottle: bypassThrottle,
+    );
   }
 
   Future<void> _checkAndShowWelcomeDialog() async {
@@ -1143,6 +1077,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       selectedIndex: 0,
       child: AppScaffold(
         padded: true,
+        safeAreaBottom: false,
         child: isCreator
             ? const _CreatorTasksView()
             : _HomeUserFeedView(scrollController: _homeScrollController),
@@ -1544,7 +1479,6 @@ class _HomeUserFeedView extends ConsumerWidget {
         ref.read(socketServiceProvider).requestAvailability(liveUids);
       }
     }
-    await Future.delayed(const Duration(milliseconds: 500));
   }
 }
 

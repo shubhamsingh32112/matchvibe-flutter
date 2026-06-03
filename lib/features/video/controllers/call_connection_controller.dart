@@ -12,6 +12,7 @@ import '../providers/call_billing_provider.dart';
 import '../providers/call_billing_selectors.dart';
 import '../providers/call_feedback_prompt_provider.dart';
 import '../providers/creator_busy_toast_provider.dart';
+import '../utils/call_admission_constants.dart';
 import '../utils/call_remote_image_resolver.dart';
 import '../utils/remote_avatar_lookup.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -180,15 +181,17 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
 
     // ── Pre-flight: check coin balance ─────────────────────────────
     // Prevent the confusing UX where the call connects then immediately
-    // force-ends because the user has 0 coins.
+    // force-ends because the user has insufficient coins (backend MIN_COINS_TO_CALL).
     final preFlightAuth = _ref.read(authProvider);
     final user = preFlightAuth.user;
     final spendable = user?.spendableCallCoins ?? 0;
-    if (spendable <= 0) {
-      debugPrint('⚠️ [CALL CTRL] startUserCall blocked — 0 coins');
+    if (spendable < kMinCoinsToCall) {
+      debugPrint(
+        '⚠️ [CALL CTRL] startUserCall blocked — insufficient coins ($spendable < $kMinCoinsToCall)',
+      );
       _ref.read(coinPurchasePopupProvider.notifier).state = CoinPopupIntent(
-        reason: 'preflight_no_coins',
-        dedupeKey: 'preflight-no-coins-$creatorFirebaseUid',
+        reason: 'preflight_low_coins',
+        dedupeKey: 'preflight-low-coins-$creatorFirebaseUid',
         remoteDisplayName: creatorName,
         remotePhotoUrl: creatorImageUrl,
         remoteFirebaseUid: creatorFirebaseUid,

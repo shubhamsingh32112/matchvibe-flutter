@@ -113,6 +113,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     _setupProviderListeners();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(socketServiceProvider);
+      ref.read(creatorFeedSocketBridgeProvider);
       ref.read(creatorPresenceBackboneProvider);
       _ensureCreatorOnline();
       unawaited(_retryDeferredUpdateAcks());

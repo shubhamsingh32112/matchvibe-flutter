@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import '../../../app/widgets/app_nav_destinations.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/models/user_model.dart';
@@ -19,6 +20,7 @@ import '../../creator/models/creator_dashboard_model.dart';
 import '../../creator/providers/creator_dashboard_provider.dart';
 import '../../creator/providers/creator_status_provider.dart';
 import '../../creator/widgets/creator_status_label.dart';
+import '../../moments/providers/moments_providers.dart';
 import '../../referral/screens/referral_screen.dart';
 import '../../referral/utils/host_onboarding_routes.dart';
 import '../../video/providers/call_billing_provider.dart';
@@ -164,9 +166,6 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   String _profileSubtitle(UserModel? user, bool isCreator) {
     if (user == null) return '';
     if (isCreator) return 'Creator';
-    if (user.referralCode != null && user.referralCode!.isNotEmpty) {
-      return 'Invite friends · ${user.referralCode}';
-    }
     return 'Member';
   }
 
@@ -194,7 +193,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         statusBarColor: Colors.transparent,
       ),
       child: MainLayout(
-        selectedIndex: 3,
+        selectedIndex: AppNavDestinations.profileIndex,
         accountMenuStyle: true,
         child: authLoading && user == null
             ? const Center(child: LoadingIndicator())
@@ -212,6 +211,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                         coins: coins,
                         isCreator: isCreator,
                         unread: unread,
+                        dashboardAsync: dashboardAsync,
                       ),
                     ),
                     SliverToBoxAdapter(
@@ -309,6 +309,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     required int coins,
     required bool isCreator,
     required int unread,
+    required AsyncValue<CreatorDashboard>? dashboardAsync,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -386,12 +387,13 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
           offset: const Offset(0, -_headerOverlap),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: _profileCard(
-              context: context,
-              scheme: scheme,
-              user: user,
-              isCreator: isCreator,
-            ),
+                      child: _profileCard(
+                        context: context,
+                        scheme: scheme,
+                        user: user,
+                        isCreator: isCreator,
+                        dashboardAsync: dashboardAsync,
+                      ),
           ),
         ),
       ],
@@ -403,6 +405,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     required ColorScheme scheme,
     required UserModel? user,
     required bool isCreator,
+    required AsyncValue<CreatorDashboard>? dashboardAsync,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -492,50 +495,6 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
               ),
             ],
           ),
-          if (user?.referralCode != null && user!.referralCode!.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            GestureDetector(
-              onTap: () async {
-                final code = user.referralCode!;
-                await Clipboard.setData(ClipboardData(text: code));
-                if (!context.mounted) return;
-                AppToast.showSuccess(context, 'Referral code copied');
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: AppBrandGradients.accountMenuPageBackground,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: scheme.outlineVariant.withValues(alpha: 0.5),
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.card_giftcard_outlined,
-                      size: 16,
-                      color: AppBrandGradients.accountMenuIconTint,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      user.referralCode!,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.8,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Icon(Icons.copy, size: 14, color: AppPalette.subtitle),
-                  ],
-                ),
-              ),
-            ),
-          ],
           if (user?.role == 'creator') ...[
             const SizedBox(height: 10),
             _buildRoleBadge(
@@ -556,12 +515,99 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
             const SizedBox(height: 12),
             _buildCreatorToggle(scheme),
           ],
+          if (isCreator) ...[
+            const SizedBox(height: 12),
+            _buildCreatorEarningsRow(context, dashboardAsync),
+          ],
           if (user?.role == 'admin') ...[
             const SizedBox(height: 12),
             _buildAdminViewToggle(scheme),
           ],
         ],
       ),
+    );
+  }
+
+  Widget _buildCreatorEarningsRow(
+    BuildContext context,
+    AsyncValue<CreatorDashboard>? dashboardAsync,
+  ) {
+    final callEarnings =
+        dashboardAsync?.valueOrNull?.earnings.totalEarnings.round() ?? 0;
+    final momentsFromDashboard =
+        dashboardAsync?.valueOrNull?.momentsAnalytics?.momentsEarnings;
+    final momentsFallback = ref.watch(creatorMomentsAnalyticsProvider).valueOrNull;
+    final momentsEarnings = momentsFromDashboard ??
+        (momentsFallback?['momentsEarnings'] as num?)?.toInt() ??
+        0;
+
+    Widget earningsCard({
+      required String title,
+      required String value,
+      required String subtitle,
+      VoidCallback? onTap,
+    }) {
+      return Expanded(
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(14),
+            child: Ink(
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8F5FC),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFE8E0F0)),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: AppPalette.subtitle,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    value,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF1A1A1A),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppPalette.subtitle,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        earningsCard(
+          title: 'Call earnings',
+          value: '$callEarnings coins',
+          subtitle: 'All-time calls',
+        ),
+        const SizedBox(width: 10),
+        earningsCard(
+          title: 'Moments earnings',
+          value: '$momentsEarnings coins',
+          subtitle: 'All-time moments',
+          onTap: () => context.push('/account/my-moments'),
+        ),
+      ],
     );
   }
 
@@ -624,6 +670,15 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     ];
 
     if (isCreator) {
+      tiles.add(
+        _exploreTile(
+          context: context,
+          icon: Icons.perm_media_outlined,
+          title: 'My Moments',
+          subtitle: 'Stories, reels & earnings',
+          onTap: () => context.push('/account/my-moments'),
+        ),
+      );
       tiles.add(
         _exploreTile(
           context: context,

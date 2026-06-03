@@ -134,7 +134,7 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
     });
 
     return MainLayout(
-      selectedIndex: 3,
+      selectedIndex: 4,
       accountMenuStyle: true,
       appBar: buildAccountFlowAppBar(
         context,

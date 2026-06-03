@@ -63,7 +63,8 @@ void main() {
         socketServiceProvider.overrideWithValue(fakeSocket),
         homeApiGetProvider.overrideWith((ref) {
           return (path) async {
-            if (path.contains('/creator/feed?page=1')) {
+            if (path.contains('/creator/feed?page=1') &&
+                path.contains('sort=availability')) {
               return _responseFor(path, {
                 'success': true,
                 'data': {

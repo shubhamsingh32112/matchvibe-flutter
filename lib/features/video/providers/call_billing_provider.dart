@@ -799,9 +799,11 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
   static const Duration _staleActiveRecoveryThreshold = Duration(seconds: 4);
   static const Duration _staleActiveSyncWarningThreshold = Duration(seconds: 6);
   static const Duration _staleActiveSafetyEndThreshold = Duration(seconds: 18);
+  static const Duration _recoveryRequestDebounce = Duration(seconds: 2);
   Timer? _connectedWithoutBillingTimer;
   DateTime? _connectedStuckSince;
   DateTime? _lastOrphanRecoveryEmit;
+  DateTime? _lastRecoveryRequestAt;
   DateTime? _lastStaleWhileActiveRecovery;
   DateTime? _billingUpdatesStaleSince;
   bool _syncWarningReportedForCurrentCall = false;
@@ -1170,6 +1172,13 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
 
   /// Ask the server for Redis billing snapshot (uses active call id when known).
   void requestBillingRecoveryForActiveCall() {
+    final now = DateTime.now();
+    if (_lastRecoveryRequestAt != null &&
+        now.difference(_lastRecoveryRequestAt!) < _recoveryRequestDebounce) {
+      return;
+    }
+    _lastRecoveryRequestAt = now;
+
     final conn = _ref.read(callConnectionControllerProvider);
     final activeCallId = conn.call?.id;
     if (activeCallId != null && activeCallId.isNotEmpty) {
@@ -1609,6 +1618,7 @@ class CallBillingNotifier extends StateNotifier<CallBillingState> {
     _staleActiveSyncWarningReported = false;
     _staleActiveSafetyEndRequested = false;
     _lastStaleWhileActiveRecovery = null;
+    _lastRecoveryRequestAt = null;
     _recoveryTracking.reset();
     BillingConvergenceMetrics.instance.reset();
     state = const CallBillingState();

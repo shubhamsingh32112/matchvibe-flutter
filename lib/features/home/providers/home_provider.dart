@@ -9,9 +9,13 @@ import '../../../shared/models/profile_model.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../admin/providers/admin_view_provider.dart';
 import 'availability_provider.dart';
+import '../services/home_feed_metrics.dart';
 import '../../user/providers/user_availability_provider.dart';
 
 const int homeFeedPageSize = 20;
+
+/// Max creators inserted via socket (not from paginated feed) to bound memory.
+const int maxSocketInsertedCreators = 200;
 typedef HomeApiGet = Future<dynamic> Function(String path);
 
 final homeApiGetProvider = Provider<HomeApiGet>((_) {
@@ -100,6 +104,8 @@ class CreatorFeedNotifier extends AsyncNotifier<List<CreatorModel>> {
   bool _isLoadingMore = false;
   int _requestId = 0;
   List<CreatorModel> _items = const [];
+  final Set<String> _socketInsertedFirebaseUids = <String>{};
+  final Set<String> _insertInFlightByFirebaseUid = <String>{};
 
   bool _shouldFetchCreators(AuthState auth) {
     if (auth.user == null) return false;
@@ -165,6 +171,8 @@ class CreatorFeedNotifier extends AsyncNotifier<List<CreatorModel>> {
     _total = 0;
     _hasMore = true;
     _isLoadingMore = false;
+    _socketInsertedFirebaseUids.clear();
+    _insertInFlightByFirebaseUid.clear();
     _publishMeta();
     final page = await _fetchPage(1);
     _items = page.items;
@@ -179,7 +187,7 @@ class CreatorFeedNotifier extends AsyncNotifier<List<CreatorModel>> {
     final txn = SentryService.startTransaction('home.feed_load', 'ui.load');
     try {
       final response = await ref.read(homeApiGetProvider)(
-        '/creator/feed?page=$page&limit=$homeFeedPageSize',
+        '/creator/feed?page=$page&limit=$homeFeedPageSize&sort=availability',
       );
     if (response.statusCode != 200) {
       throw Exception('Failed to fetch creators: status ${response.statusCode}');
@@ -268,6 +276,183 @@ class CreatorFeedNotifier extends AsyncNotifier<List<CreatorModel>> {
         isLoadingMore: _isLoadingMore,
       );
     });
+  }
+
+  /// Lifecycle for socket-driven rows: remove socket-inserted creators when they go offline.
+  void handlePresenceTransitionForFeed({
+    required String firebaseUid,
+    required String status,
+  }) {
+    if (!_shouldFetchCreators(ref.read(authProvider))) return;
+    final uid = _normalizeFirebaseUid(firebaseUid);
+    if (uid == null) return;
+
+    if (status != 'offline') return;
+    if (!_socketInsertedFirebaseUids.contains(uid)) return;
+
+    _socketInsertedFirebaseUids.remove(uid);
+    _items = _items.where((c) => _normalizeFirebaseUid(c.firebaseUid) != uid).toList(
+      growable: false,
+    );
+    state = AsyncData(_items);
+
+    final userId = ref.read(authProvider).user?.id;
+    if (userId != null) {
+      final availability = ref.read(creatorAvailabilityProvider);
+      ref
+          .read(creatorOrderProvider.notifier)
+          .syncCreators(_items, availability, userId, force: true);
+    }
+  }
+
+  /// Socket-driven discovery: insert a newly-online creator without loading the full catalog.
+  void insertOrUpdateFromStatusEvent({
+    required String firebaseUid,
+    required String status,
+    Map<String, dynamic>? creatorSummary,
+  }) {
+    if (!_shouldFetchCreators(ref.read(authProvider))) return;
+    final uid = _normalizeFirebaseUid(firebaseUid);
+    if (uid == null) return;
+
+    if (status != 'online') return;
+
+    if (_hasCreatorInFeed(uid)) return;
+    if (_insertInFlightByFirebaseUid.contains(uid)) return;
+
+    if (creatorSummary != null) {
+      _insertInFlightByFirebaseUid.add(uid);
+      try {
+        final model = CreatorModel.fromJson(
+          Map<String, dynamic>.from(creatorSummary),
+        );
+        _insertCreatorFromSocket(model, uid);
+      } catch (e, st) {
+        debugPrint('⚠️ [HOME] creatorSummary parse failed for $uid: $e');
+        debugPrint('$st');
+        unawaited(ensureCreatorInFeedByFirebaseUid(uid));
+      } finally {
+        _insertInFlightByFirebaseUid.remove(uid);
+      }
+      return;
+    }
+
+    unawaited(ensureCreatorInFeedByFirebaseUid(uid));
+  }
+
+  Future<void> ensureCreatorInFeedByFirebaseUid(String firebaseUid) async {
+    if (!_shouldFetchCreators(ref.read(authProvider))) return;
+    final uid = _normalizeFirebaseUid(firebaseUid);
+    if (uid == null) return;
+    if (_hasCreatorInFeed(uid)) return;
+    if (_insertInFlightByFirebaseUid.contains(uid)) return;
+
+    _insertInFlightByFirebaseUid.add(uid);
+    var fetchOk = false;
+    try {
+      final response = await ref.read(homeApiGetProvider)(
+        '/creator/by-firebase-uid/$uid',
+      );
+      if (response.statusCode != 200) return;
+      final body = response.data as Map<String, dynamic>?;
+      if (body?['success'] != true || body?['data'] == null) return;
+      final raw = (body!['data'] as Map<String, dynamic>)['creator'];
+      if (raw is! Map) return;
+      final model = CreatorModel.fromJson(Map<String, dynamic>.from(raw));
+      fetchOk = true;
+      if (model.availability != 'online') return;
+      _insertCreatorFromSocket(model, uid);
+    } catch (e) {
+      debugPrint('⚠️ [HOME] ensureCreatorInFeed failed for $uid: $e');
+    } finally {
+      HomeFeedMetrics.recordByUidFetch(success: fetchOk);
+      _insertInFlightByFirebaseUid.remove(uid);
+    }
+  }
+
+  bool _hasCreatorInFeed(String firebaseUid) {
+    return _items.any((c) => _normalizeFirebaseUid(c.firebaseUid) == firebaseUid);
+  }
+
+  List<CreatorModel> _dedupeItemsByFirebaseUid(List<CreatorModel> items) {
+    final seen = <String>{};
+    final deduped = <CreatorModel>[];
+    var dropped = 0;
+    for (final creator in items) {
+      final uid = _normalizeFirebaseUid(creator.firebaseUid);
+      if (uid == null) {
+        deduped.add(creator);
+        continue;
+      }
+      if (seen.contains(uid)) {
+        dropped++;
+        continue;
+      }
+      seen.add(uid);
+      deduped.add(creator);
+    }
+    if (dropped > 0) {
+      HomeFeedMetrics.recordSocketInsertionDeduplicated(dropped);
+    }
+    return deduped;
+  }
+
+  void _insertCreatorFromSocket(CreatorModel model, String firebaseUid) {
+    final uid = _normalizeFirebaseUid(firebaseUid);
+    if (uid == null) return;
+    if (_hasCreatorInFeed(uid)) return;
+
+    _enforceSocketInsertCap();
+    _socketInsertedFirebaseUids.add(uid);
+    _items = _dedupeItemsByFirebaseUid([model, ..._items]);
+    state = AsyncData(_items);
+    HomeFeedMetrics.recordSocketInsertion();
+
+    final apiAvailability = <String, CreatorAvailability>{
+      uid: CreatorAvailability.online,
+    };
+    ref.read(creatorAvailabilityProvider.notifier).seedFromApi(apiAvailability);
+    ref.read(socketServiceProvider).requestAvailability([uid]);
+
+    final userId = ref.read(authProvider).user?.id;
+    if (userId != null) {
+      final availability = ref.read(creatorAvailabilityProvider);
+      ref
+          .read(creatorOrderProvider.notifier)
+          .syncCreators(_items, availability, userId, force: true);
+    }
+  }
+
+  void _enforceSocketInsertCap() {
+    while (_socketInsertedFirebaseUids.length >= maxSocketInsertedCreators) {
+      final evictUid = _socketInsertedFirebaseUids.first;
+      _socketInsertedFirebaseUids.remove(evictUid);
+      _items = _items
+          .where((c) => _normalizeFirebaseUid(c.firebaseUid) != evictUid)
+          .toList(growable: false);
+      HomeFeedMetrics.recordSocketInsertionRejectedCap();
+    }
+  }
+
+  @visibleForTesting
+  Set<String> socketInsertedFirebaseUidsForTest() =>
+      Set<String>.unmodifiable(_socketInsertedFirebaseUids);
+
+  @visibleForTesting
+  List<CreatorModel> feedItemsForTest() => List<CreatorModel>.unmodifiable(_items);
+
+  @visibleForTesting
+  void debugSeedFeedState({
+    required List<CreatorModel> items,
+    Set<String>? socketInsertedUids,
+  }) {
+    _items = List<CreatorModel>.from(items);
+    if (socketInsertedUids != null) {
+      _socketInsertedFirebaseUids
+        ..clear()
+        ..addAll(socketInsertedUids);
+    }
+    state = AsyncData(_items);
   }
 }
 
@@ -565,7 +750,134 @@ final creatorOrderProvider =
       (_) => CreatorOrderNotifier(),
     );
 
+/// Rebuilds online-first order from the cached feed + live availability map.
+void syncUserHomeFeedOrderFromCurrentFeed(Ref ref, {bool force = true}) {
+  final creators = ref.read(creatorsProvider).valueOrNull;
+  final userId = ref.read(authProvider).user?.id;
+  if (creators == null || userId == null) return;
+  ref.read(creatorOrderProvider.notifier).syncCreators(
+    creators,
+    ref.read(creatorAvailabilityProvider),
+    userId,
+    force: force,
+  );
+}
+
+class _UserHomePresenceSyncGate {
+  bool inFlight = false;
+  DateTime? lastAt;
+}
+
+final _userHomePresenceSyncGate = _UserHomePresenceSyncGate();
+
+/// Re-request Redis-backed presence for loaded feed creators and resync grid order.
+Future<void> resyncUserHomeFeedPresenceAndOrder(
+  WidgetRef ref, {
+  required String reason,
+  bool bypassThrottle = false,
+}) async {
+  final role = ref.read(authProvider).user?.role;
+  if (role == 'creator') return;
+  if (role == 'admin') {
+    final adminViewMode = ref.read(adminViewModeProvider);
+    if (adminViewMode == AdminViewMode.creator) return;
+  } else if (role != 'user') {
+    return;
+  }
+
+  final now = DateTime.now();
+  final last = _userHomePresenceSyncGate.lastAt;
+  if (!bypassThrottle &&
+      last != null &&
+      now.difference(last) < const Duration(seconds: 3)) {
+    return;
+  }
+  if (_userHomePresenceSyncGate.inFlight) return;
+
+  _userHomePresenceSyncGate.inFlight = true;
+  _userHomePresenceSyncGate.lastAt = now;
+  try {
+    var visibleIds =
+        (ref.read(creatorsProvider).valueOrNull ?? const <CreatorModel>[])
+            .map((creator) => _normalizeFirebaseUid(creator.firebaseUid))
+            .whereType<String>()
+            .toList(growable: false);
+
+    if (visibleIds.isEmpty) {
+      final creators = await ref.read(creatorsProvider.future);
+      visibleIds = creators
+          .map((creator) => _normalizeFirebaseUid(creator.firebaseUid))
+          .whereType<String>()
+          .toList(growable: false);
+    }
+
+    if (visibleIds.isNotEmpty) {
+      ref.read(socketServiceProvider).requestAvailability(visibleIds);
+    }
+
+    final creators = ref.read(creatorsProvider).valueOrNull;
+    final userId = ref.read(authProvider).user?.id;
+    if (creators != null && userId != null) {
+      ref.read(creatorOrderProvider.notifier).syncCreators(
+        creators,
+        ref.read(creatorAvailabilityProvider),
+        userId,
+        force: true,
+      );
+    }
+
+    if (!kReleaseMode) {
+      debugPrint(
+        '📡 [HOME] User-home creator presence rehydrated (reason=$reason)',
+      );
+    }
+  } catch (e) {
+    debugPrint(
+      '⚠️ [HOME] User-home presence rehydrate failed (reason=$reason): $e',
+    );
+  } finally {
+    _userHomePresenceSyncGate.inFlight = false;
+  }
+}
+
 /// Keeps fan home presence live: tracks feed UIDs on socket, hydrates on connect/reconnect.
+/// Chains [creator:status] after availability wiring to insert newly-online creators into the feed.
+final creatorFeedSocketBridgeProvider = Provider<void>((ref) {
+  final service = ref.read(socketServiceProvider);
+  final previous = service.onCreatorStatusV2;
+  service.onCreatorStatusV2 =
+      (
+        creatorId,
+        status, {
+        int? version,
+        int? updatedAt,
+        Map<String, dynamic>? creatorSummary,
+      }) {
+        HomeFeedMetrics.recordStatusEventReceived();
+        previous?.call(
+          creatorId,
+          status,
+          version: version,
+          updatedAt: updatedAt,
+          creatorSummary: creatorSummary,
+        );
+        ref.read(creatorsProvider.notifier).handlePresenceTransitionForFeed(
+          firebaseUid: creatorId,
+          status: status,
+        );
+        if (status == 'online') {
+          ref.read(creatorsProvider.notifier).insertOrUpdateFromStatusEvent(
+                firebaseUid: creatorId,
+                status: status,
+                creatorSummary: creatorSummary,
+              );
+        }
+      };
+  ref.onDispose(() {
+    service.onCreatorStatusV2 = previous;
+  });
+});
+
 final creatorPresenceBackboneProvider = Provider<void>((ref) {
   final service = ref.read(socketServiceProvider);
 
@@ -615,54 +927,82 @@ final creatorPresenceBackboneProvider = Provider<void>((ref) {
 });
 
 final creatorOrderBridgeProvider = Provider<void>((ref) {
+  ref.watch(creatorFeedSocketBridgeProvider);
   ref.watch(creatorPresenceBackboneProvider);
 
-  ref.listen<AsyncValue<List<CreatorModel>>>(creatorsProvider, (prev, next) {
-    next.whenData((creators) {
-      final userId = ref.read(authProvider).user?.id;
-      if (userId == null) return;
-      final availability = ref.read(creatorAvailabilityProvider);
-      ref
-          .read(creatorOrderProvider.notifier)
-          .syncCreators(creators, availability, userId);
-    });
-  });
+  void onAvailabilityMapChanged(
+    Map<String, CreatorAvailability>? prev,
+    Map<String, CreatorAvailability> next,
+  ) {
+    if (prev == null) {
+      syncUserHomeFeedOrderFromCurrentFeed(ref, force: true);
+      return;
+    }
+    final updates = <String, CreatorAvailability>{};
+    for (final entry in next.entries) {
+      final previous = prev[entry.key];
+      if (previous != entry.value) {
+        updates[entry.key] = entry.value;
+      }
+    }
+    if (updates.isEmpty) return;
+
+    final orderNotifier = ref.read(creatorOrderProvider.notifier);
+    orderNotifier.updateBatch(updates);
+
+    final creators = ref.read(creatorsProvider).valueOrNull;
+    final userId = ref.read(authProvider).user?.id;
+    if (creators == null || userId == null) return;
+
+    final orderedIds = ref.read(creatorOrderProvider).orderedIds;
+    final needsResync = orderedIds.isEmpty ||
+        updates.keys.any((id) => !orderedIds.contains(id));
+    if (needsResync) {
+      orderNotifier.syncCreators(creators, next, userId, force: true);
+    }
+
+    final loadedUids = creators
+        .map((c) => _normalizeFirebaseUid(c.firebaseUid))
+        .whereType<String>()
+        .toSet();
+    for (final entry in updates.entries) {
+      if (entry.value != CreatorAvailability.online) continue;
+      if (loadedUids.contains(entry.key)) continue;
+      unawaited(
+        ref
+            .read(creatorsProvider.notifier)
+            .ensureCreatorInFeedByFirebaseUid(entry.key),
+      );
+    }
+  }
+
+  ref.listen<AsyncValue<List<CreatorModel>>>(
+    creatorsProvider,
+    (prev, next) {
+      next.whenData((creators) {
+        final userId = ref.read(authProvider).user?.id;
+        if (userId == null) return;
+        final availability = ref.read(creatorAvailabilityProvider);
+        ref
+            .read(creatorOrderProvider.notifier)
+            .syncCreators(creators, availability, userId);
+      });
+    },
+    fireImmediately: true,
+  );
 
   ref.listen<Map<String, CreatorAvailability>>(
     creatorAvailabilityProvider,
-    (prev, next) {
-      if (prev == null) {
-        ref.read(creatorOrderProvider.notifier).updateBatch(next);
-        return;
-      }
-      final updates = <String, CreatorAvailability>{};
-      for (final entry in next.entries) {
-        final previous = prev[entry.key];
-        if (previous != entry.value) {
-          updates[entry.key] = entry.value;
-        }
-      }
-      if (updates.isEmpty) return;
-
-      final orderNotifier = ref.read(creatorOrderProvider.notifier);
-      orderNotifier.updateBatch(updates);
-
-      final creators = ref.read(creatorsProvider).valueOrNull;
-      final userId = ref.read(authProvider).user?.id;
-      if (creators == null || userId == null) return;
-
-      final orderedIds = ref.read(creatorOrderProvider).orderedIds;
-      final needsResync = orderedIds.isEmpty ||
-          updates.keys.any((id) => !orderedIds.contains(id));
-      if (needsResync) {
-        orderNotifier.syncCreators(creators, next, userId, force: true);
-      }
-    },
+    onAvailabilityMapChanged,
+    fireImmediately: true,
   );
+
+  syncUserHomeFeedOrderFromCurrentFeed(ref, force: true);
 });
 
 /// 🔥 BACKEND-AUTHORITATIVE Provider that returns ALL creators/users based on user role
 final homeFeedProvider = Provider<List<dynamic>>((ref) {
+  ref.watch(creatorFeedSocketBridgeProvider);
   ref.watch(creatorOrderBridgeProvider);
 
   final authIdentity = ref.watch(

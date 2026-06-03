@@ -195,7 +195,7 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
         .fold<int>(0, (sum, t) => sum + t.amount);
 
     return MainLayout(
-      selectedIndex: 3,
+      selectedIndex: 4,
       accountMenuStyle: true,
       appBar: buildAccountFlowAppBar(
         context,

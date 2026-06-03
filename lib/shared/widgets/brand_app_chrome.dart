@@ -11,6 +11,7 @@ AppBar buildBrandAppBar(
   Widget? leading,
   bool automaticallyImplyLeading = true,
   bool centerTitle = false,
+  PreferredSizeWidget? bottom,
 }) {
   final theme = Theme.of(context);
   return AppBar(
@@ -19,6 +20,7 @@ AppBar buildBrandAppBar(
     centerTitle: centerTitle,
     title: Text(title),
     actions: actions,
+    bottom: bottom,
     backgroundColor: Colors.transparent,
     elevation: 0,
     scrolledUnderElevation: 0,
@@ -48,6 +50,7 @@ AppBar buildAccountFlowAppBar(
   Widget? leading,
   bool automaticallyImplyLeading = true,
   bool centerTitle = false,
+  PreferredSizeWidget? bottom,
 }) {
   return buildBrandAppBar(
     context,
@@ -56,6 +59,7 @@ AppBar buildAccountFlowAppBar(
     automaticallyImplyLeading: automaticallyImplyLeading,
     centerTitle: centerTitle,
     actions: actions,
+    bottom: bottom,
   );
 }
 
@@ -107,6 +111,52 @@ class BrandSheetHeader extends StatelessWidget {
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Branded pill chip for feed tabs (Moments For You / Following, profile tabs).
+class BrandFeedTabChip extends StatelessWidget {
+  const BrandFeedTabChip({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Ink(
+          decoration: BoxDecoration(
+            gradient: selected ? AppBrandGradients.accountMenuCtaGradient : null,
+            color: selected ? null : Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: selected
+                  ? Colors.transparent
+                  : const Color(0xFFE0E0E0),
+            ),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              color: selected ? Colors.white : const Color(0xFF2D2D2D),
+            ),
+          ),
         ),
       ),
     );

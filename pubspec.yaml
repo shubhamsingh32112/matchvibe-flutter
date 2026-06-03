@@ -2,7 +2,7 @@ name: zztherapy
 description: "Match Vibe - Flutter mobile app"
 publish_to: 'none'
 
-version: 1.0.0+56
+version: 1.0.0+61
 
 
 environment:
@@ -103,6 +103,8 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  integration_test:
+    sdk: flutter
   flutter_lints: ^6.0.0
   riverpod_generator: ^2.3.9
   build_runner: ^2.4.7
@@ -121,6 +123,11 @@ flutter:
     - lib/assets/promo_first_call_on_us.png
     - lib/assets/addpopup-bg.jpeg
     - lib/assets/app_logo.png
+    - lib/assets/nav/nav_home_icon.png
+    - lib/assets/nav/nav_moments_icon.png
+    - lib/assets/nav/nav_chats_icon.png
+    - lib/assets/nav/nav_profile_icon.png
+    - lib/assets/nav/nav_vip_icon.png
     - lib/assets/wallet_icons/
     - lib/assets/transactions/
     - lib/assets/help_support/
