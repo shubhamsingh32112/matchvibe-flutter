@@ -74,7 +74,7 @@ class AppCard extends StatelessWidget {
       margin: margin,
       padding: padding ?? const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppPalette.surface,
+        color: Theme.of(context).colorScheme.surfaceContainerHigh,
         borderRadius: radius,
         border: Border.all(
           color: AppPalette.outlineSoft,
@@ -82,7 +82,7 @@ class AppCard extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
+            color: Colors.black.withValues(alpha: 0.24),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),

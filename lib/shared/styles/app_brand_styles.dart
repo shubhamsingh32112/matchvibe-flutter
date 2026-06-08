@@ -2,34 +2,32 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 
 /// Centralized brand gradients and decorative styles used across the app.
-///
-/// Light theme: white/beige bases, red accent — no purple or dark backgrounds.
 class AppBrandGradients {
   const AppBrandGradients._();
 
-  /// Global brand background — subtle white to warm beige.
+  /// Global brand background — dark gradient.
   static const LinearGradient appBackground = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
     colors: [
-      Color(0xFFFFFFFF),
-      AppPalette.beige,
+      Color(0xFF121212),
+      Color(0xFF1A1A1A),
     ],
   );
 
   static const LinearGradient accountBackground = appBackground;
 
-  /// Pre-connect video call card (dial / incoming) — lavender → light grey.
+  /// Pre-connect video call card (dial / incoming).
   static const LinearGradient callDialCard = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
     colors: [
-      Color(0xFFE8E0F5),
-      Color(0xFFF8F8FA),
+      Color(0xFF1E1A2E),
+      Color(0xFF121218),
     ],
   );
 
-  /// Soft separation for frosted-style cards (light mode).
+  /// Soft separation for frosted-style cards.
   static LinearGradient get frostedCard => LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
@@ -39,7 +37,7 @@ class AppBrandGradients {
         ],
       );
 
-  /// Avatar ring — red accent (replaces purple).
+  /// Avatar ring — red accent.
   static const LinearGradient avatarRing = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
@@ -49,7 +47,7 @@ class AppBrandGradients {
     ],
   );
 
-  /// Creator role pill — warm amber/orange (status, not primary CTA).
+  /// Creator role pill — warm amber/orange.
   static LinearGradient get creatorBadge => LinearGradient(
         colors: [
           Colors.amber[600]!,
@@ -86,7 +84,6 @@ class AppBrandGradients {
 
   static const double avatarCarouselUnselectedBorderWidth = 1.5;
 
-  /// Must remain `const` for use in const widget lists (e.g. edit profile).
   static const BoxShadow avatarCarouselGlow = BoxShadow(
     color: Color(0x40D32F2F),
     blurRadius: 18,
@@ -95,13 +92,13 @@ class AppBrandGradients {
 
   static const LinearGradient walletBackground = appBackground;
 
-  /// Wallet promo — soft red tint (replaces blue).
+  /// Wallet promo — dark red tint.
   static const LinearGradient walletPromoBanner = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
     colors: [
-      Color(0xFFFFEBEE),
-      AppPalette.beige,
+      Color(0xFF2A1518),
+      Color(0xFF1A1A1A),
     ],
   );
 
@@ -109,7 +106,6 @@ class AppBrandGradients {
 
   static const Color walletRefreshIndicatorBackground = AppPalette.primaryRed;
 
-  /// Coin emphasis — muted gold on light UI.
   static const LinearGradient walletCoinGold = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
@@ -121,11 +117,10 @@ class AppBrandGradients {
 
   static const Color walletPromoIcon = AppPalette.primaryRed;
 
-  static const Color walletEarningsHighlight = Color(0xFFE65100);
+  static const Color walletEarningsHighlight = Color(0xFFFFB74D);
 
-  static const Color walletOnGold = Color(0xFF1A1A1A);
+  static const Color walletOnGold = Color(0xFFFFFFFF);
 
-  /// Light scrim over card images for readable white/light text; darkens photo bottom slightly.
   static LinearGradient userCardOverlay(ColorScheme scheme) => LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
@@ -135,11 +130,8 @@ class AppBrandGradients {
         ],
       );
 
-  // ── Account menu tab only (reference UI); does not change global theme ──
+  static const Color accountMenuPageBackground = Color(0xFF0D0D0D);
 
-  static const Color accountMenuPageBackground = Color(0xFFF3F0F7);
-
-  /// Video call FAB on user home creator cards.
   static const Color userHomeVideoCall = Color(0xFF6C4EF3);
 
   static const LinearGradient accountMenuHeaderGradient = LinearGradient(
@@ -160,17 +152,16 @@ class AppBrandGradients {
     ],
   );
 
-  static const Color accountMenuIconTint = Color(0xFF6A1B9A);
+  static const Color accountMenuIconTint = Color(0xFFCE93D8);
 
   static List<BoxShadow> get accountMenuCardShadow => [
         BoxShadow(
-          color: Colors.black.withValues(alpha: 0.08),
+          color: Colors.black.withValues(alpha: 0.32),
           blurRadius: 16,
           offset: const Offset(0, 6),
         ),
       ];
 
-  /// Creator profile primary CTA (Video Call).
   static const LinearGradient creatorProfileVideoCallGradient = LinearGradient(
     begin: Alignment.centerLeft,
     end: Alignment.centerRight,
@@ -186,19 +177,17 @@ class AppBrandGradients {
 
   static const Color creatorProfileAccentPink = Color(0xFFFF4081);
 
-  // ── Moments tab (discovery grid UI) ──
+  static const Color momentsPageBackground = Color(0xFF0D0D0D);
 
-  static const Color momentsPageBackground = Color(0xFFFFFFFF);
+  static const Color momentsTitleColor = Color(0xFFFFFFFF);
 
-  static const Color momentsTitleColor = Color(0xFF2D1B4E);
-
-  static const Color momentsSubtitleColor = Color(0xFF8E8E93);
+  static const Color momentsSubtitleColor = Color(0xB3FFFFFF);
 
   static const Color momentsTabActiveColor = Color(0xFFFF4081);
 
-  static const Color momentsTabInactiveColor = Color(0xFF8E8E93);
+  static const Color momentsTabInactiveColor = Color(0xB3FFFFFF);
 
-  static const Color momentsTrophyBackground = Color(0xFFF3F0F7);
+  static const Color momentsTrophyBackground = Color(0xFF1E1E1E);
 
   static const LinearGradient momentsStoryRingGradient = LinearGradient(
     begin: Alignment.topLeft,
@@ -223,7 +212,7 @@ class AppBrandGradients {
 
   static List<BoxShadow> get momentsCardShadow => [
         BoxShadow(
-          color: Colors.black.withValues(alpha: 0.08),
+          color: Colors.black.withValues(alpha: 0.32),
           blurRadius: 12,
           offset: const Offset(0, 4),
         ),

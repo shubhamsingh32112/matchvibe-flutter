@@ -66,6 +66,7 @@ class _HelpSupportScreenState extends ConsumerState<HelpSupportScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final user = ref.watch(authProvider.select((s) => s.user));
     final isCreator = user?.role == 'creator' || user?.role == 'admin';
     final billing = ref.watch(callBillingProvider);
@@ -98,7 +99,7 @@ class _HelpSupportScreenState extends ConsumerState<HelpSupportScreen> {
                   'Select by Category',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
-                    color: const Color(0xFF1A1A1A),
+                    color: scheme.onSurface,
                   ),
                 ),
               ),

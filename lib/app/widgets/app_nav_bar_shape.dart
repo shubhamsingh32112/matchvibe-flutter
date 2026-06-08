@@ -93,15 +93,15 @@ class AppNavBarBackground extends StatelessWidget {
       clipper: clipper,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: const Color(0xFF1A1A1A),
           border: Border(
             top: BorderSide(
-              color: Colors.black.withValues(alpha: 0.08),
+              color: Colors.white.withValues(alpha: 0.08),
             ),
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.06),
+              color: Colors.black.withValues(alpha: 0.32),
               blurRadius: 12,
               offset: const Offset(0, -2),
             ),

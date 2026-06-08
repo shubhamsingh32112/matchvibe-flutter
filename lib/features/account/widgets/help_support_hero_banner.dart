@@ -10,6 +10,7 @@ class HelpSupportHeroBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final topInset = MediaQuery.paddingOf(context).top;
 
     return Padding(
@@ -23,12 +24,12 @@ class HelpSupportHeroBanner extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.fromLTRB(14, 18, 16, 18),
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
+          gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              Color(0xFFFFFBFE),
-              Color(0xFFF3E5F5),
+              scheme.surfaceContainerHigh,
+              scheme.surfaceContainerHighest,
             ],
           ),
           borderRadius: BorderRadius.circular(20),
@@ -42,7 +43,8 @@ class HelpSupportHeroBanner extends StatelessWidget {
               top: -10,
               child: _DecorativeCircle(
                 size: 44,
-                color: const Color(0xFFEDE7F6).withValues(alpha: 0.7),
+                color: AppBrandGradients.accountMenuIconTint
+                    .withValues(alpha: 0.12),
               ),
             ),
             Positioned(
@@ -50,7 +52,8 @@ class HelpSupportHeroBanner extends StatelessWidget {
               bottom: -4,
               child: _DecorativeCircle(
                 size: 20,
-                color: const Color(0xFFF3E5F5).withValues(alpha: 0.9),
+                color: AppBrandGradients.accountMenuIconTint
+                    .withValues(alpha: 0.18),
               ),
             ),
             Row(
@@ -79,7 +82,7 @@ class HelpSupportHeroBanner extends StatelessWidget {
                         style:
                             Theme.of(context).textTheme.titleLarge?.copyWith(
                                   fontWeight: FontWeight.w700,
-                                  color: const Color(0xFF1A1A1A),
+                                  color: scheme.onSurface,
                                 ),
                       ),
                       Container(

@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/widgets/app_nav_destinations.dart';
 import '../../../app/widgets/main_layout.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/loading_indicator.dart';
@@ -96,13 +97,17 @@ class _VipScreenState extends ConsumerState<VipScreen> {
     final plansAsync = ref.watch(vipPlansProvider);
     final isActive = vipStatus?.active == true;
 
-    return MainLayout(
-      selectedIndex: AppNavDestinations.centerIndex,
-      vipPageStyle: true,
-      child: DecoratedBox(
-        decoration: const BoxDecoration(gradient: VipPageTokens.pageBackground),
-        child: plansAsync.when(
-          loading: () => const Center(child: LoadingIndicator()),
+    return Theme(
+      data: AppTheme.vipInheritedTheme,
+      child: MainLayout(
+        selectedIndex: AppNavDestinations.centerIndex,
+        vipPageStyle: true,
+        child: DecoratedBox(
+          decoration: const BoxDecoration(gradient: VipPageTokens.pageBackground),
+          child: plansAsync.when(
+            loading: () => const Center(
+              child: LoadingIndicator(color: VipPageTokens.borderGold),
+            ),
           error: (_, __) => Center(
             child: Text(
               'Could not load VIP plans. Pull to refresh.',
@@ -204,6 +209,7 @@ class _VipScreenState extends ConsumerState<VipScreen> {
             );
           },
         ),
+      ),
       ),
     );
   }

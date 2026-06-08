@@ -112,18 +112,18 @@ class AppToast {
 
     switch (kind) {
       case _ToastKind.success:
-        background = scheme.primaryContainer;
-        foreground = scheme.onPrimaryContainer;
+        background = scheme.surfaceContainerHighest;
+        foreground = scheme.onSurface;
         icon = Icons.check_circle_outline_rounded;
         break;
       case _ToastKind.error:
-        background = scheme.errorContainer;
-        foreground = scheme.onErrorContainer;
+        background = scheme.surfaceContainerHighest;
+        foreground = scheme.onSurface;
         icon = Icons.error_outline_rounded;
         break;
       case _ToastKind.info:
         background = scheme.surfaceContainerHighest;
-        foreground = scheme.onSurfaceVariant;
+        foreground = scheme.onSurface;
         icon = Icons.info_outline_rounded;
         break;
     }

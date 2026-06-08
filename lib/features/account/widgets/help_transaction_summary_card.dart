@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 import '../../../shared/widgets/gem_icon.dart';
 
@@ -21,6 +22,8 @@ class HelpTransactionSummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.lg,
@@ -29,7 +32,7 @@ class HelpTransactionSummaryCard extends StatelessWidget {
         AppSpacing.sm,
       ),
       child: Material(
-        color: Colors.white,
+        color: scheme.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(20),
         clipBehavior: Clip.antiAlias,
         elevation: 0,
@@ -40,7 +43,7 @@ class HelpTransactionSummaryCard extends StatelessWidget {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(20),
               boxShadow: AppBrandGradients.accountMenuCardShadow,
-              color: Colors.white,
+              color: scheme.surfaceContainerHigh,
             ),
             padding: const EdgeInsets.fromLTRB(16, 16, 12, 18),
             child: Column(
@@ -52,7 +55,7 @@ class HelpTransactionSummaryCard extends StatelessWidget {
                       width: 40,
                       height: 40,
                       decoration: BoxDecoration(
-                        color: const Color(0xFFEDE7F6),
+                        color: scheme.surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Icon(
@@ -68,7 +71,7 @@ class HelpTransactionSummaryCard extends StatelessWidget {
                         style:
                             Theme.of(context).textTheme.titleMedium?.copyWith(
                                   fontWeight: FontWeight.w700,
-                                  color: const Color(0xFF1A1A1A),
+                                  color: scheme.onSurface,
                                 ),
                       ),
                     ),
@@ -123,18 +126,20 @@ class _CircleChevron extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Material(
-      color: const Color(0xFFF3F0F7),
+      color: scheme.surfaceContainerHighest,
       shape: const CircleBorder(),
       child: InkWell(
         onTap: onTap,
         customBorder: const CircleBorder(),
-        child: const Padding(
-          padding: EdgeInsets.all(8),
+        child: Padding(
+          padding: const EdgeInsets.all(8),
           child: Icon(
             Icons.chevron_right,
             size: 22,
-            color: Color(0xFF6B6B6B),
+            color: scheme.onSurfaceVariant,
           ),
         ),
       ),
@@ -145,11 +150,13 @@ class _CircleChevron extends StatelessWidget {
 class _VerticalDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Container(
       width: 1,
       height: 64,
       margin: const EdgeInsets.symmetric(horizontal: 4),
-      color: const Color(0xFFE0E0E0),
+      color: scheme.outlineVariant,
     );
   }
 }
@@ -177,10 +184,10 @@ class _StatColumn extends StatelessWidget {
         const SizedBox(height: 8),
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w500,
-            color: Color(0xFF6B6B6B),
+            color: AppPalette.subtitle,
           ),
         ),
         const SizedBox(height: 4),

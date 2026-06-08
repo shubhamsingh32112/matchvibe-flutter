@@ -413,7 +413,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: scheme.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(26),
         boxShadow: AppBrandGradients.accountMenuCardShadow,
       ),
@@ -451,7 +451,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w700,
-                        color: const Color(0xFF1A1A1A),
+                        color: scheme.onSurface,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -532,11 +532,12 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   }
 
   Widget _sectionTitle(BuildContext context, String text) {
+    final scheme = Theme.of(context).colorScheme;
     return Text(
       text,
       style: Theme.of(context).textTheme.titleMedium?.copyWith(
         fontWeight: FontWeight.w700,
-        color: const Color(0xFF2D2D2D),
+        color: scheme.onSurface,
       ),
     );
   }
@@ -615,6 +616,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     required VoidCallback onTap,
   }) {
     assert(leading != null || icon != null);
+    final scheme = Theme.of(context).colorScheme;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -622,7 +624,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         borderRadius: BorderRadius.circular(_exploreTileRadius),
         child: Ink(
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: scheme.surfaceContainerHigh,
             borderRadius: BorderRadius.circular(_exploreTileRadius),
             boxShadow: AppBrandGradients.accountMenuCardShadow,
           ),
@@ -657,7 +659,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                           style:
                               Theme.of(context).textTheme.titleSmall?.copyWith(
                                     fontWeight: FontWeight.w700,
-                                    color: const Color(0xFF1A1A1A),
+                                    color: scheme.onSurface,
                                   ),
                         ),
                         if (subtitle != null && subtitle.isNotEmpty) ...[
@@ -692,9 +694,8 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     bool destructive = false,
   }) {
     assert(leading != null || icon != null);
-    final color = destructive
-        ? Theme.of(context).colorScheme.error
-        : const Color(0xFF1A1A1A);
+    final scheme = Theme.of(context).colorScheme;
+    final color = destructive ? scheme.error : scheme.onSurface;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -702,7 +703,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         borderRadius: BorderRadius.circular(22),
         child: Ink(
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: scheme.surfaceContainerHigh,
             borderRadius: BorderRadius.circular(22),
             boxShadow: AppBrandGradients.accountMenuCardShadow,
           ),

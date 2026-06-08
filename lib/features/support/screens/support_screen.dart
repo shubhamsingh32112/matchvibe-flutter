@@ -164,10 +164,12 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
   }
 
   Widget _buildTabSelector() {
+    final scheme = Theme.of(context).colorScheme;
+
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: scheme.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(14),
         boxShadow: AppBrandGradients.accountMenuCardShadow,
       ),
@@ -320,21 +322,27 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
               children: [
                 _buildHeaderCard(context, title: 'My Tickets'),
                 const SizedBox(height: 24),
-                const Icon(Icons.inbox_outlined, size: 48, color: Color(0xFF8E86A3)),
+                Icon(
+                  Icons.inbox_outlined,
+                  size: 48,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
                 const SizedBox(height: 12),
                 Text(
                   'No support tickets yet',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
-                    color: const Color(0xFF2A2543),
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text(
+                Text(
                   'Submit a ticket from the New ticket tab and track admin replies here.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Color(0xFF655F7B)),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ],
             )
@@ -352,10 +360,11 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
 
   Widget _buildHeaderCard(BuildContext context, {required String title}) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 16, 14, 14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: scheme.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(20),
         boxShadow: AppBrandGradients.accountMenuCardShadow,
       ),
@@ -369,7 +378,7 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
                   title,
                   style: theme.textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.w800,
-                    color: const Color(0xFF1E1A36),
+                    color: scheme.onSurface,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -378,7 +387,7 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
                       ? 'Track status and admin replies'
                       : 'We\'re here to help you',
                   style: theme.textTheme.bodyMedium?.copyWith(
-                    color: const Color(0xFF655F7B),
+                    color: scheme.onSurfaceVariant,
                   ),
                 ),
               ],
@@ -408,12 +417,13 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
     required Widget child,
   }) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: scheme.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE9E2F2)),
+        border: Border.all(color: scheme.outlineVariant),
         boxShadow: AppBrandGradients.accountMenuCardShadow,
       ),
       child: Column(
@@ -425,7 +435,7 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
                 title,
                 style: theme.textTheme.titleSmall?.copyWith(
                   fontWeight: FontWeight.w700,
-                  color: const Color(0xFF2A2543),
+                  color: scheme.onSurface,
                 ),
               ),
               if (subtitle != null) ...[
@@ -433,7 +443,7 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
                 Text(
                   subtitle,
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF8E86A3),
+                    color: scheme.onSurfaceVariant,
                   ),
                 ),
               ],
@@ -493,6 +503,7 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
   }
 
   Widget _buildAttachmentPicker(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final canAddMore = _attachments.length < _maxAttachments;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -504,8 +515,8 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
             height: 110,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(14),
-              color: const Color(0xFFF8F4FC),
-              border: Border.all(color: const Color(0xFFD4C3EA)),
+              color: scheme.surfaceContainer,
+              border: Border.all(color: scheme.outlineVariant),
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -514,21 +525,24 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
                   Icons.cloud_upload_outlined,
                   color: canAddMore
                       ? const Color(0xFF7C4DFF)
-                      : const Color(0xFFB6A9CA),
+                      : scheme.onSurfaceVariant,
                   size: 30,
                 ),
                 const SizedBox(height: 8),
                 Text(
                   canAddMore ? 'Tap to upload images' : 'Attachment limit reached',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color: Color(0xFF3E365C),
+                    color: scheme.onSurface,
                   ),
                 ),
                 Text(
                   '${_attachments.length}/$_maxAttachments selected',
-                  style: const TextStyle(fontSize: 12, color: Color(0xFF7E7597)),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),
@@ -554,20 +568,25 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
   }
 
   Widget _buildScreenshotPicker(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return InkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: _pickScreenshot,
       child: Ink(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(14),
-          color: const Color(0xFFF8F4FC),
-          border: Border.all(color: const Color(0xFFE2D7F0)),
+          color: scheme.surfaceContainer,
+          border: Border.all(color: scheme.outlineVariant),
         ),
         child: ListTile(
           leading: const Icon(Icons.photo_library_outlined, color: Color(0xFF7C4DFF)),
           title: Text(
             _screenshotAttachment == null ? 'Add screenshot' : _screenshotAttachment!.name,
-            style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF2F2949)),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: scheme.onSurface,
+            ),
           ),
           trailing: _screenshotAttachment == null
               ? const Icon(Icons.chevron_right_rounded)
@@ -628,11 +647,11 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
       prefixIcon: Icon(icon, color: const Color(0xFF7C4DFF)),
       counterStyle: const TextStyle(fontSize: 11),
       filled: true,
-      fillColor: const Color(0xFFF6F3FB),
+      fillColor: scheme.surfaceContainerHigh,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: Color(0xFFE2D7F0)),
+        borderSide: BorderSide(color: scheme.outlineVariant),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
@@ -777,6 +796,8 @@ class _TabChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Material(
       color: selected ? const Color(0xFF6F2DFF) : Colors.transparent,
       borderRadius: BorderRadius.circular(10),
@@ -790,7 +811,7 @@ class _TabChip extends StatelessWidget {
             textAlign: TextAlign.center,
             style: TextStyle(
               fontWeight: FontWeight.w700,
-              color: selected ? Colors.white : const Color(0xFF655F7B),
+              color: selected ? Colors.white : scheme.onSurfaceVariant,
             ),
           ),
         ),
@@ -806,13 +827,14 @@ class _TicketCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final dateFmt = DateFormat('MMM d, yyyy • HH:mm');
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: scheme.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE9E2F2)),
+        border: Border.all(color: scheme.outlineVariant),
         boxShadow: AppBrandGradients.accountMenuCardShadow,
       ),
       child: Column(
@@ -823,10 +845,10 @@ class _TicketCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   ticket.subject,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.w800,
                     fontSize: 16,
-                    color: Color(0xFF1E1A36),
+                    color: scheme.onSurface,
                   ),
                 ),
               ),
@@ -836,12 +858,12 @@ class _TicketCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             '${categoryLabel(ticket.category)} • ${ticket.priorityLabel}',
-            style: const TextStyle(fontSize: 12, color: Color(0xFF8E86A3)),
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
           ),
           const SizedBox(height: 10),
           Text(
             ticket.message,
-            style: const TextStyle(fontSize: 14, color: Color(0xFF3E365C)),
+            style: TextStyle(fontSize: 14, color: scheme.onSurface),
           ),
           if (ticket.attachments.isNotEmpty) ...[
             const SizedBox(height: 10),
@@ -873,9 +895,9 @@ class _TicketCard extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFFF3EDFF),
+                color: scheme.surfaceContainer,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFD4C3EA)),
+                border: Border.all(color: scheme.outlineVariant),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -892,9 +914,9 @@ class _TicketCard extends StatelessWidget {
                   const SizedBox(height: 6),
                   Text(
                     ticket.adminNotes!,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
-                      color: Color(0xFF2F2949),
+                      color: scheme.onSurface,
                       height: 1.35,
                     ),
                   ),
@@ -905,7 +927,7 @@ class _TicketCard extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             dateFmt.format(ticket.updatedAt.toLocal()),
-            style: const TextStyle(fontSize: 11, color: Color(0xFF8E86A3)),
+            style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
           ),
         ],
       ),
@@ -962,6 +984,7 @@ class _PriorityChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     const lowColor = Color(0xFF2296F3);
     const mediumColor = Color(0xFFF8B100);
     const highColor = Color(0xFFE93357);
@@ -995,8 +1018,8 @@ class _PriorityChip extends StatelessWidget {
             const SizedBox(width: 8),
             Text(
               label,
-              style: const TextStyle(
-                color: Color(0xFF2D2745),
+              style: TextStyle(
+                color: scheme.onSurface,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -1019,6 +1042,8 @@ class _AttachmentPreviewTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Stack(
       children: [
         Container(
@@ -1026,7 +1051,7 @@ class _AttachmentPreviewTile extends StatelessWidget {
           height: 82,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFFD9CCE9)),
+            border: Border.all(color: scheme.outlineVariant),
             image: DecorationImage(
               image: MemoryImage(draft.bytes),
               fit: BoxFit.cover,
@@ -1039,7 +1064,7 @@ class _AttachmentPreviewTile extends StatelessWidget {
           child: IconButton(
             onPressed: onRemove,
             icon: const Icon(Icons.cancel_rounded),
-            color: const Color(0xFF6A5A84),
+            color: scheme.onSurfaceVariant,
           ),
         ),
       ],

@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/utils/error_handler.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../core/utils/referral_code_format.dart';
 import '../../referral/services/referral_service.dart';
@@ -400,6 +401,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     required String busyLabel,
     required bool showSpinner,
   }) {
+    final scheme = Theme.of(context).colorScheme;
+    final onSurface = scheme.onSurface;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -408,7 +412,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         child: Ink(
           height: 54,
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.92),
+            color: scheme.surfaceContainerHigh.withValues(alpha: 0.95),
             borderRadius: BorderRadius.circular(28),
             boxShadow: [
               BoxShadow(
@@ -427,22 +431,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                     ? Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const SizedBox(
+                          SizedBox(
                             width: 22,
                             height: 22,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: Color(0xFF1A1A1A),
+                              color: onSurface,
                             ),
                           ),
                           const SizedBox(width: 12),
                           Flexible(
                             child: Text(
                               busyLabel,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontWeight: FontWeight.w600,
                                 fontSize: 16,
-                                color: Color(0xFF1A1A1A),
+                                color: onSurface,
                               ),
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -452,10 +456,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                     : Text(
                         label,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontWeight: FontWeight.w600,
                           fontSize: 16,
-                          color: Color(0xFF1A1A1A),
+                          color: onSurface,
                         ),
                       ),
               ),
@@ -707,8 +711,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
             child: ElevatedButton(
               onPressed: canApply ? () => _runReferralPreview() : null,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF1A1A1A),
-                foregroundColor: Colors.white,
+                backgroundColor: AppPalette.beigeAlt,
+                foregroundColor: AppPalette.onSurface,
                 disabledBackgroundColor: Colors.white.withValues(alpha: 0.2),
                 disabledForegroundColor: Colors.white.withValues(alpha: 0.4),
                 padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -916,10 +920,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                           onPressed: pillsEnabled && !_previewLoading
                               ? _handleGoogleLogin
                               : null,
-                          leading: const Icon(
+                          leading: Icon(
                             Icons.g_mobiledata,
                             size: 36,
-                            color: Color(0xFF1A1A1A),
+                            color: Theme.of(context).colorScheme.onSurface,
                           ),
                           label: 'Continue with Google',
                           busyLabel: 'Signing in…',

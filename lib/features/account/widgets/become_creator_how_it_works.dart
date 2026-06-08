@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 
 class BecomeCreatorHowItWorks extends StatelessWidget {
@@ -35,6 +36,8 @@ class BecomeCreatorHowItWorks extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.lg,
@@ -49,7 +52,7 @@ class BecomeCreatorHowItWorks extends StatelessWidget {
             'How it works',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w700,
-                  color: const Color(0xFF1A1A1A),
+                  color: scheme.onSurface,
                 ),
           ),
           const SizedBox(height: AppSpacing.lg),
@@ -92,6 +95,8 @@ class _StepTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return SizedBox(
       width: 88,
       child: Column(
@@ -118,7 +123,7 @@ class _StepTile extends StatelessWidget {
             width: 56,
             height: 56,
             decoration: BoxDecoration(
-              color: data.tint,
+              color: scheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(16),
             ),
             child: Icon(
@@ -131,10 +136,10 @@ class _StepTile extends StatelessWidget {
           Text(
             data.label,
             textAlign: TextAlign.center,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w600,
-              color: Color(0xFF4A4A4A),
+              color: AppPalette.subtitle,
               height: 1.25,
             ),
           ),
@@ -149,12 +154,14 @@ class _StepArrow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.only(top: 52, left: 4, right: 4),
+    final scheme = Theme.of(context).colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 52, left: 4, right: 4),
       child: Icon(
         Icons.chevron_right,
         size: 18,
-        color: Color(0xFFBDBDBD),
+        color: scheme.onSurfaceVariant,
       ),
     );
   }

@@ -2,28 +2,29 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 
 class BecomeCreatorHeroBanner extends StatelessWidget {
   const BecomeCreatorHeroBanner({super.key});
 
-  static const _heroGradient = LinearGradient(
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-    colors: [
-      Color(0xFFFFF0F6),
-      Color(0xFFF3E5F5),
-    ],
-  );
-
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
       child: Container(
         width: double.infinity,
         decoration: BoxDecoration(
-          gradient: _heroGradient,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              scheme.surfaceContainerHigh,
+              scheme.surfaceContainerHighest,
+            ],
+          ),
           borderRadius: BorderRadius.circular(20),
           boxShadow: AppBrandGradients.accountMenuCardShadow,
         ),
@@ -35,7 +36,7 @@ class BecomeCreatorHeroBanner extends StatelessWidget {
               text: TextSpan(
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.w700,
-                      color: const Color(0xFF1A1A1A),
+                      color: scheme.onSurface,
                       height: 1.25,
                     ),
                 children: const [
@@ -54,7 +55,7 @@ class BecomeCreatorHeroBanner extends StatelessWidget {
             Text(
               'Turn your charm into earnings.',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: const Color(0xFF4A4A4A),
+                    color: AppPalette.subtitle,
                     fontWeight: FontWeight.w500,
                   ),
             ),
@@ -132,10 +133,12 @@ class _FeatureChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: scheme.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(14),
       ),
       child: Column(
@@ -144,7 +147,7 @@ class _FeatureChip extends StatelessWidget {
             width: 32,
             height: 32,
             decoration: BoxDecoration(
-              color: item.iconBackground,
+              color: scheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
@@ -157,10 +160,10 @@ class _FeatureChip extends StatelessWidget {
           Text(
             item.label,
             textAlign: TextAlign.center,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w600,
-              color: Color(0xFF4A4A4A),
+              color: AppPalette.subtitle,
               height: 1.2,
             ),
           ),

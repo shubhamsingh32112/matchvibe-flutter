@@ -198,6 +198,8 @@ class _IncomingCallWidgetState extends ConsumerState<IncomingCallWidget>
       currentUserId,
     );
 
+    final scheme = Theme.of(context).colorScheme;
+
     return SafeArea(
       child: Center(
         child: Padding(
@@ -205,7 +207,7 @@ class _IncomingCallWidgetState extends ConsumerState<IncomingCallWidget>
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 380),
             child: Material(
-              color: Colors.white,
+              color: scheme.surfaceContainerHigh,
               elevation: 16,
               shadowColor: Colors.black.withValues(alpha: 0.22),
               borderRadius: BorderRadius.circular(26),
@@ -378,11 +380,13 @@ class _IncomingMessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFFEDE7F6),
+        color: scheme.surfaceContainer,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
@@ -414,6 +418,7 @@ class _IncomingActionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final baseTextStyle = Theme.of(context).textTheme.titleMedium?.copyWith(
       fontWeight: FontWeight.w800,
       letterSpacing: 0.2,
@@ -425,7 +430,7 @@ class _IncomingActionRow extends StatelessWidget {
           child: _IncomingPillButton(
             label: 'Decline',
             icon: Icons.call_end,
-            backgroundColor: Colors.white,
+            backgroundColor: scheme.surfaceContainerHigh,
             foregroundColor: AppPalette.primaryRed,
             borderColor: AppPalette.outlineSoft,
             textStyle: baseTextStyle,

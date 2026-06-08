@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../shared/models/user_model.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 import '../../../shared/widgets/app_avatar.dart';
@@ -31,6 +32,7 @@ class BecomeCreatorPageHeader extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
     final user = ref.watch(authProvider.select((s) => s.user));
     final authLoading = ref.watch(authProvider.select((s) => s.isLoading));
     final isCreator = user?.role == 'creator' || user?.role == 'admin';
@@ -65,7 +67,7 @@ class BecomeCreatorPageHeader extends ConsumerWidget {
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w700,
-                        color: const Color(0xFF1A1A1A),
+                        color: scheme.onSurface,
                       ),
                 ),
                 const SizedBox(height: 2),
@@ -74,7 +76,7 @@ class BecomeCreatorPageHeader extends ConsumerWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF6B6B6B),
+                        color: AppPalette.subtitle,
                       ),
                 ),
               ],
@@ -86,14 +88,14 @@ class BecomeCreatorPageHeader extends ConsumerWidget {
             icon: Badge(
               isLabelVisible: unread > 0,
               label: Text('$unread'),
-              child: const Icon(
+              child: Icon(
                 Icons.notifications_none_rounded,
-                color: Color(0xFF2D2D2D),
+                color: scheme.onSurface,
               ),
             ),
           ),
           Material(
-            color: Colors.white,
+            color: scheme.surfaceContainerHigh,
             borderRadius: BorderRadius.circular(20),
             child: InkWell(
               onTap: () => context.push('/wallet'),
@@ -117,10 +119,10 @@ class BecomeCreatorPageHeader extends ConsumerWidget {
                     else
                       Text(
                         '$coins',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 14,
-                          color: Color(0xFF2D2D2D),
+                          color: scheme.onSurface,
                         ),
                       ),
                   ],

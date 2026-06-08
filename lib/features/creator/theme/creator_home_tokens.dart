@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/theme/app_theme.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 
 /// Reference-inspired purple/pink palette scoped to creator home only.
 class CreatorHomeTokens {
   const CreatorHomeTokens._();
 
-  static const Color pageBackground = Color(0xFFFFFFFF);
+  static const Color pageBackground = AppPalette.surface;
   static const Color primaryPurple = Color(0xFF7B2CBF);
   static const Color pinkAccent = Color(0xFFFF4081);
   static const Color pinkAccentDeep = Color(0xFFFF4D6D);
@@ -15,7 +16,7 @@ class CreatorHomeTokens {
   static const Color statBlue = Color(0xFF5C6BC0);
   static const Color statYellow = Color(0xFFF9A825);
   static const Color trophyGold = Color(0xFFFFB300);
-  static const Color bannerLavender = Color(0xFFF3F0F7);
+  static const Color bannerLavender = AppPalette.beigeAlt;
   static const Color completedGreen = Color(0xFF2E7D32);
 
   static const double cardRadius = 16;
@@ -38,7 +39,7 @@ class CreatorHomeTokens {
 
   static BoxDecoration cardDecoration({Color? color}) {
     return BoxDecoration(
-      color: color ?? Colors.white,
+      color: color ?? AppPalette.beigeAlt,
       borderRadius: BorderRadius.circular(cardRadius),
       boxShadow: cardShadow,
     );

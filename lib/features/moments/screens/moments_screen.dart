@@ -121,7 +121,7 @@ class _FollowingFeedBody extends ConsumerWidget {
         emptyMessage: 'No moments from people you follow yet',
       ),
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('Failed to load feed: $e')),
+      error: (e, _) => _FeedErrorMessage(message: 'Failed to load feed: $e'),
     );
   }
 }
@@ -152,7 +152,26 @@ class _PopularFeedBody extends ConsumerWidget {
         reserveFabSpace: showCreatorFab,
       ),
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('Failed to load feed: $e')),
+      error: (e, _) => _FeedErrorMessage(message: 'Failed to load feed: $e'),
+    );
+  }
+}
+
+class _FeedErrorMessage extends StatelessWidget {
+  const _FeedErrorMessage({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Center(
+      child: Text(
+        message,
+        style: TextStyle(color: scheme.onSurfaceVariant),
+        textAlign: TextAlign.center,
+      ),
     );
   }
 }

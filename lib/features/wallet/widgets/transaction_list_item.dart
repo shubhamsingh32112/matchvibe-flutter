@@ -22,6 +22,7 @@ class TransactionListItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final info = TransactionUiMapper.displayInfo(
       transaction,
       isCreator: isCreator,
@@ -55,7 +56,7 @@ class TransactionListItem extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Material(
-        color: Colors.white,
+        color: scheme.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(16),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -85,10 +86,10 @@ class TransactionListItem extends StatelessWidget {
                     children: [
                       Text(
                         info.title,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 15,
-                          color: Color(0xFF1A1A1A),
+                          color: scheme.onSurface,
                         ),
                       ),
                       const SizedBox(height: 2),

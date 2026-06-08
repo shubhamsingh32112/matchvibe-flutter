@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/theme/app_theme.dart';
 import '../models/moments_models.dart';
 import '../services/moments_api_service.dart';
 import 'follow_creator_button.dart';
@@ -52,12 +53,12 @@ class LockedMomentOverlay extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.lock, color: Colors.white, size: 40),
+              const Icon(Icons.lock, color: AppPalette.onSurface, size: 40),
               const SizedBox(height: 12),
               Text(
                 _unlockLabel(item),
                 style: const TextStyle(
-                  color: Colors.white,
+                  color: AppPalette.onSurface,
                   fontWeight: FontWeight.w700,
                   fontSize: 16,
                 ),
@@ -119,9 +120,12 @@ class MomentCard extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                CircularProgressIndicator(color: Colors.white),
+                CircularProgressIndicator(color: AppPalette.onSurface),
                 SizedBox(height: 12),
-                Text('Processing…', style: TextStyle(color: Colors.white)),
+                Text(
+                  'Processing…',
+                  style: TextStyle(color: AppPalette.onSurface),
+                ),
               ],
             ),
           ),
@@ -162,7 +166,7 @@ class MomentCard extends StatelessWidget {
                       child: Text(
                         item.creatorName,
                         style: const TextStyle(
-                          color: Colors.white,
+                          color: AppPalette.onSurface,
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
                         ),
@@ -187,7 +191,7 @@ class MomentCard extends StatelessWidget {
                   item.caption!,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white70),
+                  style: TextStyle(color: AppPalette.subtitle),
                 ),
             ],
           ),

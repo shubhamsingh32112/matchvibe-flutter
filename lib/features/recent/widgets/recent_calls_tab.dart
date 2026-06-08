@@ -142,9 +142,15 @@ class _RecentCallListBody extends ConsumerWidget {
           child: ListView.separated(
             padding: const EdgeInsets.symmetric(vertical: 8),
             itemCount: calls.length + 1,
-            separatorBuilder: (_, index) {
+            separatorBuilder: (context, index) {
               if (index == 0) return const SizedBox.shrink();
-              return const Divider(height: 1, indent: 76, endIndent: 16);
+              final scheme = Theme.of(context).colorScheme;
+              return Divider(
+                height: 1,
+                indent: 76,
+                endIndent: 16,
+                color: scheme.outlineVariant.withValues(alpha: 0.5),
+              );
             },
             itemBuilder: (context, index) {
               if (index == 0) return creatorScheduleBanner();
@@ -191,7 +197,10 @@ class _CallHistoryTile extends StatelessWidget {
         style: Theme.of(context)
             .textTheme
             .titleSmall
-            ?.copyWith(fontWeight: FontWeight.w600),
+            ?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: scheme.onSurface,
+            ),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),

@@ -1115,11 +1115,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     return StreamChatTheme(
       data: StreamChatThemeData(
-        colorTheme: StreamColorTheme.light(
+        colorTheme: StreamColorTheme.dark(
           accentPrimary: colorScheme.primary,
           accentError: colorScheme.error,
           accentInfo: colorScheme.primary,
-          textHighEmphasis: AppPalette.onSurface,
+          textHighEmphasis: Colors.white,
           textLowEmphasis: AppPalette.subtitle,
           inputBg: AppPalette.surface,
         ),
@@ -1128,8 +1128,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           messageTextStyle: TextStyle(color: colorScheme.onPrimary),
         ),
         otherMessageTheme: StreamMessageThemeData(
-          messageBackgroundColor: AppPalette.beige,
-          messageTextStyle: TextStyle(color: AppPalette.onSurface),
+          messageBackgroundColor: colorScheme.surfaceContainerHigh,
+          messageTextStyle: TextStyle(color: colorScheme.onSurface),
         ),
       ),
       child: StreamChannel(

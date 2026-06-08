@@ -8,7 +8,7 @@ import '../../../shared/widgets/app_network_image.dart';
 /// Purple accent for dial-card pill and indeterminate progress (reference UI).
 abstract final class CallDialCardColors {
   static const Color pillAndProgress = Color(0xFF7E57C2);
-  static const Color progressTrack = Color(0xFFE8E8EC);
+  static const Color progressTrack = AppPalette.outlineSoft;
 }
 
 /// Shared pre-connect call UI: gradient card, large photo right, tagline pill, status, bar, actions.

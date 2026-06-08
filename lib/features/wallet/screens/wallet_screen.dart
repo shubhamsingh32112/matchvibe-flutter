@@ -24,9 +24,6 @@ import '../../../shared/widgets/brand_app_chrome.dart';
 /// Reference palette (buy-coins marketing screen — matches design spec).
 const Color _kBuyCoinsPurple = Color(0xFF7B39FD);
 const Color _kBuyCoinsPink = Color(0xFFFF4081);
-const Color _kPageBackground = Color(0xFFFFFFFF);
-const Color _kTextPrimary = Color(0xFF4A2C5E);
-const Color _kTextMuted = Color(0xFF9E9E9E);
 
 /// Left art per sorted pack index (0–5). Filenames match [frontend/lib/assets/wallet_icons].
 const List<String> _kWalletTierArt = <String>[
@@ -267,7 +264,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                 top: Radius.circular(20),
               ),
               child: ColoredBox(
-                color: _kPageBackground,
+                color: AppBrandGradients.walletScaffoldBackground,
                 child: _UserBuyCoinsBody(
                   isAddingCoins: _isAddingCoins,
                   isVipActive: isVipActive,
@@ -611,7 +608,7 @@ class _UserBuyCoinsBody extends StatelessWidget {
     return RefreshIndicator(
       onRefresh: onRefresh,
       color: _kBuyCoinsPurple,
-      backgroundColor: _kPageBackground,
+      backgroundColor: AppBrandGradients.walletScaffoldBackground,
       child: CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
@@ -726,6 +723,7 @@ class _BuyCoinPackCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final strikethroughPrice = pack.vipDiscountApplied
         ? pack.originalPriceInr
         : pack.oldPriceInr;
@@ -752,12 +750,12 @@ class _BuyCoinPackCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         child: Container(
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: scheme.surfaceContainerHigh,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFFE0E0E0), width: 1),
+            border: Border.all(color: scheme.outlineVariant, width: 1),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.06),
+                color: Colors.black.withValues(alpha: 0.24),
                 blurRadius: 10,
                 offset: const Offset(0, 3),
               ),
@@ -818,7 +816,7 @@ class _BuyCoinPackCard extends StatelessWidget {
                                         style: GoogleFonts.poppins(
                                           fontSize: 22,
                                           fontWeight: FontWeight.w800,
-                                          color: _kTextPrimary,
+                                          color: scheme.onSurface,
                                           height: 1.1,
                                         ),
                                       ),
@@ -827,7 +825,7 @@ class _BuyCoinPackCard extends StatelessWidget {
                                         style: GoogleFonts.poppins(
                                           fontSize: 14,
                                           fontWeight: FontWeight.w600,
-                                          color: _kTextPrimary.withValues(
+                                          color: scheme.onSurface.withValues(
                                             alpha: 0.92,
                                           ),
                                           height: 1.1,
@@ -917,7 +915,7 @@ class _BuyCoinPackCard extends StatelessWidget {
                                     '₹$strikethroughPrice',
                                     style: GoogleFonts.poppins(
                                       fontSize: 12,
-                                      color: _kTextMuted,
+                                      color: scheme.onSurfaceVariant,
                                       decoration: TextDecoration.lineThrough,
                                       fontWeight: FontWeight.w500,
                                     ),

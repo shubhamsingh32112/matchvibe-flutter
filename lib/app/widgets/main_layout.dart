@@ -132,9 +132,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
 
     if (customPageStyle) {
       return AnnotatedRegion<SystemUiOverlayStyle>(
-        value: widget.vipPageStyle
-            ? SystemUiOverlayStyle.light
-            : SystemUiOverlayStyle.dark,
+        value: SystemUiOverlayStyle.light,
         child: scaffold,
       );
     }

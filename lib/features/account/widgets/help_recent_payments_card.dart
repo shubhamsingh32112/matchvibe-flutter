@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 import '../../../shared/widgets/decorative_asset_image.dart';
 import '../constants/help_support_assets.dart';
@@ -15,6 +16,8 @@ class HelpRecentPaymentsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.lg,
@@ -23,7 +26,7 @@ class HelpRecentPaymentsCard extends StatelessWidget {
         AppSpacing.sm,
       ),
       child: Material(
-        color: Colors.white,
+        color: scheme.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(20),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -32,7 +35,7 @@ class HelpRecentPaymentsCard extends StatelessWidget {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(20),
               boxShadow: AppBrandGradients.accountMenuCardShadow,
-              color: Colors.white,
+              color: scheme.surfaceContainerHigh,
             ),
             padding: const EdgeInsets.fromLTRB(10, 12, 12, 12),
             child: Row(
@@ -62,14 +65,14 @@ class HelpRecentPaymentsCard extends StatelessWidget {
                         style:
                             Theme.of(context).textTheme.titleSmall?.copyWith(
                                   fontWeight: FontWeight.w700,
-                                  color: const Color(0xFF1A1A1A),
+                                  color: scheme.onSurface,
                                 ),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         'View all transactions and raise payment complaints',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: const Color(0xFF6B6B6B),
+                              color: AppPalette.subtitle,
                               height: 1.35,
                             ),
                       ),
@@ -78,17 +81,17 @@ class HelpRecentPaymentsCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Material(
-                  color: const Color(0xFFF3F0F7),
+                  color: scheme.surfaceContainerHighest,
                   shape: const CircleBorder(),
                   child: InkWell(
                     onTap: onTap,
                     customBorder: const CircleBorder(),
-                    child: const Padding(
-                      padding: EdgeInsets.all(8),
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
                       child: Icon(
                         Icons.chevron_right,
                         size: 22,
-                        color: Color(0xFF6B6B6B),
+                        color: scheme.onSurfaceVariant,
                       ),
                     ),
                   ),

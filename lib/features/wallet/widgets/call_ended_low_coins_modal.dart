@@ -435,6 +435,7 @@ class _PackRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final hasDiscount =
         pack.oldPriceInr != null && pack.oldPriceInr! > pack.priceInr;
     final badgeLabel = pack.badge?.trim().isNotEmpty == true
@@ -444,7 +445,7 @@ class _PackRow extends StatelessWidget {
     final decoration = isBestValue
         ? BoxDecoration(
             gradient: const LinearGradient(
-              colors: [Color(0xFFFFF9E8), Color(0xFFFFE8CC)],
+              colors: [Color(0xFF2A1F0A), Color(0xFF1A1508)],
             ),
             borderRadius: BorderRadius.circular(18),
             border: Border.all(
@@ -459,9 +460,9 @@ class _PackRow extends StatelessWidget {
             ],
           )
         : BoxDecoration(
-            color: Colors.white,
+            color: scheme.surfaceContainerHigh,
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+            border: Border.all(color: scheme.outlineVariant),
           );
 
     return Material(
@@ -533,7 +534,7 @@ class _PackRow extends StatelessWidget {
                             style: GoogleFonts.inter(
                               fontSize: 16,
                               fontWeight: FontWeight.w800,
-                              color: const Color(0xFF1A1A1A),
+                              color: scheme.onSurface,
                             ),
                           ),
                           const SizedBox(height: 4),
@@ -555,7 +556,7 @@ class _PackRow extends StatelessWidget {
                                 fontWeight: FontWeight.w700,
                                 color: isBestValue
                                     ? Colors.white
-                                    : const Color(0xFF3D2C00),
+                                    : scheme.onSurface,
                               ),
                             ),
                           ),
@@ -591,7 +592,7 @@ class _PackRow extends StatelessWidget {
                             '₹${pack.oldPriceInr}',
                             style: GoogleFonts.inter(
                               fontSize: 11,
-                              color: Colors.grey.shade600,
+                              color: scheme.onSurfaceVariant,
                               decoration: TextDecoration.lineThrough,
                               fontWeight: FontWeight.w500,
                             ),
@@ -600,7 +601,10 @@ class _PackRow extends StatelessWidget {
                     ),
                     if (!isBestValue) ...[
                       const SizedBox(width: 4),
-                      Icon(Icons.chevron_right, color: Colors.grey.shade500),
+                      Icon(
+                        Icons.chevron_right,
+                        color: scheme.onSurfaceVariant,
+                      ),
                     ],
                   ],
                 ),

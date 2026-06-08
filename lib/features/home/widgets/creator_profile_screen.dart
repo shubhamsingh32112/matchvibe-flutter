@@ -749,7 +749,7 @@ class _CreatorProfileIdentity extends StatelessWidget {
           style: GoogleFonts.lexend(
             fontSize: 22,
             fontWeight: FontWeight.w800,
-            color: const Color(0xFF1A237E),
+            color: Theme.of(context).colorScheme.onSurface,
             height: 1.2,
           ),
         ),
@@ -990,8 +990,10 @@ class _CreatorProfileSecondaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Material(
-      color: Colors.white,
+      color: scheme.surfaceContainerHigh,
       elevation: 0,
       shadowColor: Colors.black26,
       borderRadius: BorderRadius.circular(16),
@@ -1000,7 +1002,7 @@ class _CreatorProfileSecondaryButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         child: Ink(
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: scheme.surfaceContainerHigh,
             borderRadius: BorderRadius.circular(16),
             boxShadow: AppBrandGradients.accountMenuCardShadow,
           ),
@@ -1036,10 +1038,10 @@ class _CreatorProfileSecondaryButton extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 label,
-                style: const TextStyle(
+                style: TextStyle(
                   fontWeight: FontWeight.w600,
                   fontSize: 15,
-                  color: Color(0xFF2D2D2D),
+                  color: scheme.onSurface,
                 ),
               ),
             ],
@@ -1057,9 +1059,11 @@ class _CreatorProfileStatsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: scheme.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(16),
         boxShadow: AppBrandGradients.accountMenuCardShadow,
       ),
