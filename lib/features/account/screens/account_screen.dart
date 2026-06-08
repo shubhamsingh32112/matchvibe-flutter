@@ -16,15 +16,16 @@ import '../../../shared/widgets/app_modal_bottom_sheet.dart';
 import '../../admin/providers/admin_view_provider.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../chat/providers/stream_chat_provider.dart';
-import '../../creator/models/creator_dashboard_model.dart';
-import '../../creator/providers/creator_dashboard_provider.dart';
-import '../../creator/providers/creator_status_provider.dart';
-import '../../creator/widgets/creator_status_label.dart';
-import '../../moments/providers/moments_providers.dart';
 import '../../referral/screens/referral_screen.dart';
+import '../../referral/widgets/referral_icon.dart';
+import '../../vip/widgets/vip_badge.dart';
 import '../../referral/utils/host_onboarding_routes.dart';
 import '../../video/providers/call_billing_provider.dart';
 import '../../video/providers/call_billing_selectors.dart';
+import '../../wallet/widgets/transactions_icon.dart';
+import '../widgets/account_menu_icons.dart';
+import '../widgets/become_creator_icon.dart';
+import '../widgets/help_support_icon.dart';
 import 'account_settings_screen.dart';
 
 class AccountScreen extends ConsumerStatefulWidget {
@@ -39,7 +40,9 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   String? _buildNumber;
 
   static const double _headerOverlap = 28;
-  static const double _gridTileRadius = 20;
+  static const double _exploreTileRadius = 8;
+  static const double _exploreLeadingExtent = 44;
+  static const double _accountListLeadingExtent = 28;
 
   @override
   void initState() {
@@ -184,9 +187,6 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         : (user?.coins ?? 0);
     final unreadAsync = ref.watch(chatUnreadCountProvider);
     final unread = unreadAsync.valueOrNull ?? 0;
-    final dashboardAsync = isCreator
-        ? ref.watch(creatorDashboardProvider)
-        : null;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light.copyWith(
@@ -211,36 +211,35 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                         coins: coins,
                         isCreator: isCreator,
                         unread: unread,
-                        dashboardAsync: dashboardAsync,
                       ),
                     ),
                     SliverToBoxAdapter(
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
                         child: _sectionTitle(context, 'Explore'),
                       ),
                     ),
                     SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+                      padding: const EdgeInsets.fromLTRB(16, 2, 16, 2),
                       sliver: SliverLayoutBuilder(
                         builder: (context, constraints) {
                           int count = 2;
-                          double ratio = 1.58;
+                          double ratio = 2.15;
                           if (constraints.crossAxisExtent >= 1200) {
                             count = 5;
-                            ratio = 1.8;
+                            ratio = 2.25;
                           } else if (constraints.crossAxisExtent >= 900) {
                             count = 4;
-                            ratio = 1.75;
+                            ratio = 2.2;
                           } else if (constraints.crossAxisExtent >= 640) {
                             count = 3;
-                            ratio = 1.65;
+                            ratio = 2.15;
                           }
                           return SliverGrid(
                             gridDelegate:
                                 SliverGridDelegateWithFixedCrossAxisCount(
                                   crossAxisCount: count,
-                                  mainAxisSpacing: 10,
+                                  mainAxisSpacing: 4,
                                   crossAxisSpacing: 10,
                                   childAspectRatio: ratio,
                                 ),
@@ -251,7 +250,6 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                                 isCreator: isCreator,
                                 isPlainUser: isPlainUser,
                                 coins: coins,
-                                dashboardAsync: dashboardAsync,
                               ),
                             ),
                           );
@@ -259,12 +257,14 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                       ),
                     ),
                     SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                      padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
                       sliver: SliverList(
                         delegate: SliverChildListDelegate([
                           _roundedListTile(
                             context: context,
-                            icon: Icons.settings_outlined,
+                            leading: AccountSettingsIcon(
+                              size: _accountListLeadingExtent,
+                            ),
                             title: 'Account & privacy',
                             onTap: () =>
                                 _showAccountSettingsBottomSheet(context),
@@ -272,14 +272,16 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                           const SizedBox(height: 10),
                           _roundedListTile(
                             context: context,
-                            icon: Icons.refresh,
+                            leading: ReloadProfileIcon(
+                              size: _accountListLeadingExtent,
+                            ),
                             title: 'Reload Profile',
                             onTap: _reloadProfileAndRole,
                           ),
                           const SizedBox(height: 10),
                           _roundedListTile(
                             context: context,
-                            icon: Icons.logout,
+                            leading: LogoutIcon(size: _accountListLeadingExtent),
                             title: 'Log Out',
                             onTap: _handleLogout,
                             destructive: true,
@@ -309,9 +311,9 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     required int coins,
     required bool isCreator,
     required int unread,
-    required AsyncValue<CreatorDashboard>? dashboardAsync,
   }) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
@@ -323,7 +325,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
             16,
             topInset + 8,
             16,
-            _headerOverlap + 20,
+            _headerOverlap + 10,
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
@@ -383,17 +385,20 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
             ],
           ),
         ),
-        Transform.translate(
-          offset: const Offset(0, -_headerOverlap),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: _profileCard(
-                        context: context,
-                        scheme: scheme,
-                        user: user,
-                        isCreator: isCreator,
-                        dashboardAsync: dashboardAsync,
-                      ),
+        Align(
+          alignment: Alignment.topCenter,
+          heightFactor: 0.88,
+          child: Transform.translate(
+            offset: const Offset(0, -_headerOverlap),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+              child: _profileCard(
+                context: context,
+                scheme: scheme,
+                user: user,
+                isCreator: isCreator,
+              ),
+            ),
           ),
         ),
       ],
@@ -405,7 +410,6 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     required ColorScheme scheme,
     required UserModel? user,
     required bool isCreator,
-    required AsyncValue<CreatorDashboard>? dashboardAsync,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -511,13 +515,12 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
               label: 'Admin',
             ),
           ],
-          if (user?.role == 'creator') ...[
-            const SizedBox(height: 12),
-            _buildCreatorToggle(scheme),
-          ],
-          if (isCreator) ...[
-            const SizedBox(height: 12),
-            _buildCreatorEarningsRow(context, dashboardAsync),
+          if (user?.isVipActive == true) ...[
+            const SizedBox(height: 10),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: VipBadge(),
+            ),
           ],
           if (user?.role == 'admin') ...[
             const SizedBox(height: 12),
@@ -525,89 +528,6 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
           ],
         ],
       ),
-    );
-  }
-
-  Widget _buildCreatorEarningsRow(
-    BuildContext context,
-    AsyncValue<CreatorDashboard>? dashboardAsync,
-  ) {
-    final callEarnings =
-        dashboardAsync?.valueOrNull?.earnings.totalEarnings.round() ?? 0;
-    final momentsFromDashboard =
-        dashboardAsync?.valueOrNull?.momentsAnalytics?.momentsEarnings;
-    final momentsFallback = ref.watch(creatorMomentsAnalyticsProvider).valueOrNull;
-    final momentsEarnings = momentsFromDashboard ??
-        (momentsFallback?['momentsEarnings'] as num?)?.toInt() ??
-        0;
-
-    Widget earningsCard({
-      required String title,
-      required String value,
-      required String subtitle,
-      VoidCallback? onTap,
-    }) {
-      return Expanded(
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(14),
-            child: Ink(
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8F5FC),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: const Color(0xFFE8E0F0)),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: AppPalette.subtitle,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    value,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: const Color(0xFF1A1A1A),
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppPalette.subtitle,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Row(
-      children: [
-        earningsCard(
-          title: 'Call earnings',
-          value: '$callEarnings coins',
-          subtitle: 'All-time calls',
-        ),
-        const SizedBox(width: 10),
-        earningsCard(
-          title: 'Moments earnings',
-          value: '$momentsEarnings coins',
-          subtitle: 'All-time moments',
-          onTap: () => context.push('/account/my-moments'),
-        ),
-      ],
     );
   }
 
@@ -627,44 +547,37 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     required bool isCreator,
     required bool isPlainUser,
     required int coins,
-    required AsyncValue<CreatorDashboard>? dashboardAsync,
   }) {
     final tiles = <Widget>[
       _exploreTile(
         context: context,
         icon: Icons.support_agent_outlined,
         title: 'Contact us',
-        subtitle: 'Create & track tickets',
         onTap: () => _openSupport(context),
       ),
       _exploreTile(
         context: context,
-        icon: Icons.headset_mic_outlined,
+        leading: HelpSupportIcon(size: _exploreLeadingExtent),
         title: 'Help & Support',
-        subtitle: 'FAQs & guides',
         onTap: () => _openHelpSupport(context),
       ),
       _exploreTile(
         context: context,
-        icon: Icons.receipt_long_outlined,
+        leading: TransactionsIcon(size: _exploreLeadingExtent),
         title: 'Transactions',
-        subtitle: 'Payment history',
         onTap: () => _openTransactions(context),
       ),
       _exploreTile(
         context: context,
-        leading: const GemIcon(size: 24),
+        leading: GemIcon(size: _exploreLeadingExtent),
         title: 'Coins',
         subtitle: '$coins',
         onTap: () => context.push('/wallet'),
       ),
       _exploreTile(
         context: context,
-        icon: Icons.card_giftcard_outlined,
+        leading: ReferralIcon(size: _exploreLeadingExtent),
         title: 'Referral',
-        subtitle: (user?.referralCode != null && user!.referralCode!.isNotEmpty)
-            ? user.referralCode!
-            : 'Get your code',
         onTap: () => _showReferralBottomSheet(context),
       ),
     ];
@@ -675,24 +588,14 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
           context: context,
           icon: Icons.perm_media_outlined,
           title: 'My Moments',
-          subtitle: 'Stories, reels & earnings',
           onTap: () => context.push('/account/my-moments'),
-        ),
-      );
-      tiles.add(
-        _exploreTile(
-          context: context,
-          icon: Icons.task_alt_rounded,
-          title: 'Tasks',
-          subtitle: _tasksSubtitle(dashboardAsync),
-          onTap: () => context.push('/creator/tasks'),
         ),
       );
     } else if (isPlainUser) {
       tiles.add(
         _exploreTile(
           context: context,
-          icon: Icons.auto_awesome_outlined,
+          leading: BecomeCreatorIcon(size: _exploreLeadingExtent),
           title: 'Become a Creator',
           subtitle: 'We\'ll contact you',
           onTap: () => _openBecomeCreator(context),
@@ -703,26 +606,12 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     return tiles;
   }
 
-  String _tasksSubtitle(AsyncValue<CreatorDashboard>? async) {
-    if (async == null) return '—';
-    return async.when(
-      data: (d) {
-        final tasks = d.tasks.tasks;
-        if (tasks.isEmpty) return 'No tasks';
-        final done = tasks.where((t) => t.isCompleted).length;
-        return '$done/${tasks.length} done';
-      },
-      loading: () => '…',
-      error: (err, stack) => '—',
-    );
-  }
-
   Widget _exploreTile({
     required BuildContext context,
     IconData? icon,
     Widget? leading,
     required String title,
-    required String subtitle,
+    String? subtitle,
     required VoidCallback onTap,
   }) {
     assert(leading != null || icon != null);
@@ -730,51 +619,64 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(_gridTileRadius),
+        borderRadius: BorderRadius.circular(_exploreTileRadius),
         child: Ink(
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(_gridTileRadius),
+            borderRadius: BorderRadius.circular(_exploreTileRadius),
             boxShadow: AppBrandGradients.accountMenuCardShadow,
           ),
-          padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              leading ??
-                  Icon(
-                    icon!,
-                    color: AppBrandGradients.accountMenuIconTint,
-                    size: 24,
+          child: SizedBox.expand(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    width: _exploreLeadingExtent,
+                    height: _exploreLeadingExtent,
+                    child: Center(
+                      child: leading ??
+                          Icon(
+                            icon!,
+                            color: AppBrandGradients.accountMenuIconTint,
+                            size: _exploreLeadingExtent,
+                          ),
+                    ),
                   ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: const Color(0xFF1A1A1A),
-                      ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              Theme.of(context).textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: const Color(0xFF1A1A1A),
+                                  ),
+                        ),
+                        if (subtitle != null && subtitle.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: AppPalette.subtitle,
+                                ),
+                          ),
+                        ],
+                      ],
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppPalette.subtitle,
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -783,11 +685,13 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
 
   Widget _roundedListTile({
     required BuildContext context,
-    required IconData icon,
+    IconData? icon,
+    Widget? leading,
     required String title,
     required VoidCallback onTap,
     bool destructive = false,
   }) {
+    assert(leading != null || icon != null);
     final color = destructive
         ? Theme.of(context).colorScheme.error
         : const Color(0xFF1A1A1A);
@@ -805,7 +709,18 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
           child: Row(
             children: [
-              Icon(icon, color: color, size: 24),
+              SizedBox(
+                width: _accountListLeadingExtent,
+                height: _accountListLeadingExtent,
+                child: Center(
+                  child: leading ??
+                      Icon(
+                        icon!,
+                        color: color,
+                        size: _accountListLeadingExtent,
+                      ),
+                ),
+              ),
               const SizedBox(width: 14),
               Expanded(
                 child: Text(
@@ -888,51 +803,6 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildCreatorToggle(ColorScheme scheme) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppBrandGradients.accountMenuPageBackground,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.5)),
-      ),
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Availability Status',
-            style: TextStyle(
-              color: scheme.onSurfaceVariant,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Consumer(
-            builder: (context, ref, child) {
-              final status = ref.watch(creatorStatusProvider);
-
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  CreatorStatusLabel(status: status),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Status is automatic based on app open/close',
-                    style: TextStyle(
-                      color: scheme.onSurfaceVariant,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ],
       ),
     );
   }

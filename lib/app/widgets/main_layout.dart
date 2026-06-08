@@ -8,7 +8,6 @@ import '../../features/auth/providers/auth_provider.dart';
 import '../../features/creator/providers/creator_dashboard_provider.dart';
 import '../../features/creator/providers/creator_presence_orchestrator_provider.dart';
 import '../../features/home/providers/home_provider.dart';
-import '../../features/creator/widgets/creator_availability_toggle.dart';
 import '../../features/recent/providers/recent_provider.dart';
 import '../../features/video/providers/call_billing_provider.dart';
 import '../../features/video/providers/call_billing_selectors.dart';
@@ -28,12 +27,17 @@ class MainLayout extends ConsumerStatefulWidget {
   /// wrapper so the child can paint the menu-style header and body.
   final bool accountMenuStyle;
 
+  /// When true (VIP tab), hides the default app bar and light page wrapper so
+  /// the child can paint the dark VIP marketing layout.
+  final bool vipPageStyle;
+
   const MainLayout({
     super.key,
     required this.child,
     required this.selectedIndex,
     this.appBar,
     this.accountMenuStyle = false,
+    this.vipPageStyle = false,
   });
 
   @override
@@ -85,30 +89,25 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
       }
     });
 
-    final showStatusToggle = isCreator && isHomePage;
     final scheme = Theme.of(context).colorScheme;
+
+    final customPageStyle = widget.accountMenuStyle || widget.vipPageStyle;
 
     final scaffold = Scaffold(
       extendBody: false,
-      backgroundColor: widget.accountMenuStyle
+      backgroundColor: widget.vipPageStyle
+          ? const Color(0xFF0A0618)
+          : widget.accountMenuStyle
           ? scheme.surface
           : AppBrandGradients.accountMenuPageBackground,
       appBar:
           widget.appBar ??
-          (widget.accountMenuStyle
+          (customPageStyle
               ? null
               : buildBrandAppBar(
                   context,
                   title: AppConstants.appName,
                   actions: [
-                    if (showStatusToggle)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 4),
-                        child: CreatorAvailabilityToggle(
-                          compact: true,
-                          useAppBarColors: true,
-                        ),
-                      ),
                     if (isHomePage && isRegularUser)
                       IconButton(
                         tooltip: 'Favorite creators',
@@ -118,7 +117,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                     _MainLayoutCoinChip(isCreator: isCreator),
                   ],
                 )),
-      body: widget.accountMenuStyle
+      body: customPageStyle
           ? widget.child
           : ColoredBox(
               color: AppBrandGradients.accountMenuPageBackground,
@@ -131,8 +130,13 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
       ),
     );
 
-    if (widget.accountMenuStyle) {
-      return scaffold;
+    if (customPageStyle) {
+      return AnnotatedRegion<SystemUiOverlayStyle>(
+        value: widget.vipPageStyle
+            ? SystemUiOverlayStyle.light
+            : SystemUiOverlayStyle.dark,
+        child: scaffold,
+      );
     }
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
@@ -177,7 +181,7 @@ class _MainLayoutCoinChip extends ConsumerWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Row(
           children: [
-            const GemIcon(size: 20),
+            const GemIcon(size: 30),
             const SizedBox(width: 4),
             if (isLoading)
               const SizedBox(

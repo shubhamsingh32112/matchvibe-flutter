@@ -3,6 +3,7 @@ import 'dart:async' show unawaited;
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../../core/constants/app_spacing.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/images/image_cache_managers.dart';
@@ -227,16 +228,16 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
         : seededAvailability;
     final isCreatorOnline = effectiveAvailability == CreatorAvailability.online;
 
-    return AppCard(
+    return SizedBox.expand(
+      child: AppCard(
       padding: EdgeInsets.zero,
+      borderRadius: BorderRadius.zero,
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.zero,
         onTap: widget.creator != null
             ? () => _openCreatorProfileModal(creatorAvailability: effectiveAvailability)
             : null,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          clipBehavior: Clip.antiAlias,
+        child: ClipRect(
           child: Stack(
             children: [
               Positioned.fill(
@@ -280,7 +281,7 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
                             price: widget.creator!.price,
                             expandText: true,
                             overflow: TextOverflow.ellipsis,
-                            iconSize: 14,
+                            iconSize: 18,
                             iconColor: Colors.white,
                             textStyle: Theme.of(context).textTheme.bodySmall
                                 ?.copyWith(
@@ -308,6 +309,7 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
           ),
         ),
       ),
+    ),
     );
   }
 
@@ -604,7 +606,7 @@ class _CreatorInfoText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final titleStyle = Theme.of(context).textTheme.titleSmall?.copyWith(
+    final titleStyle = GoogleFonts.lexend(
       color: textColor,
       fontWeight: FontWeight.w700,
       height: 1.12,
@@ -647,41 +649,46 @@ class _CardImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
-    final tileWidth = math.max(120.0, width / 2);
-    final tileHeight = math.max(180.0, tileWidth * 1.4);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final height = constraints.maxHeight;
+        if (width <= 0 || height <= 0) {
+          return const SizedBox.shrink();
+        }
 
-    final c = creator;
-    if (c != null) {
-      return AppNetworkImage(
-        imageUrl: c.feedTileUrl,
-        width: tileWidth,
-        height: tileHeight,
-        fit: BoxFit.cover,
-        blurhash: c.avatarBlurhash,
-        cacheManager: feedCacheManager,
-        heroTag: 'creator-feed-${c.id}',
-        variantTag: 'feedTile',
-      );
-    }
+        final c = creator;
+        if (c != null) {
+          return AppNetworkImage(
+            imageUrl: c.feedTileUrl,
+            width: width,
+            height: height,
+            fit: BoxFit.cover,
+            blurhash: c.avatarBlurhash,
+            cacheManager: feedCacheManager,
+            heroTag: 'creator-feed-${c.id}',
+            variantTag: 'feedTile',
+          );
+        }
 
-    final u = user;
-    if (u == null) {
-      final scheme = Theme.of(context).colorScheme;
-      return DecoratedBox(
-        decoration: BoxDecoration(color: scheme.surfaceContainerHigh),
-      );
-    }
+        final u = user;
+        if (u == null) {
+          final scheme = Theme.of(context).colorScheme;
+          return DecoratedBox(
+            decoration: BoxDecoration(color: scheme.surfaceContainerHigh),
+          );
+        }
 
-    return AppAvatar(
-      avatarAsset: u.avatarAsset,
-      size: math.min(tileWidth, tileHeight),
-      isCircular: false,
-      borderRadius: BorderRadius.zero,
-      fallbackText: u.username?.isNotEmpty == true
-          ? u.username![0]
-          : 'U',
+        return AppAvatar(
+          avatarAsset: u.avatarAsset,
+          size: math.min(width, height),
+          isCircular: false,
+          borderRadius: BorderRadius.zero,
+          fallbackText: u.username?.isNotEmpty == true
+              ? u.username![0]
+              : 'U',
+        );
+      },
     );
   }
-
 }

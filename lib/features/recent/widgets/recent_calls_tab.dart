@@ -50,6 +50,23 @@ class _RecentCallListBody extends ConsumerWidget {
     final showCallButtonsForUsers = ref.watch(
       authProvider.select((s) => s.user?.role == 'user'),
     );
+    final isCreator = ref.watch(
+      authProvider.select(
+        (s) => s.user?.role == 'creator' || s.user?.role == 'admin',
+      ),
+    );
+
+    Widget creatorScheduleBanner() {
+      if (!isCreator) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+        child: OutlinedButton.icon(
+          onPressed: () => context.push('/vip/incoming-scheduled'),
+          icon: const Icon(Icons.calendar_month_outlined),
+          label: const Text('VIP scheduled call requests'),
+        ),
+      );
+    }
 
     return recentCallsAsync.when(
       loading: () => const SkeletonList(itemCount: 8),
@@ -87,29 +104,36 @@ class _RecentCallListBody extends ConsumerWidget {
           ImagePrecacheService.precacheRecentCalls(context, calls);
         }
         if (calls.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.history, size: 64, color: AppPalette.emptyIcon),
-                const SizedBox(height: 16),
-                Text(
-                  'No recent calls',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: AppPalette.onSurface,
-                        fontWeight: FontWeight.w600,
+          return Column(
+            children: [
+              creatorScheduleBanner(),
+              Expanded(
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.history, size: 64, color: AppPalette.emptyIcon),
+                      const SizedBox(height: 16),
+                      Text(
+                        'No recent calls',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              color: AppPalette.onSurface,
+                              fontWeight: FontWeight.w600,
+                            ),
                       ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Your call history will appear here',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AppPalette.subtitle,
+                      const SizedBox(height: 8),
+                      Text(
+                        'Your call history will appear here',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: AppPalette.subtitle,
+                            ),
+                        textAlign: TextAlign.center,
                       ),
-                  textAlign: TextAlign.center,
+                    ],
+                  ),
                 ),
-              ],
-            ),
+              ),
+            ],
           );
         }
 
@@ -117,11 +141,14 @@ class _RecentCallListBody extends ConsumerWidget {
           onRefresh: onRefresh,
           child: ListView.separated(
             padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: calls.length,
-            separatorBuilder: (_, __) =>
-                const Divider(height: 1, indent: 76, endIndent: 16),
+            itemCount: calls.length + 1,
+            separatorBuilder: (_, index) {
+              if (index == 0) return const SizedBox.shrink();
+              return const Divider(height: 1, indent: 76, endIndent: 16);
+            },
             itemBuilder: (context, index) {
-              final call = calls[index];
+              if (index == 0) return creatorScheduleBanner();
+              final call = calls[index - 1];
               return _CallHistoryTile(
                 call: call,
                 showCallButton: showCallButtonsForUsers && call.isOutgoing,

@@ -15,6 +15,7 @@ import '../services/moments_video_upload_helper.dart';
 Future<void> showMomentUploadSheet(
   BuildContext context, {
   MomentsUploadContentType initialType = MomentsUploadContentType.moment,
+  MomentsMediaKind initialMediaKind = MomentsMediaKind.photo,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -25,16 +26,24 @@ Future<void> showMomentUploadSheet(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       child: ColoredBox(
         color: AppBrandGradients.accountMenuPageBackground,
-        child: MomentUploadSheet(initialType: initialType),
+        child: MomentUploadSheet(
+          initialType: initialType,
+          initialMediaKind: initialMediaKind,
+        ),
       ),
     ),
   );
 }
 
 class MomentUploadSheet extends ConsumerStatefulWidget {
-  const MomentUploadSheet({super.key, required this.initialType});
+  const MomentUploadSheet({
+    super.key,
+    required this.initialType,
+    this.initialMediaKind = MomentsMediaKind.photo,
+  });
 
   final MomentsUploadContentType initialType;
+  final MomentsMediaKind initialMediaKind;
 
   @override
   ConsumerState<MomentUploadSheet> createState() => _MomentUploadSheetState();
@@ -57,6 +66,7 @@ class _MomentUploadSheetState extends ConsumerState<MomentUploadSheet> {
   void initState() {
     super.initState();
     _contentType = widget.initialType;
+    _mediaKind = widget.initialMediaKind;
   }
 
   @override
@@ -148,7 +158,7 @@ class _MomentUploadSheetState extends ConsumerState<MomentUploadSheet> {
         }
       }
       ref.invalidate(storiesBarProvider);
-      ref.invalidate(forYouFeedProvider);
+      ref.invalidate(popularFeedProvider);
       ref.invalidate(followingFeedProvider);
       ref.invalidate(myStoriesProvider);
       ref.invalidate(myMomentsProvider);

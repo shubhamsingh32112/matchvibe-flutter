@@ -3,10 +3,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/widgets/app_nav_destinations.dart';
 import '../../../app/widgets/main_layout.dart';
-import '../../../shared/widgets/brand_app_chrome.dart';
+import '../../../shared/styles/app_brand_styles.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../../home/widgets/creator_profile_screen.dart';
+import '../models/moments_models.dart';
 import '../providers/moments_providers.dart';
-import '../widgets/reels_feed.dart';
+import '../widgets/moment_upload_sheet.dart';
+import '../widgets/moments_add_center_button.dart';
+import '../widgets/moments_feed_tab_bar.dart';
+import '../widgets/moments_grid_feed.dart';
+import '../widgets/moments_header.dart';
 import '../widgets/stories_row.dart';
 import 'story_viewer_screen.dart';
 
@@ -16,75 +22,103 @@ class MomentsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tab = ref.watch(momentsFeedTabProvider);
+    final filter = ref.watch(momentsMediaFilterProvider);
     final storiesAsync = ref.watch(storiesBarProvider);
+    final canUploadMoments = ref.watch(
+      authProvider.select(
+        (s) => s.user?.role == 'creator' || s.user?.role == 'admin',
+      ),
+    );
+    void openPostReelSheet() => showMomentUploadSheet(
+          context,
+          initialType: MomentsUploadContentType.moment,
+          initialMediaKind: MomentsMediaKind.video,
+        );
 
     return MainLayout(
       selectedIndex: AppNavDestinations.momentsIndex,
-      appBar: buildBrandAppBar(context, title: 'Moments'),
-      child: Column(
+      accountMenuStyle: true,
+      appBar: MomentsHeader.appBar(context, ref),
+      child: Stack(
         children: [
-          storiesAsync.when(
-            data: (groups) => StoriesRow(
-              groups: groups,
-              onGroupTap: (group) {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => StoryViewerScreen(group: group),
-                  ),
-                );
-              },
-            ),
-            loading: () => const SizedBox(
-              height: 96,
-              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-            ),
-            error: (_, __) => const SizedBox(height: 8),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
+          ColoredBox(
+            color: AppBrandGradients.momentsPageBackground,
+            child: Column(
               children: [
-                BrandFeedTabChip(
-                  label: 'For You',
-                  selected: tab == MomentsFeedTab.forYou,
-                  onTap: () => ref.read(momentsFeedTabProvider.notifier).state =
-                      MomentsFeedTab.forYou,
+                storiesAsync.when(
+                  data: (groups) => StoriesRow(
+                    groups: groups,
+                    onGroupTap: (group) {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => StoryViewerScreen(group: group),
+                        ),
+                      );
+                    },
+                  ),
+                  loading: () => const SizedBox(
+                    height: 104,
+                    child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                  ),
+                  error: (_, __) => const SizedBox(height: 8),
                 ),
-                const SizedBox(width: 8),
-                BrandFeedTabChip(
-                  label: 'Following',
-                  selected: tab == MomentsFeedTab.following,
-                  onTap: () => ref.read(momentsFeedTabProvider.notifier).state =
-                      MomentsFeedTab.following,
+                const MomentsFeedTabBar(),
+                Expanded(
+                  child: switch (tab) {
+                    MomentsFeedTab.popular => _PopularFeedBody(
+                        filter: filter,
+                        showCreatorFab: canUploadMoments,
+                        onAddMoment: canUploadMoments ? openPostReelSheet : null,
+                      ),
+                    MomentsFeedTab.following => _FollowingFeedBody(
+                        filter: filter,
+                        showCreatorFab: canUploadMoments,
+                        onAddMoment: canUploadMoments ? openPostReelSheet : null,
+                      ),
+                  },
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 8),
-          Expanded(
-            child: tab == MomentsFeedTab.forYou
-                ? const _ForYouFeedBody()
-                : const _FollowingFeedBody(),
-          ),
+          if (canUploadMoments)
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: MomentsPostReelFab(onTap: openPostReelSheet),
+              ),
+            ),
         ],
       ),
     );
   }
 }
 
-class _ForYouFeedBody extends ConsumerWidget {
-  const _ForYouFeedBody();
+class _FollowingFeedBody extends ConsumerWidget {
+  const _FollowingFeedBody({
+    required this.filter,
+    this.showCreatorFab = false,
+    this.onAddMoment,
+  });
+
+  final MomentsMediaFilter filter;
+  final bool showCreatorFab;
+  final VoidCallback? onAddMoment;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final feedAsync = ref.watch(forYouFeedProvider);
+    final feedAsync = ref.watch(followingFeedProvider);
     return feedAsync.when(
-      data: (items) => ReelsFeed(
+      data: (items) => _FilteredGridFeed(
         items: items,
-        onLoadMore: () => ref.read(forYouFeedProvider.notifier).loadMore(),
+        filter: filter,
+        onLoadMore: () => ref.read(followingFeedProvider.notifier).loadMore(),
         onItemUpdated: (index, item) =>
-            ref.read(forYouFeedProvider.notifier).updateItem(index, item),
+            ref.read(followingFeedProvider.notifier).updateItem(index, item),
         onCreatorTap: (id) => openCreatorProfile(context, ref, id),
+        onAddMoment: onAddMoment,
+        reserveFabSpace: showCreatorFab,
+        emptyMessage: 'No moments from people you follow yet',
       ),
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text('Failed to load feed: $e')),
@@ -92,22 +126,101 @@ class _ForYouFeedBody extends ConsumerWidget {
   }
 }
 
-class _FollowingFeedBody extends ConsumerWidget {
-  const _FollowingFeedBody();
+class _PopularFeedBody extends ConsumerWidget {
+  const _PopularFeedBody({
+    required this.filter,
+    this.showCreatorFab = false,
+    this.onAddMoment,
+  });
+
+  final MomentsMediaFilter filter;
+  final bool showCreatorFab;
+  final VoidCallback? onAddMoment;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final feedAsync = ref.watch(followingFeedProvider);
+    final feedAsync = ref.watch(popularFeedProvider);
     return feedAsync.when(
-      data: (items) => ReelsFeed(
+      data: (items) => _FilteredGridFeed(
         items: items,
-        onLoadMore: () => ref.read(followingFeedProvider.notifier).loadMore(),
+        filter: filter,
+        onLoadMore: () => ref.read(popularFeedProvider.notifier).loadMore(),
         onItemUpdated: (index, item) =>
-            ref.read(followingFeedProvider.notifier).updateItem(index, item),
+            ref.read(popularFeedProvider.notifier).updateItem(index, item),
         onCreatorTap: (id) => openCreatorProfile(context, ref, id),
+        onAddMoment: onAddMoment,
+        reserveFabSpace: showCreatorFab,
       ),
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text('Failed to load feed: $e')),
     );
+  }
+}
+
+class _FilteredGridFeed extends StatelessWidget {
+  const _FilteredGridFeed({
+    required this.items,
+    required this.filter,
+    this.onLoadMore,
+    required this.onItemUpdated,
+    this.onCreatorTap,
+    this.onAddMoment,
+    this.reserveFabSpace = false,
+    this.emptyMessage = 'No moments yet',
+  });
+
+  final List<MomentFeedItem> items;
+  final MomentsMediaFilter filter;
+  final VoidCallback? onLoadMore;
+  final void Function(int index, MomentFeedItem item) onItemUpdated;
+  final void Function(String creatorId)? onCreatorTap;
+  final VoidCallback? onAddMoment;
+  final bool reserveFabSpace;
+  final String emptyMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = applyMediaFilter(items, filter);
+    if (filtered.isEmpty && items.isNotEmpty) {
+      return Center(
+        child: Text(
+          _filterEmptyMessage(filter),
+          style: TextStyle(
+            color: AppBrandGradients.momentsTabInactiveColor,
+            fontSize: 14,
+          ),
+        ),
+      );
+    }
+    return MomentsGridFeed(
+      items: filtered,
+      onLoadMore: onLoadMore,
+      onItemUpdated: (index, item) {
+        final originalIndex = items.indexWhere((i) => i.id == item.id);
+        if (originalIndex >= 0) {
+          onItemUpdated(originalIndex, item);
+        }
+      },
+      onCreatorTap: onCreatorTap,
+      onAddMoment: onAddMoment,
+      reserveFabSpace: reserveFabSpace,
+      emptyMessage: emptyMessage,
+      onReport: (item) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Report submitted. Thank you.')),
+        );
+      },
+    );
+  }
+
+  String _filterEmptyMessage(MomentsMediaFilter filter) {
+    switch (filter) {
+      case MomentsMediaFilter.photos:
+        return 'No photo moments yet';
+      case MomentsMediaFilter.videos:
+        return 'No video moments yet';
+      case MomentsMediaFilter.all:
+        return emptyMessage;
+    }
   }
 }

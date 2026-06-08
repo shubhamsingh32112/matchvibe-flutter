@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stream_video_flutter/stream_video_flutter.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../shared/styles/app_brand_styles.dart';
 import '../../../shared/providers/coin_purchase_popup_provider.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../controllers/call_connection_controller.dart';
@@ -192,6 +193,10 @@ class _IncomingCallWidgetState extends ConsumerState<IncomingCallWidget>
           );
 
     final location = display.country?.trim();
+    final callerIsVip = _remoteParticipantIsVip(
+      widget.incomingCall,
+      currentUserId,
+    );
 
     return SafeArea(
       child: Center(
@@ -225,6 +230,38 @@ class _IncomingCallWidgetState extends ConsumerState<IncomingCallWidget>
                         color: AppPalette.onSurface,
                       ),
                     ),
+                    if (callerIsVip) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          gradient: AppBrandGradients.vipBadgeGradient,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.workspace_premium_rounded,
+                              size: 14,
+                              color: Colors.white,
+                            ),
+                            SizedBox(width: 4),
+                            Text(
+                              'VIP Priority Caller',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     if (location != null && location.isNotEmpty) ...[
                       const SizedBox(height: 6),
                       Row(
@@ -265,6 +302,49 @@ class _IncomingCallWidgetState extends ConsumerState<IncomingCallWidget>
       ),
     );
   }
+}
+
+bool _remoteParticipantIsVip(Call call, String? currentUserId) {
+  try {
+    final dynamic callState = (call as dynamic).state?.value;
+
+    bool isVipFromExtra(dynamic extra) {
+      if (extra is! Map) return false;
+      final value = extra['isVip'];
+      return value == true || value == 'true' || value == 1;
+    }
+
+    final dynamic members = callState?.members;
+    if (members is Iterable) {
+      for (final dynamic member in members) {
+        final memberId = (member as dynamic).userId?.toString() ??
+            (member as dynamic).user?.id?.toString();
+        if (memberId == null) continue;
+        if (currentUserId != null &&
+            currentUserId.isNotEmpty &&
+            memberId == currentUserId) {
+          continue;
+        }
+        final user = (member as dynamic).user;
+        if (isVipFromExtra((member as dynamic).extraData) ||
+            isVipFromExtra(user?.extraData)) {
+          return true;
+        }
+      }
+    }
+
+    final createdBy = callState?.createdBy;
+    final createdById = createdBy?.id?.toString();
+    if (createdById != null &&
+        (currentUserId == null ||
+            currentUserId.isEmpty ||
+            createdById != currentUserId)) {
+      if (isVipFromExtra(createdBy?.extraData)) return true;
+    }
+  } catch (_) {
+    // Best-effort only.
+  }
+  return false;
 }
 
 class _IncomingHeader extends StatelessWidget {

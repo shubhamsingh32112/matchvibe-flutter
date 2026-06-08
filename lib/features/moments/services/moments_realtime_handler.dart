@@ -10,12 +10,12 @@ void handleMomentsSocketEvent(Ref ref, String event, Map<String, dynamic> data) 
       debugPrint('📸 [MOMENTS] story:uploaded');
       break;
     case 'moment:uploaded':
-      ref.invalidate(forYouFeedProvider);
+      ref.invalidate(popularFeedProvider);
       ref.invalidate(followingFeedProvider);
       debugPrint('🎬 [MOMENTS] moment:uploaded');
       break;
     case 'moment:purchased':
-      ref.invalidate(forYouFeedProvider);
+      ref.invalidate(popularFeedProvider);
       debugPrint('💰 [MOMENTS] moment:purchased ${data['momentId']}');
       break;
     case 'creator:followed':

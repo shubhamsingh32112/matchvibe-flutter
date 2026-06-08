@@ -183,7 +183,7 @@ class BrandHeaderCoinsChip extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const GemIcon(size: 18),
+            const GemIcon(size: 30),
             const SizedBox(width: 6),
             Text(
               '$coins',

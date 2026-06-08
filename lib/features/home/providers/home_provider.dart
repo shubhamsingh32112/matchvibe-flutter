@@ -763,6 +763,49 @@ void syncUserHomeFeedOrderFromCurrentFeed(Ref ref, {bool force = true}) {
   );
 }
 
+/// Defers order sync so [creatorOrderProvider] is never updated while another
+/// provider is still being evaluated (Riverpod build safety).
+void scheduleUserHomeFeedOrderSync(Ref ref, {bool force = true}) {
+  Future.microtask(() => syncUserHomeFeedOrderFromCurrentFeed(ref, force: force));
+}
+
+void _scheduleCreatorOrderAvailabilityBatch(
+  Ref ref,
+  Map<String, CreatorAvailability> updates,
+) {
+  if (updates.isEmpty) return;
+  Future.microtask(() {
+    final orderNotifier = ref.read(creatorOrderProvider.notifier);
+    orderNotifier.updateBatch(updates);
+
+    final creators = ref.read(creatorsProvider).valueOrNull;
+    final userId = ref.read(authProvider).user?.id;
+    if (creators == null || userId == null) return;
+
+    final availability = ref.read(creatorAvailabilityProvider);
+    final orderedIds = ref.read(creatorOrderProvider).orderedIds;
+    final needsResync = orderedIds.isEmpty ||
+        updates.keys.any((id) => !orderedIds.contains(id));
+    if (needsResync) {
+      orderNotifier.syncCreators(creators, availability, userId, force: true);
+    }
+
+    final loadedUids = creators
+        .map((c) => _normalizeFirebaseUid(c.firebaseUid))
+        .whereType<String>()
+        .toSet();
+    for (final entry in updates.entries) {
+      if (entry.value != CreatorAvailability.online) continue;
+      if (loadedUids.contains(entry.key)) continue;
+      unawaited(
+        ref
+            .read(creatorsProvider.notifier)
+            .ensureCreatorInFeedByFirebaseUid(entry.key),
+      );
+    }
+  });
+}
+
 class _UserHomePresenceSyncGate {
   bool inFlight = false;
   DateTime? lastAt;
@@ -935,7 +978,7 @@ final creatorOrderBridgeProvider = Provider<void>((ref) {
     Map<String, CreatorAvailability> next,
   ) {
     if (prev == null) {
-      syncUserHomeFeedOrderFromCurrentFeed(ref, force: true);
+      scheduleUserHomeFeedOrderSync(ref, force: true);
       return;
     }
     final updates = <String, CreatorAvailability>{};
@@ -945,48 +988,13 @@ final creatorOrderBridgeProvider = Provider<void>((ref) {
         updates[entry.key] = entry.value;
       }
     }
-    if (updates.isEmpty) return;
-
-    final orderNotifier = ref.read(creatorOrderProvider.notifier);
-    orderNotifier.updateBatch(updates);
-
-    final creators = ref.read(creatorsProvider).valueOrNull;
-    final userId = ref.read(authProvider).user?.id;
-    if (creators == null || userId == null) return;
-
-    final orderedIds = ref.read(creatorOrderProvider).orderedIds;
-    final needsResync = orderedIds.isEmpty ||
-        updates.keys.any((id) => !orderedIds.contains(id));
-    if (needsResync) {
-      orderNotifier.syncCreators(creators, next, userId, force: true);
-    }
-
-    final loadedUids = creators
-        .map((c) => _normalizeFirebaseUid(c.firebaseUid))
-        .whereType<String>()
-        .toSet();
-    for (final entry in updates.entries) {
-      if (entry.value != CreatorAvailability.online) continue;
-      if (loadedUids.contains(entry.key)) continue;
-      unawaited(
-        ref
-            .read(creatorsProvider.notifier)
-            .ensureCreatorInFeedByFirebaseUid(entry.key),
-      );
-    }
+    _scheduleCreatorOrderAvailabilityBatch(ref, updates);
   }
 
   ref.listen<AsyncValue<List<CreatorModel>>>(
     creatorsProvider,
     (prev, next) {
-      next.whenData((creators) {
-        final userId = ref.read(authProvider).user?.id;
-        if (userId == null) return;
-        final availability = ref.read(creatorAvailabilityProvider);
-        ref
-            .read(creatorOrderProvider.notifier)
-            .syncCreators(creators, availability, userId);
-      });
+      next.whenData((_) => scheduleUserHomeFeedOrderSync(ref));
     },
     fireImmediately: true,
   );
@@ -996,8 +1004,6 @@ final creatorOrderBridgeProvider = Provider<void>((ref) {
     onAvailabilityMapChanged,
     fireImmediately: true,
   );
-
-  syncUserHomeFeedOrderFromCurrentFeed(ref, force: true);
 });
 
 /// 🔥 BACKEND-AUTHORITATIVE Provider that returns ALL creators/users based on user role

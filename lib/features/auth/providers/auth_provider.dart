@@ -19,6 +19,7 @@ import '../../../core/services/device_fingerprint_service.dart';
 import '../../../core/services/install_referrer_service.dart';
 import '../../../core/services/google_sign_in_service.dart';
 import '../../../shared/models/user_model.dart';
+import '../../vip/models/vip_models.dart';
 import '../../../core/utils/referral_apply_messages.dart';
 import '../../../core/utils/referral_code_format.dart';
 import '../../referral/services/referral_service.dart';
@@ -427,6 +428,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
           final userData = responseData['user'] as Map<String, dynamic>;
           user = UserModel.fromJson(userData).copyWith(
             hasAgencyAssignment: responseData['hasAgencyAssignment'] == true,
+            vipStatus: VipStatus.fromJson(
+              responseData['vip'] as Map<String, dynamic>?,
+            ),
           );
           debugPrint('👤 [AUTH] Regular user login detected');
         } else {
@@ -997,6 +1001,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
           final userData = responseData['user'] as Map<String, dynamic>;
           user = UserModel.fromJson(userData).copyWith(
             hasAgencyAssignment: responseData['hasAgencyAssignment'] == true,
+            vipStatus: VipStatus.fromJson(
+              responseData['vip'] as Map<String, dynamic>?,
+            ),
           );
           debugPrint('✅ [AUTH] User data refreshed (regular user)');
         } else {

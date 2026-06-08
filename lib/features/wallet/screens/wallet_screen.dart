@@ -207,6 +207,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
     final walletPricingAsync = isCreator
         ? null
         : ref.watch(walletPricingProvider);
+    final isVipActive = ref.watch(authProvider.select((s) => s.user?.isVipActive == true));
 
     final earningsAsync = isCreator
         ? ref.watch(dashboardEarningsProvider)
@@ -269,6 +270,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                 color: _kPageBackground,
                 child: _UserBuyCoinsBody(
                   isAddingCoins: _isAddingCoins,
+                  isVipActive: isVipActive,
                   packages: pricingData.packages.take(6).toList(),
                   onRefresh: () async {
                     await _refreshUserData();
@@ -577,6 +579,7 @@ class _CreatorStatItem extends StatelessWidget {
 
 class _UserBuyCoinsBody extends StatelessWidget {
   final bool isAddingCoins;
+  final bool isVipActive;
   final List<WalletCoinPack> packages;
   final Future<void> Function() onRefresh;
   final VoidCallback onRetry;
@@ -584,6 +587,7 @@ class _UserBuyCoinsBody extends StatelessWidget {
 
   const _UserBuyCoinsBody({
     required this.isAddingCoins,
+    required this.isVipActive,
     required this.packages,
     required this.onRefresh,
     required this.onRetry,
@@ -611,6 +615,43 @@ class _UserBuyCoinsBody extends StatelessWidget {
       child: CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
+          if (isVipActive)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    gradient: AppBrandGradients.vipBadgeGradient,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(
+                        Icons.workspace_premium_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'VIP active — 10% off recharges',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           SliverToBoxAdapter(
             child: Stack(
               clipBehavior: Clip.none,
@@ -685,13 +726,18 @@ class _BuyCoinPackCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasDiscount =
-        pack.oldPriceInr != null && pack.oldPriceInr! > pack.priceInr;
+    final strikethroughPrice = pack.vipDiscountApplied
+        ? pack.originalPriceInr
+        : pack.oldPriceInr;
+    final hasDiscount = strikethroughPrice != null &&
+        strikethroughPrice > pack.priceInr;
     final discountPercent = hasDiscount
-        ? (((pack.oldPriceInr! - pack.priceInr) / pack.oldPriceInr!) * 100)
+        ? (((strikethroughPrice! - pack.priceInr) / strikethroughPrice) * 100)
               .round()
         : null;
-    final String? centerPromo = hasDiscount
+    final String? centerPromo = pack.vipDiscountApplied
+        ? 'VIP 10% off'
+        : hasDiscount
         ? (pack.badge != null && pack.badge!.trim().isNotEmpty
               ? pack.badge!.trim()
               : 'Flat $discountPercent% off')
@@ -866,9 +912,9 @@ class _BuyCoinPackCard extends StatelessWidget {
                                     color: _kBuyCoinsPurple,
                                   ),
                                 ),
-                                if (hasDiscount && pack.oldPriceInr != null)
+                                if (hasDiscount && strikethroughPrice != null)
                                   Text(
-                                    '₹${pack.oldPriceInr}',
+                                    '₹$strikethroughPrice',
                                     style: GoogleFonts.poppins(
                                       fontSize: 12,
                                       color: _kTextMuted,

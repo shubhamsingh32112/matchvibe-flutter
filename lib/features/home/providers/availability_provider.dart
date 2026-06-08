@@ -13,6 +13,7 @@ import '../../../shared/models/app_update_model.dart';
 import '../../../shared/providers/app_update_popup_provider.dart';
 import '../../support/services/support_realtime_handler.dart';
 import '../../moments/services/moments_realtime_handler.dart';
+import '../../vip/providers/vip_call_queue_provider.dart';
 
 // ── Enum ──────────────────────────────────────────────────────────────────
 enum CreatorAvailability { online, onCall, offline }
@@ -343,8 +344,9 @@ final socketServiceProvider = Provider<SocketService>((ref) {
 
     // 🔥 FIX: Only refresh auth user if coins are provided in the event
     // Otherwise, coins_updated event will handle coin updates instantly
-    if (data['coins'] != null) {
-      final coins = (data['coins'] as num?)?.toInt();
+    final coinsRaw = data['coins'] ?? data['newCoinsBalance'];
+    if (coinsRaw != null) {
+      final coins = (coinsRaw as num?)?.toInt();
       if (coins != null) {
         // Update coins optimistically for instant UI update
         ref.read(authProvider.notifier).updateCoinsOptimistically(coins);
@@ -411,6 +413,27 @@ final socketServiceProvider = Provider<SocketService>((ref) {
   };
   service.onMediaReady = (data) {
     handleMomentsSocketEvent(ref, 'media:ready', data);
+  };
+
+  service.onVipCallQueued = (data) {
+    debugPrint('👑 [SOCKET→PROVIDER] vip:call:queued position=${data['position']}');
+    ref.read(vipCallQueueProvider.notifier).onQueued(data);
+  };
+
+  service.onVipCallDequeued = (data) {
+    debugPrint('👑 [SOCKET→PROVIDER] vip:call:dequeued');
+    ref.read(vipCallQueueProvider.notifier).onDequeued(data);
+  };
+
+  service.onVipCallReadyToRing = (data) {
+    final creatorId = data['creatorId']?.toString();
+    final creatorFirebaseUid = data['creatorFirebaseUid']?.toString();
+    if (creatorFirebaseUid != null && creatorId != null) {
+      ref.read(vipCallQueueProvider.notifier).requestReadyToRing(
+            creatorId: creatorId,
+            creatorFirebaseUid: creatorFirebaseUid,
+          );
+    }
   };
 
   ref.onDispose(() {

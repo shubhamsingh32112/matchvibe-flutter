@@ -444,12 +444,12 @@ class ApiClient {
     }
   }
 
-  Future<Response> delete(String path) async {
+  Future<Response> delete(String path, {dynamic data}) async {
     try {
       if (kDebugMode) {
         debugPrint('🔴 [API] DELETE request to: $path');
       }
-      return await _dio.delete(path);
+      return await _dio.delete(path, data: data);
     } catch (e) {
       if (kDebugMode) {
         debugPrint('❌ [API] DELETE request failed: $e');

@@ -4,11 +4,13 @@ import 'package:skeletonizer/skeletonizer.dart';
 class SkeletonCard extends StatelessWidget {
   final double? height;
   final EdgeInsets? margin;
+  final BorderRadiusGeometry? borderRadius;
 
   const SkeletonCard({
     super.key,
     this.height,
     this.margin,
+    this.borderRadius,
   });
 
   @override
@@ -20,7 +22,7 @@ class SkeletonCard extends StatelessWidget {
         margin: margin ?? const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
           color: scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: borderRadius ?? BorderRadius.circular(12),
         ),
         child: const Padding(
           padding: EdgeInsets.all(16),

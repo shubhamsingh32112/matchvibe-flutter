@@ -17,6 +17,7 @@ import '../services/chat_service.dart';
 import '../exceptions/chat_send_exceptions.dart';
 import '../utils/chat_utils.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../vip/widgets/vip_badge.dart';
 import '../../home/providers/availability_provider.dart';
 import '../../video/utils/call_admission_constants.dart';
 import '../../video/controllers/call_connection_controller.dart';
@@ -143,6 +144,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   int _costPerMessage = 0;
   int _userCoins = 0;
   bool _isCreator = false;
+  bool _isVipUnlimited = false;
 
   StreamSubscription? _channelPresentationSub;
   StreamSubscription? _clientUserUpdatedSub;
@@ -391,7 +393,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final quota = await _chatService.getMessageQuota(widget.channelId);
       if (mounted) {
         setState(() {
-          _freeRemaining = (quota['freeRemaining'] as num?)?.toInt() ?? 0;
+          _isVipUnlimited = quota['isVipUnlimited'] == true;
+          final freeRaw = quota['freeRemaining'];
+          _freeRemaining = freeRaw == null
+              ? 0
+              : (freeRaw as num?)?.toInt() ?? 0;
           _costPerMessage = (quota['costPerMessage'] as num?)?.toInt() ?? 0;
           _userCoins = (quota['userCoins'] as num?)?.toInt() ?? 0;
         });
@@ -1014,6 +1020,30 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Widget _buildQuotaBar() {
     final scheme = Theme.of(context).colorScheme;
+    final isVipFromAuth = ref.watch(authProvider).user?.isVipActive ?? false;
+    final showVipUnlimited = _isVipUnlimited || isVipFromAuth;
+
+    if (showVipUnlimited) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        color: const Color(0xFFFFF3E0),
+        child: const Row(
+          children: [
+            Icon(Icons.workspace_premium, size: 14, color: Color(0xFFFF8F00)),
+            SizedBox(width: 6),
+            Text(
+              'VIP — unlimited free messages',
+              style: TextStyle(
+                fontSize: 12,
+                color: Color(0xFFE65100),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     if (_freeRemaining > 0) {
       return Container(
@@ -1081,6 +1111,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final canCallFromChat = _showCallButton;
     final canReportFromChat = _canReportCreatorFromChat;
     final canCreatorCallFromChat = _showCreatorCallButton;
+    final isVipActive = ref.watch(authProvider).user?.isVipActive ?? false;
 
     return StreamChatTheme(
       data: StreamChatThemeData(
@@ -1122,6 +1153,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
+                if (!_isCreator && isVipActive) ...[
+                  const SizedBox(width: 8),
+                  const VipBadge(compact: true),
+                ],
               ],
             ),
             actions: [

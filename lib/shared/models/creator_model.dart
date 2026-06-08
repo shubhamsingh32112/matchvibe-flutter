@@ -79,6 +79,7 @@ class CreatorModel extends Equatable {
   /// 'online' = available, 'on_call' = currently in a call, 'offline' = unavailable.
   /// Defaults to 'offline' if not provided (safe default).
   final String availability;
+  final String? location;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -96,6 +97,7 @@ class CreatorModel extends Equatable {
     this.isOnline = false,
     this.isFavorite = false,
     this.availability = 'offline',
+    this.location,
     this.createdAt,
     this.updatedAt,
   });
@@ -133,6 +135,7 @@ class CreatorModel extends Equatable {
       isOnline: json['isOnline'] as bool? ?? false,
       isFavorite: json['isFavorite'] as bool? ?? false,
       availability: availability,
+      location: readOptionalString(json['location']),
       createdAt: readDateTime(json['createdAt']),
       updatedAt: readDateTime(json['updatedAt']),
     );
@@ -169,6 +172,7 @@ class CreatorModel extends Equatable {
     bool? isOnline,
     bool? isFavorite,
     String? availability,
+    String? location,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -186,6 +190,7 @@ class CreatorModel extends Equatable {
       isOnline: isOnline ?? this.isOnline,
       isFavorite: isFavorite ?? this.isFavorite,
       availability: availability ?? this.availability,
+      location: location ?? this.location,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -206,6 +211,7 @@ class CreatorModel extends Equatable {
       'isOnline': isOnline,
       'isFavorite': isFavorite,
       'availability': availability,
+      if (location != null) 'location': location,
       'createdAt': createdAt?.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
     };
@@ -226,6 +232,7 @@ class CreatorModel extends Equatable {
         isOnline,
         isFavorite,
         availability,
+        location,
         createdAt,
         updatedAt,
       ];

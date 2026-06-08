@@ -7,6 +7,9 @@ class MediaPresentation {
     this.blurPlaceholder,
     required this.locked,
     this.unlockPriceCoins,
+    this.originalPriceCoins,
+    this.vipFreeUnlockAvailable,
+    this.discountApplied,
     required this.processingStatus,
   });
 
@@ -17,6 +20,9 @@ class MediaPresentation {
   final String? blurPlaceholder;
   final bool locked;
   final int? unlockPriceCoins;
+  final int? originalPriceCoins;
+  final bool? vipFreeUnlockAvailable;
+  final bool? discountApplied;
   final String processingStatus;
 
   factory MediaPresentation.fromJson(Map<String, dynamic> json) {
@@ -28,6 +34,9 @@ class MediaPresentation {
       blurPlaceholder: json['blurPlaceholder'] as String?,
       locked: json['locked'] as bool? ?? false,
       unlockPriceCoins: json['unlockPriceCoins'] as int?,
+      originalPriceCoins: json['originalPriceCoins'] as int?,
+      vipFreeUnlockAvailable: json['vipFreeUnlockAvailable'] as bool?,
+      discountApplied: json['discountApplied'] as bool?,
       processingStatus: json['processingStatus'] as String? ?? 'ready',
     );
   }
@@ -47,6 +56,9 @@ class MomentFeedItem {
     required this.createdAt,
     required this.locked,
     this.unlockPriceCoins,
+    this.originalPriceCoins,
+    this.vipFreeUnlockAvailable,
+    this.discountApplied,
     this.isFollowing = false,
     this.viewsCount,
     this.purchaseCount,
@@ -64,6 +76,9 @@ class MomentFeedItem {
   final String createdAt;
   final bool locked;
   final int? unlockPriceCoins;
+  final int? originalPriceCoins;
+  final bool? vipFreeUnlockAvailable;
+  final bool? discountApplied;
   final bool isFollowing;
   final int? viewsCount;
   final int? purchaseCount;
@@ -84,6 +99,9 @@ class MomentFeedItem {
       createdAt: json['createdAt'] as String? ?? '',
       locked: json['locked'] as bool? ?? false,
       unlockPriceCoins: json['unlockPriceCoins'] as int?,
+      originalPriceCoins: json['originalPriceCoins'] as int?,
+      vipFreeUnlockAvailable: json['vipFreeUnlockAvailable'] as bool?,
+      discountApplied: json['discountApplied'] as bool?,
       isFollowing: json['isFollowing'] as bool? ?? false,
       viewsCount: json['viewsCount'] as int?,
       purchaseCount: json['purchaseCount'] as int?,
@@ -171,6 +189,7 @@ class StoryGroup {
     required this.stories,
     this.creatorName,
     this.creatorAvatarUrl,
+    this.creatorFirebaseUid,
   });
 
   final String creatorId;
@@ -178,6 +197,7 @@ class StoryGroup {
   final List<StoryPresentation> stories;
   final String? creatorName;
   final String? creatorAvatarUrl;
+  final String? creatorFirebaseUid;
 
   factory StoryGroup.fromJson(Map<String, dynamic> json) {
     final raw = json['stories'] as List? ?? const [];
@@ -186,6 +206,7 @@ class StoryGroup {
       unseen: json['unseen'] as bool? ?? false,
       creatorName: json['creatorName'] as String?,
       creatorAvatarUrl: json['creatorAvatarUrl'] as String?,
+      creatorFirebaseUid: json['creatorFirebaseUid'] as String?,
       stories: raw
           .map((e) => StoryPresentation.fromJson(Map<String, dynamic>.from(e as Map)))
           .toList(),

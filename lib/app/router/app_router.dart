@@ -10,6 +10,8 @@ import '../../features/recent/screens/recent_screen.dart';
 import '../../features/moments/screens/moments_screen.dart';
 import '../../features/moments/screens/my_moments_screen.dart';
 import '../../features/vip/screens/vip_screen.dart';
+import '../../features/vip/screens/scheduled_calls_screen.dart';
+import '../../features/vip/screens/creator_incoming_scheduled_calls_screen.dart';
 import '../../features/account/screens/account_screen.dart';
 import '../../features/account/screens/account_settings_screen.dart';
 import '../../features/account/screens/blocked_buddies_screen.dart';
@@ -22,6 +24,7 @@ import '../../features/wallet/screens/transactions_screen.dart';
 import '../../features/account/screens/become_creator_screen.dart';
 import '../../features/account/screens/help_support_screen.dart';
 import '../../features/creator/screens/creator_tasks_screen.dart';
+import '../../features/creator/screens/creator_leaderboard_screen.dart';
 import '../../features/chat/screens/chat_screen.dart';
 import '../../features/chat/screens/chat_list_screen.dart';
 import '../../features/video/screens/video_call_screen.dart';
@@ -96,6 +99,14 @@ final appRouter = GoRouter(
       builder: (context, state) => const VipScreen(),
     ),
     GoRoute(
+      path: '/vip/scheduled',
+      builder: (context, state) => const ScheduledCallsScreen(),
+    ),
+    GoRoute(
+      path: '/vip/incoming-scheduled',
+      builder: (context, state) => const CreatorIncomingScheduledCallsScreen(),
+    ),
+    GoRoute(
       path: '/recent',
       builder: (context, state) => const RecentScreen(),
     ),
@@ -167,6 +178,10 @@ final appRouter = GoRouter(
               // This is handled in the screen itself, but we can add a redirect here too
               return const CreatorTasksScreen();
             },
+          ),
+          GoRoute(
+            path: '/creator/leaderboard',
+            builder: (context, state) => const CreatorLeaderboardScreen(),
           ),
           GoRoute(
             path: '/creator/withdraw',

@@ -6,6 +6,9 @@ class AppConstants {
   /// Brand logo (PNG). Also used as source for launcher icons via `flutter_launcher_icons`.
   static const String appLogoAsset = 'lib/assets/app_logo.png';
 
+  /// Golden gem icon for coin balance and pricing displays.
+  static const String coinsIconAsset = 'lib/assets/coins/coins_icon.png';
+
   /// Full-screen splash / login background.
   static const String loaderBackgroundAsset = 'lib/assets/loader_bg.png';
 

@@ -123,11 +123,40 @@ flutter:
     - lib/assets/promo_first_call_on_us.png
     - lib/assets/addpopup-bg.jpeg
     - lib/assets/app_logo.png
+    - lib/assets/leaderboard_trophy_icon.png
+    - lib/assets/creator_home/tasks_reward_icon.png
+    - lib/assets/creator_home/reels_tab_icon.png
+    - lib/assets/creator_home/posts_tab_icon.png
+    - lib/assets/creator_profile/chat_icon.png
+    - lib/assets/creator_profile/schedule_call_icon.png
+    - lib/assets/coins/coins_icon.png
+    - lib/assets/become_creator/become_creator_icon.png
+    - lib/assets/account/account_settings_icon.png
+    - lib/assets/account/logout_icon.png
+    - lib/assets/account/reload_profile_icon.png
+    - lib/assets/referral/referral_icon.png
+    - lib/assets/vip/vip_crown_hero.png
+    - lib/assets/vip/vip_crown_small.png
+    - lib/assets/vip/benefits/benefit_priority_calls.png
+    - lib/assets/vip/benefits/benefit_call_scheduling.png
+    - lib/assets/vip/benefits/benefit_free_moments.png
+    - lib/assets/vip/benefits/benefit_free_chats.png
+    - lib/assets/vip/benefits/benefit_rewards.png
+    - lib/assets/vip/benefits/benefit_extra_rewards.png
+    - lib/assets/vip/benefits/benefit_vip_badge.png
+    - lib/assets/vip/benefits/benefit_priority_support.png
+    - lib/assets/withdrawal/instant_processing_icon.png
+    - lib/assets/withdrawal/secure_safe_icon.png
+    - lib/assets/creator_stats/calls_stat_icon.png
+    - lib/assets/creator_stats/call_minutes_stat_icon.png
+    - lib/assets/creator_stats/online_minutes_stat_icon.png
+    - lib/assets/creator_stats/
     - lib/assets/nav/nav_home_icon.png
     - lib/assets/nav/nav_moments_icon.png
     - lib/assets/nav/nav_chats_icon.png
     - lib/assets/nav/nav_profile_icon.png
     - lib/assets/nav/nav_vip_icon.png
+    - lib/assets/moments/post_reel_fab_icon.png
     - lib/assets/wallet_icons/
     - lib/assets/transactions/
     - lib/assets/help_support/

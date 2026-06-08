@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:io' show Platform;
 import 'dart:ui' show TimingsCallback;
 import 'dart:math';
@@ -27,17 +27,14 @@ import '../../../core/services/permission_prompt_service.dart';
 import '../providers/home_provider.dart';
 import '../providers/availability_provider.dart';
 import '../widgets/home_user_grid_card.dart';
-import '../../creator/providers/creator_dashboard_provider.dart';
+import '../../creator/screens/creator_home_screen.dart';
 import '../../creator/providers/creator_presence_orchestrator_provider.dart';
-import '../../creator/providers/creator_task_provider.dart';
-import '../../creator/models/creator_task_model.dart';
 import '../../video/services/permission_service.dart';
 import '../../admin/providers/admin_view_provider.dart';
 import '../../support/services/support_service.dart';
 import '../../support/utils/support_contact_phone.dart';
 import '../../video/providers/call_feedback_prompt_provider.dart';
 import '../../video/providers/creator_busy_toast_provider.dart';
-import '../../withdrawal/screens/withdrawal_screen.dart';
 import '../../../shared/widgets/app_modal_bottom_sheet.dart';
 import '../../../shared/widgets/app_modal_dialog.dart';
 import '../../../shared/widgets/permissions_intro_bottom_sheet.dart';
@@ -49,24 +46,6 @@ import '../../onboarding/models/onboarding_step.dart';
 import '../../onboarding/services/onboarding_flow_service.dart';
 import '../../onboarding/services/onboarding_popup_state_service.dart';
 import '../../onboarding/services/onboarding_runner_lock_service.dart';
-
-String _formatCreatorOnlineDuration(int seconds) {
-  if (seconds < 60) return '${seconds}s';
-  final h = seconds ~/ 3600;
-  final m = (seconds % 3600) ~/ 60;
-  if (h > 0) return '${h}h ${m}m';
-  return '${m}m';
-}
-
-String _shortIsoLocal(String isoUtc) {
-  try {
-    final dt = DateTime.parse(isoUtc).toLocal();
-    return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} '
-        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-  } catch (_) {
-    return isoUtc;
-  }
-}
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -108,7 +87,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     unawaited(SentryService.setScreenTag('home'));
     unawaited(_checkAndShowWelcomeBackDialog());
     _checkAndShowWelcomeDialog();
-    // Note: Bonus onboarding removed; flow is welcome → permissions
+    // Note: Bonus onboarding removed; flow is welcome â†’ permissions
     // Connect Socket.IO and hydrate creator availability from Redis
     _initSocketAndHydrateAvailability();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -320,7 +299,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           .fold<int>(0, (max, value) => value > max ? value : max);
       if (worstFrameUs > 16666) {
         debugPrint(
-          '📈 [HOME PERF] frameJank worstFrameUs=$worstFrameUs samples=${timings.length}',
+          'ðŸ“ˆ [HOME PERF] frameJank worstFrameUs=$worstFrameUs samples=${timings.length}',
         );
       }
     };
@@ -409,7 +388,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // Wait for the first frame to ensure context is available
     await Future.delayed(const Duration(milliseconds: 500));
 
-    if (!mounted) return; // ✅ Guard: Check mounted before any context/ref usage
+    if (!mounted) return; // âœ… Guard: Check mounted before any context/ref usage
 
     // Check if user is authenticated
     final authState = ref.read(authProvider);
@@ -417,14 +396,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       return; // Don't show welcome dialog if not authenticated
     }
 
-    // ✅ TASK 1: Wait for creators to load before showing welcome dialog
+    // âœ… TASK 1: Wait for creators to load before showing welcome dialog
     // Only show welcome dialog when user can actually see creators on homepage
     final user = authState.user;
     final firebaseUid = authState.firebaseUser?.uid;
     if (firebaseUid == null) return;
     if (user == null) return;
     if (user.role != 'user') {
-      // Creators/admins: clear local onboarding only — never POST stage=completed.
+      // Creators/admins: clear local onboarding only â€” never POST stage=completed.
       await OnboardingFlowService.markLocalCompleted(firebaseUid);
       await OnboardingPopupStateService.clearAllForUser(firebaseUid);
       await OnboardingRunnerLockService.clear(firebaseUid);
@@ -442,7 +421,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       await WelcomeService.clearWelcomeStatusForUser(firebaseUid);
       await PermissionPromptService.clearPermissionPromptForUser(firebaseUid);
       ref.read(authProvider.notifier).clearCreatedNowFlag();
-      debugPrint('🧹 [ONBOARDING] createdNow=true, local flags cleared');
+      debugPrint('ðŸ§¹ [ONBOARDING] createdNow=true, local flags cleared');
     }
     // Do not gate onboarding dialogs on creator-feed loading; this caused misses.
 
@@ -463,11 +442,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
     if (!mounted) return;
     if (nextStep == OnboardingStep.completed) {
-      debugPrint('⏭️  [ONBOARDING] skipped: server/local stage=completed');
+      debugPrint('â­ï¸  [ONBOARDING] skipped: server/local stage=completed');
       ref
           .read(modalCoordinatorProvider.notifier)
           .setOnboardingInProgress(false);
-      // Feed may not have loaded while onboarding modals were up — refresh now.
+      // Feed may not have loaded while onboarding modals were up â€” refresh now.
       final creatorsNotifier = ref.read(creatorsProvider.notifier);
       unawaited(creatorsNotifier.refreshFeed());
       return;
@@ -476,14 +455,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (nextStep == OnboardingStep.welcome &&
         !_welcomeDialogShown &&
         !_welcomeDialogActive) {
-      debugPrint('✅ [ONBOARDING] showing welcome popup');
+      debugPrint('âœ… [ONBOARDING] showing welcome popup');
       _welcomeDialogShown = true;
       _welcomeDialogActive = true;
       _showWelcomeDialog();
       return;
     }
     if (nextStep == OnboardingStep.permission) {
-      debugPrint('✅ [ONBOARDING] showing permissions popup');
+      debugPrint('âœ… [ONBOARDING] showing permissions popup');
       _checkAndRequestOnboardingPermissions();
     }
   }
@@ -618,7 +597,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }());
   }
 
-  /// ✅ TASK 2: Mark welcome as seen with retry mechanism for reliability
+  /// âœ… TASK 2: Mark welcome as seen with retry mechanism for reliability
   /// Scalable: Uses efficient SharedPreferences (cached) with timeout
   Future<void> _markWelcomeAsSeenWithRetry({int maxRetries = 2}) async {
     final firebaseUid = ref.read(authProvider).firebaseUser?.uid;
@@ -629,13 +608,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         final hasSeen = await WelcomeService.hasSeenWelcome();
         if (hasSeen) {
           debugPrint(
-            '✅ [HOME] Welcome dialog marked as seen (attempt ${attempt + 1})',
+            'âœ… [HOME] Welcome dialog marked as seen (attempt ${attempt + 1})',
           );
           return;
         }
       } catch (e) {
         debugPrint(
-          '⚠️  [HOME] Failed to mark welcome as seen (attempt ${attempt + 1}): $e',
+          'âš ï¸  [HOME] Failed to mark welcome as seen (attempt ${attempt + 1}): $e',
         );
         if (attempt < maxRetries - 1) {
           await Future.delayed(Duration(milliseconds: 200 * (attempt + 1)));
@@ -644,7 +623,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
     // If all retries failed, log but don't throw - dialog should still close
     debugPrint(
-      '⚠️  [HOME] Failed to mark welcome as seen after $maxRetries attempts',
+      'âš ï¸  [HOME] Failed to mark welcome as seen after $maxRetries attempts',
     );
   }
 
@@ -826,7 +805,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (_isRequestingBundledPermissions) {
       // Prevent tight-loop re-enqueue while the OS permission flow is in flight.
       debugPrint(
-        '⏳ [ONBOARDING] permissions request already in flight — skipping re-prompt',
+        'â³ [ONBOARDING] permissions request already in flight â€” skipping re-prompt',
       );
       return;
     }
@@ -853,7 +832,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (!mounted) return;
 
     if (hasShownPrompt && !serverWantsPermissions) {
-      debugPrint('⏭️  [ONBOARDING] permission popup blocked localAlreadyShown=true');
+      debugPrint('â­ï¸  [ONBOARDING] permission popup blocked localAlreadyShown=true');
       return;
     }
 
@@ -1068,7 +1047,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Widget build(BuildContext context) {
     _homeBuildCount++;
     if (_homeBuildCount % 20 == 0) {
-      debugPrint('📊 [HOME] build count=$_homeBuildCount');
+      debugPrint('ðŸ“Š [HOME] build count=$_homeBuildCount');
     }
     final userRole = ref.watch(authProvider.select((s) => s.user?.role));
     final isCreator = userRole == 'creator' || userRole == 'admin';
@@ -1076,10 +1055,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     return MainLayout(
       selectedIndex: 0,
       child: AppScaffold(
-        padded: true,
+        padded: false,
         safeAreaBottom: false,
         child: isCreator
-            ? const _CreatorTasksView()
+            ? const CreatorHomeScreen()
             : _HomeUserFeedView(scrollController: _homeScrollController),
       ),
     );
@@ -1308,29 +1287,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
 }
 
-/// User/creator-feed grid — watches [homeFeedProvider] without full [authProvider].
+/// User/creator-feed grid â€” watches [homeFeedProvider] without full [authProvider].
 class _HomeUserFeedView extends ConsumerWidget {
   final ScrollController scrollController;
 
   const _HomeUserFeedView({required this.scrollController});
 
+  static const double _gridHorizontalPadding = 2;
+  static const double _gridTopPadding = 0;
+  static const double _gridGutter = 2;
+
   static SliverGridDelegate gridDelegateForWidth(double width) {
     int crossAxisCount = 2;
-    double aspectRatio = 0.70;
+    double aspectRatio = 0.76;
     if (width >= 1200) {
       crossAxisCount = 5;
-      aspectRatio = 0.82;
+      aspectRatio = 0.86;
     } else if (width >= 900) {
       crossAxisCount = 4;
-      aspectRatio = 0.78;
+      aspectRatio = 0.82;
     } else if (width >= 640) {
       crossAxisCount = 3;
-      aspectRatio = 0.74;
+      aspectRatio = 0.78;
     }
     return SliverGridDelegateWithFixedCrossAxisCount(
       crossAxisCount: crossAxisCount,
-      crossAxisSpacing: AppSpacing.xs,
-      mainAxisSpacing: AppSpacing.xs,
+      crossAxisSpacing: _gridGutter,
+      mainAxisSpacing: _gridGutter,
       childAspectRatio: aspectRatio,
     );
   }
@@ -1346,15 +1329,23 @@ class _HomeUserFeedView extends ConsumerWidget {
 
     if (isLoading) {
       return GridView.builder(
-        padding: const EdgeInsets.only(top: AppSpacing.lg),
+        padding: const EdgeInsets.fromLTRB(
+          _gridHorizontalPadding,
+          _gridTopPadding,
+          _gridHorizontalPadding,
+          0,
+        ),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 2,
-          crossAxisSpacing: AppSpacing.xs,
-          mainAxisSpacing: AppSpacing.xs,
-          childAspectRatio: 0.70,
+          crossAxisSpacing: _gridGutter,
+          mainAxisSpacing: _gridGutter,
+          childAspectRatio: 0.76,
         ),
         itemCount: 6,
-        itemBuilder: (context, index) => const SkeletonCard(),
+        itemBuilder: (context, index) => const SkeletonCard(
+          margin: EdgeInsets.zero,
+          borderRadius: BorderRadius.zero,
+        ),
       );
     }
 
@@ -1414,9 +1405,13 @@ class _HomeUserFeedView extends ConsumerWidget {
       child: CustomScrollView(
         controller: scrollController,
         slivers: [
-          const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.md)),
           SliverPadding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.xl),
+            padding: const EdgeInsets.fromLTRB(
+              _gridHorizontalPadding,
+              _gridTopPadding,
+              _gridHorizontalPadding,
+              AppSpacing.lg,
+            ),
             sliver: SliverLayoutBuilder(
               builder: (context, constraints) {
                 return SliverGrid(
@@ -1444,7 +1439,7 @@ class _HomeUserFeedView extends ConsumerWidget {
   }
 
   static Future<void> _refreshHomeFeed(BuildContext context, WidgetRef ref) async {
-    debugPrint('🔄 [HOME] Manual refresh triggered');
+    debugPrint('ðŸ”„ [HOME] Manual refresh triggered');
     final beforeRole = ref.read(authProvider).user?.role;
     await ref.read(authProvider.notifier).refreshUser();
     final afterRole = ref.read(authProvider).user?.role;
@@ -1499,1015 +1494,3 @@ class _HomeFeedLoadMoreFooter extends ConsumerWidget {
   }
 }
 
-class _CreatorHomeBalanceCard extends ConsumerWidget {
-  const _CreatorHomeBalanceCard();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final earningsAsync = ref.watch(dashboardEarningsProvider);
-    final balance = ref.watch(dashboardCoinsProvider);
-    final scheme = Theme.of(context).colorScheme;
-
-    return earningsAsync.when(
-      data: (earnings) => AppCard(
-        margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Balance',
-                  style: TextStyle(
-                    color: scheme.onSurfaceVariant,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.refresh, size: 20),
-                  tooltip: 'Refresh balance',
-                  onPressed: () async {
-                    debugPrint('🔄 [CREATOR HOME] Manual refresh triggered');
-                    ref.invalidate(creatorDashboardProvider);
-                    await ref.read(authProvider.notifier).refreshUser();
-                  },
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  iconSize: 20,
-                  color: scheme.onSurfaceVariant,
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  balance.toString(),
-                  style: TextStyle(
-                    color: scheme.onSurface,
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Text(
-                    'coins',
-                    style: TextStyle(
-                      color: scheme.onSurfaceVariant,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                _EarningsStatItem(
-                  label: 'Calls',
-                  value: earnings.totalCalls.toString(),
-                  icon: Icons.phone,
-                ),
-                const SizedBox(width: 24),
-                _EarningsStatItem(
-                  label: 'Minutes',
-                  value: earnings.totalMinutes.toStringAsFixed(1),
-                  icon: Icons.timer,
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-      loading: () => AppCard(
-        margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-        child: const SizedBox(
-          height: 100,
-          child: Center(child: LoadingIndicator()),
-        ),
-      ),
-      error: (error, stack) => AppCard(
-        margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-        child: const SizedBox(
-          height: 100,
-          child: Center(child: LoadingIndicator()),
-        ),
-      ),
-    );
-  }
-}
-
-class _CreatorHomeOnlineTodayCard extends ConsumerWidget {
-  const _CreatorHomeOnlineTodayCard();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final dashboardAsync = ref.watch(creatorDashboardProvider);
-    final scheme = Theme.of(context).colorScheme;
-
-    return dashboardAsync.when(
-      data: (dashboard) => AppCard(
-        margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Available online today',
-              style: TextStyle(
-                color: scheme.onSurfaceVariant,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _formatCreatorOnlineDuration(dashboard.onlineTodaySeconds),
-              style: TextStyle(
-                color: scheme.onSurface,
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            if (dashboard.onlineTodayResetsAt != null &&
-                dashboard.onlineTodayResetsAt!.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Text(
-                'Next reset: ${_shortIsoLocal(dashboard.onlineTodayResetsAt!)}',
-                style: TextStyle(
-                  color: scheme.onSurfaceVariant,
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-      loading: () => const SizedBox.shrink(),
-      error: (e, st) => const SizedBox.shrink(),
-    );
-  }
-}
-
-class _CreatorHomeTasksSection extends ConsumerWidget {
-  final void Function(CreatorTasksResponse tasksResponse) onShowTasks;
-
-  const _CreatorHomeTasksSection({required this.onShowTasks});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final tasksAsync = ref.watch(dashboardTasksProvider);
-    final scheme = Theme.of(context).colorScheme;
-
-    return tasksAsync.when(
-      data: (tasksResponse) => _TaskProgressButton(
-        tasksResponse: tasksResponse,
-        onTap: () => onShowTasks(tasksResponse),
-      ),
-      loading: () => AppCard(
-        margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-        child: const SizedBox(
-          height: 80,
-          child: Center(child: LoadingIndicator()),
-        ),
-      ),
-      error: (error, stack) => AppCard(
-        margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              Text(
-                'Failed to load tasks',
-                style: TextStyle(color: scheme.error),
-              ),
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: () => ref.invalidate(creatorDashboardProvider),
-                child: const Text('Retry'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CreatorTasksView extends ConsumerStatefulWidget {
-  const _CreatorTasksView();
-
-  @override
-  ConsumerState<_CreatorTasksView> createState() => _CreatorTasksViewState();
-}
-
-class _CreatorTasksViewState extends ConsumerState<_CreatorTasksView> {
-  @override
-  void initState() {
-    super.initState();
-    // 🔥 FIX: Removed automatic dashboard invalidation on init
-    // Dashboard updates automatically via socket events (creator:data_updated)
-    // This prevents constant reloads when navigating to homepage
-    // Manual refresh button is available if needed
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: AppSpacing.md),
-          const _CreatorHomeBalanceCard(),
-          const _CreatorHomeOnlineTodayCard(),
-          AppCard(
-            margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (context) => const WithdrawalScreen(),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.account_balance_wallet_outlined),
-                label: const Text('Request Withdrawal'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: scheme.primary,
-                  foregroundColor: scheme.onPrimary,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          _CreatorHomeTasksSection(
-            onShowTasks: (tasksResponse) =>
-                _showTaskProgressBottomSheet(context, tasksResponse),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _claimTask(String taskKey) async {
-    try {
-      await ref.read(creatorTaskServiceProvider).claimTaskReward(taskKey);
-
-      // Invalidate dashboard to refresh all creator data (earnings + tasks + coins)
-      ref.invalidate(creatorDashboardProvider);
-
-      if (mounted) {
-        AppToast.showSuccess(context, 'Reward claimed successfully!');
-      }
-    } catch (e) {
-      if (mounted) {
-        AppToast.showError(
-          context,
-          UserMessageMapper.userMessageFor(
-            e,
-            fallback: 'Couldn\'t claim reward. Please try again.',
-          ),
-        );
-      }
-    }
-  }
-
-  void _showTaskProgressBottomSheet(
-    BuildContext context,
-    CreatorTasksResponse tasksResponse,
-  ) {
-    final id = ref
-        .read(modalCoordinatorProvider.notifier)
-        .nextRequestId('tasks');
-    ref
-        .read(modalCoordinatorProvider.notifier)
-        .enqueue<void>(
-          AppModalRequest<void>(
-            id: id,
-            priority: AppModalPriority.low,
-            dedupeKey: 'creator-task-progress',
-            present: (ctx, _) => showAppModalBottomSheet<void>(
-              context: ctx,
-              builder: (context) => TaskProgressBottomSheet(
-                tasksResponse: tasksResponse,
-                onClaim: (taskKey) => _claimTask(taskKey),
-              ),
-            ),
-          ),
-        );
-  }
-}
-
-// B) Next task preview - Pure UX sugar
-class _NextTaskPreview extends StatelessWidget {
-  final double totalMinutes;
-  final List<CreatorTask> tasks;
-
-  const _NextTaskPreview({required this.totalMinutes, required this.tasks});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
-    // Find next uncompleted task
-    try {
-      final nextTask = tasks.firstWhere((task) => !task.isCompleted);
-      final minutesNeeded = nextTask.thresholdMinutes - totalMinutes;
-
-      if (minutesNeeded <= 0) {
-        return const SizedBox.shrink();
-      }
-
-      return Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: scheme.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: scheme.outlineVariant, width: 1),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.trending_up, size: 16, color: scheme.primary),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Next reward in ${minutesNeeded.toStringAsFixed(0)} minutes (+${nextTask.rewardCoins} coins)',
-                style: TextStyle(
-                  color: scheme.onSurface,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    } catch (e) {
-      // All tasks completed
-      return Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: scheme.primaryContainer,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.celebration, size: 16, color: scheme.onPrimaryContainer),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'All tasks completed! 🎉',
-                style: TextStyle(
-                  color: scheme.onPrimaryContainer,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-  }
-}
-
-class _TasksContent extends StatelessWidget {
-  final CreatorTasksResponse tasksResponse;
-  final Function(String) onClaim;
-
-  const _TasksContent({required this.tasksResponse, required this.onClaim});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final totalMinutes = tasksResponse.totalMinutes;
-
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Top Card: Total Minutes Completed
-          AppCard(
-            margin: const EdgeInsets.only(bottom: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  "Today's Minutes",
-                  style: TextStyle(
-                    color: scheme.onSurface.withOpacity(0.7),
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    gradient: AppBrandGradients.walletCoinGold,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    '${totalMinutes.toStringAsFixed(1)} mins',
-                    style: const TextStyle(
-                      color: AppBrandGradients.walletOnGold,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                // B) Next task preview - "Next reward in X minutes"
-                _NextTaskPreview(
-                  totalMinutes: totalMinutes,
-                  tasks: tasksResponse.tasks,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Tasks reset daily at 11:59 PM. Complete calls to earn bonus coins!',
-                  style: TextStyle(
-                    color: scheme.onSurface.withOpacity(0.6),
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Progress Slider
-          AppCard(
-            margin: const EdgeInsets.only(bottom: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Progress',
-                  style: TextStyle(
-                    color: scheme.onSurface,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: LinearProgressIndicator(
-                    value: (totalMinutes / 600).clamp(0.0, 1.0),
-                    minHeight: 12,
-                    backgroundColor: scheme.surfaceContainerHighest,
-                    valueColor: AlwaysStoppedAnimation<Color>(scheme.primary),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _MilestoneMarker(
-                      label: '1hr',
-                      minutes: 60,
-                      currentMinutes: totalMinutes,
-                    ),
-                    _MilestoneMarker(
-                      label: '2hrs',
-                      minutes: 120,
-                      currentMinutes: totalMinutes,
-                    ),
-                    _MilestoneMarker(
-                      label: '3hrs',
-                      minutes: 180,
-                      currentMinutes: totalMinutes,
-                    ),
-                    _MilestoneMarker(
-                      label: '4hrs',
-                      minutes: 240,
-                      currentMinutes: totalMinutes,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-
-          // Daily Reset Countdown
-          if (tasksResponse.resetsAt != null)
-            _DailyResetBanner(resetsAt: tasksResponse.resetsAt!),
-
-          // Task List
-          Text(
-            'Tasks',
-            style: TextStyle(
-              color: scheme.onSurface,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 12),
-          ...tasksResponse.tasks.map(
-            (task) =>
-                _TaskCard(task: task, onClaim: () => onClaim(task.taskKey)),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Compact daily reset countdown for the home screen.
-class _DailyResetBanner extends StatefulWidget {
-  final DateTime resetsAt;
-
-  const _DailyResetBanner({required this.resetsAt});
-
-  @override
-  State<_DailyResetBanner> createState() => _DailyResetBannerState();
-}
-
-class _DailyResetBannerState extends State<_DailyResetBanner> {
-  late Timer _timer;
-  Duration _remaining = Duration.zero;
-
-  @override
-  void initState() {
-    super.initState();
-    _updateRemaining();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      _updateRemaining();
-    });
-  }
-
-  void _updateRemaining() {
-    final now = DateTime.now();
-    final diff = widget.resetsAt.toLocal().difference(now);
-    setState(() {
-      _remaining = diff.isNegative ? Duration.zero : diff;
-    });
-  }
-
-  @override
-  void didUpdateWidget(_DailyResetBanner oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.resetsAt != widget.resetsAt) {
-      _updateRemaining();
-    }
-  }
-
-  @override
-  void dispose() {
-    _timer.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final hours = _remaining.inHours;
-    final minutes = _remaining.inMinutes.remainder(60);
-    final seconds = _remaining.inSeconds.remainder(60);
-
-    final timeText = hours > 0
-        ? '${hours}h ${minutes}m ${seconds}s'
-        : minutes > 0
-        ? '${minutes}m ${seconds}s'
-        : '${seconds}s';
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: scheme.tertiaryContainer.withOpacity(0.4),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.timer_outlined, size: 16, color: scheme.tertiary),
-          const SizedBox(width: 8),
-          Text(
-            'Resets in ',
-            style: TextStyle(
-              color: scheme.onTertiaryContainer.withOpacity(0.8),
-              fontSize: 12,
-            ),
-          ),
-          Text(
-            timeText,
-            style: TextStyle(
-              color: scheme.tertiary,
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MilestoneMarker extends StatelessWidget {
-  final String label;
-  final int minutes;
-  final double currentMinutes;
-
-  const _MilestoneMarker({
-    required this.label,
-    required this.minutes,
-    required this.currentMinutes,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final isReached = currentMinutes >= minutes;
-
-    return Column(
-      children: [
-        Container(
-          width: 12,
-          height: 12,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: isReached ? scheme.primary : scheme.surfaceContainerHighest,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            color: isReached
-                ? scheme.primary
-                : scheme.onSurface.withOpacity(0.5),
-            fontSize: 12,
-            fontWeight: isReached ? FontWeight.bold : FontWeight.normal,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _TaskCard extends StatelessWidget {
-  final CreatorTask task;
-  final VoidCallback onClaim;
-
-  const _TaskCard({required this.task, required this.onClaim});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
-    return AppCard(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 24,
-                height: 24,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: task.isCompleted
-                      ? scheme.primary
-                      : scheme.surfaceContainerHighest,
-                ),
-                child: task.isCompleted
-                    ? Icon(Icons.check, size: 16, color: scheme.onPrimary)
-                    : null,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Complete ${task.thresholdMinutes} minutes',
-                      style: TextStyle(
-                        color: scheme.onSurface,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${task.progressMinutes.toStringAsFixed(1)} / ${task.thresholdMinutes} minutes',
-                      style: TextStyle(
-                        color: scheme.onSurface.withOpacity(0.7),
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  gradient: AppBrandGradients.walletCoinGold,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '+${task.rewardCoins} coins',
-                  style: const TextStyle(
-                    color: AppBrandGradients.walletOnGold,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: task.progressPercentage,
-              minHeight: 6,
-              backgroundColor: scheme.surfaceContainerHighest,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                task.isCompleted
-                    ? scheme.primary
-                    : scheme.primary.withOpacity(0.5),
-              ),
-            ),
-          ),
-          if (task.canClaim) ...[
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: onClaim,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: scheme.primary,
-                  foregroundColor: scheme.onPrimary,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-                child: const Text('Claim Reward'),
-              ),
-            ),
-          ],
-          if (task.isClaimed) ...[
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.check_circle, size: 16, color: scheme.primary),
-                const SizedBox(width: 4),
-                Text(
-                  'Reward claimed',
-                  style: TextStyle(
-                    color: scheme.primary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _EarningsStatItem extends StatelessWidget {
-  final String label;
-  final String value;
-  final IconData icon;
-
-  const _EarningsStatItem({
-    required this.label,
-    required this.value,
-    required this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Expanded(
-      child: Row(
-        children: [
-          Icon(icon, color: scheme.onSurfaceVariant, size: 18),
-          const SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                value,
-                style: TextStyle(
-                  color: scheme.onSurface,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              Text(
-                label,
-                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 11),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Bottom sheet wrapper for task progress screen
-class TaskProgressBottomSheet extends StatelessWidget {
-  final CreatorTasksResponse tasksResponse;
-  final Function(String) onClaim;
-
-  const TaskProgressBottomSheet({
-    super.key,
-    required this.tasksResponse,
-    required this.onClaim,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return DraggableScrollableSheet(
-      initialChildSize: 0.75,
-      minChildSize: 0.5,
-      maxChildSize: 0.95,
-      builder: (context, scrollController) => ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        child: ColoredBox(
-          color: AppBrandGradients.accountMenuPageBackground,
-          child: Column(
-            children: [
-              BrandSheetHeader(
-                title: 'Tasks & Rewards',
-                trailing: [
-                  IconButton(
-                    icon: const Icon(Icons.close_rounded, color: Colors.white),
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                ],
-              ),
-              Expanded(
-                child: SingleChildScrollView(
-                  controller: scrollController,
-                  padding: const EdgeInsets.all(16),
-                  child: _TasksContent(
-                    tasksResponse: tasksResponse,
-                    onClaim: onClaim,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Compact button widget that shows task progress summary
-class _TaskProgressButton extends StatelessWidget {
-  final CreatorTasksResponse tasksResponse;
-  final VoidCallback onTap;
-
-  const _TaskProgressButton({required this.tasksResponse, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final totalMinutes = tasksResponse.totalMinutes;
-    final completedTasks = tasksResponse.tasks
-        .where((t) => t.isCompleted)
-        .length;
-    final totalTasks = tasksResponse.tasks.length;
-    final progressPercentage = (totalMinutes / 600).clamp(0.0, 1.0);
-
-    // Find next uncompleted task
-    String? nextTaskText;
-    try {
-      final nextTask = tasksResponse.tasks.firstWhere(
-        (task) => !task.isCompleted,
-      );
-      final minutesNeeded = nextTask.thresholdMinutes - totalMinutes;
-      if (minutesNeeded > 0) {
-        nextTaskText = '${minutesNeeded.toStringAsFixed(0)} min to next reward';
-      }
-    } catch (e) {
-      // All tasks completed
-      nextTaskText = 'All tasks completed! 🎉';
-    }
-
-    return AppCard(
-      margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: scheme.primaryContainer,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(
-                      Icons.task_alt,
-                      color: scheme.onPrimaryContainer,
-                      size: 24,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Tasks & Rewards',
-                          style: TextStyle(
-                            color: scheme.onSurface,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${totalMinutes.toStringAsFixed(1)} minutes completed',
-                          style: TextStyle(
-                            color: scheme.onSurfaceVariant,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
-                ],
-              ),
-              const SizedBox(height: 12),
-              // Progress bar
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: progressPercentage,
-                  minHeight: 6,
-                  backgroundColor: scheme.surfaceContainerHighest,
-                  valueColor: AlwaysStoppedAnimation<Color>(scheme.primary),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '$completedTasks / $totalTasks tasks completed',
-                      style: TextStyle(
-                        color: scheme.onSurfaceVariant,
-                        fontSize: 12,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  if (nextTaskText != null) ...[
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: Text(
-                        nextTaskText,
-                        style: TextStyle(
-                          color: scheme.primary,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.end,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}

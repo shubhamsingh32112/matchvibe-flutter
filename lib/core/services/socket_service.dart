@@ -78,6 +78,11 @@ class SocketService {
   /// Fired after a successful Socket.IO connect (initial and reconnect).
   void Function()? onConnected;
 
+  /// VIP priority call queue events.
+  void Function(Map<String, dynamic>)? onVipCallQueued;
+  void Function(Map<String, dynamic>)? onVipCallDequeued;
+  void Function(Map<String, dynamic>)? onVipCallReadyToRing;
+
   /// Fired when the socket disconnects.
   void Function()? onDisconnected;
 
@@ -126,10 +131,9 @@ class SocketService {
   /// which silently skipped reconnection attempts after the first failure.
   void connect(String firebaseToken) {
     _currentAuthToken = firebaseToken;
-    // Already connected — refresh listeners (e.g. creator status provider created after connect).
+    // Already connected — do not re-fire onConnected (avoids duplicate availability hydration).
     if (_socket != null && _isConnected) {
       debugPrint('🔌 [SOCKET] Already connected, skipping');
-      onConnected?.call();
       return;
     }
 
@@ -362,6 +366,27 @@ class SocketService {
       debugPrint('💰 [SOCKET] coins_updated: $data');
       if (data is Map) {
         onCoinsUpdated?.call(Map<String, dynamic>.from(data));
+      }
+    });
+
+    _socket!.on('vip:call:queued', (data) {
+      debugPrint('👑 [SOCKET] vip:call:queued: $data');
+      if (data is Map) {
+        onVipCallQueued?.call(Map<String, dynamic>.from(data));
+      }
+    });
+
+    _socket!.on('vip:call:dequeued', (data) {
+      debugPrint('👑 [SOCKET] vip:call:dequeued: $data');
+      if (data is Map) {
+        onVipCallDequeued?.call(Map<String, dynamic>.from(data));
+      }
+    });
+
+    _socket!.on('vip:call:ready_to_ring', (data) {
+      debugPrint('👑 [SOCKET] vip:call:ready_to_ring: $data');
+      if (data is Map) {
+        onVipCallReadyToRing?.call(Map<String, dynamic>.from(data));
       }
     });
 

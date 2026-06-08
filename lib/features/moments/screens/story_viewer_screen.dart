@@ -1,21 +1,28 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/moments_models.dart';
 import '../services/moments_api_service.dart';
+import '../utils/moment_owner_actions.dart';
 import '../widgets/stream_hls_player.dart';
 
-class StoryViewerScreen extends StatefulWidget {
-  const StoryViewerScreen({super.key, required this.group});
+class StoryViewerScreen extends ConsumerStatefulWidget {
+  const StoryViewerScreen({
+    super.key,
+    required this.group,
+    this.allowOwnerDelete = false,
+  });
 
   final StoryGroup group;
+  final bool allowOwnerDelete;
 
   @override
-  State<StoryViewerScreen> createState() => _StoryViewerScreenState();
+  ConsumerState<StoryViewerScreen> createState() => _StoryViewerScreenState();
 }
 
-class _StoryViewerScreenState extends State<StoryViewerScreen> {
+class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
   late final PageController _pageController;
   int _index = 0;
   int _currentPage = 0;
@@ -59,6 +66,14 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
     _timer?.cancel();
     _pageController.dispose();
     super.dispose();
+  }
+
+  Future<void> _deleteCurrentStory() async {
+    if (_index >= widget.group.stories.length) return;
+    final storyId = widget.group.stories[_index].id;
+    final deleted = await deleteStoryWithRefresh(ref, context, storyId);
+    if (!deleted || !mounted) return;
+    Navigator.of(context).pop();
   }
 
   @override
@@ -212,6 +227,15 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
                           icon: const Icon(Icons.close, color: Colors.white),
                           onPressed: () => Navigator.of(context).pop(),
                         ),
+                        if (widget.allowOwnerDelete)
+                          IconButton(
+                            tooltip: 'Delete story',
+                            icon: const Icon(
+                              Icons.delete_outline,
+                              color: Colors.white,
+                            ),
+                            onPressed: _deleteCurrentStory,
+                          ),
                       ],
                     ),
                   ),

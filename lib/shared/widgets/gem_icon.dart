@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+
+import '../../core/constants/app_constants.dart';
 import '../styles/app_brand_styles.dart';
 
-/// Coin / balance icon: same outlined diamond and tint as Account → Explore → Coins.
+/// Coin / balance icon used in the app bar, account section, and creator pricing.
 class GemIcon extends StatelessWidget {
   final double size;
   final Color? color;
@@ -14,10 +16,17 @@ class GemIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Icon(
-      Icons.diamond_outlined,
-      size: size,
-      color: color ?? AppBrandGradients.accountMenuIconTint,
+    return Image.asset(
+      AppConstants.coinsIconAsset,
+      width: size,
+      height: size,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      errorBuilder: (_, __, ___) => Icon(
+        Icons.diamond_outlined,
+        size: size,
+        color: color ?? AppBrandGradients.accountMenuIconTint,
+      ),
     );
   }
 }

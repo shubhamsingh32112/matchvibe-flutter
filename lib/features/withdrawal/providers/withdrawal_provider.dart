@@ -87,6 +87,22 @@ class WithdrawalNotifier extends StateNotifier<WithdrawalState> {
   void clearMessages() {
     state = state.copyWith(error: null, successMessage: null);
   }
+
+  Future<void> loadWithdrawals() async {
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      final list = await _service.getMyWithdrawals();
+      state = state.copyWith(withdrawals: list, isLoading: false);
+    } catch (e) {
+      state = state.copyWith(
+        isLoading: false,
+        error: UserMessageMapper.userMessageFor(
+          e,
+          fallback: 'Could not load withdrawal history.',
+        ),
+      );
+    }
+  }
 }
 
 final withdrawalProvider =

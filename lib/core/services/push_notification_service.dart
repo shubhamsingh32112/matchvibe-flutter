@@ -159,7 +159,9 @@ class PushNotificationService {
         }
       }
     } catch (e) {
-      debugPrint('⚠️ [PUSH] Error removing device token: $e');
+      if (!_isBenignRemoveDeviceError(e)) {
+        debugPrint('⚠️ [PUSH] Error removing device token: $e');
+      }
     }
     _initialized = false;
     _streamClient = null;
@@ -233,6 +235,13 @@ class PushNotificationService {
     );
   }
 
+  bool _isBenignRemoveDeviceError(Object e) {
+    if (e is! StreamChatNetworkError) return false;
+    if (e.statusCode == 404) return true;
+    final message = e.message.toLowerCase();
+    return message.contains('does not have device');
+  }
+
   Future<void> _removeDeviceToken(String token) async {
     try {
       if (_streamClient == null || _streamClient!.state.currentUser == null) {
@@ -241,6 +250,10 @@ class PushNotificationService {
       await _streamClient!.removeDevice(token);
       debugPrint('🗑️ [PUSH] Device token removed from Stream');
     } catch (e) {
+      if (_isBenignRemoveDeviceError(e)) {
+        debugPrint('🔕 [PUSH] Device token was not registered on Stream (ok)');
+        return;
+      }
       debugPrint('⚠️ [PUSH] Error removing device token: $e');
     }
   }

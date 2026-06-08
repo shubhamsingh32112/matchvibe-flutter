@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../shared/styles/app_brand_styles.dart';
 import '../providers/moments_providers.dart';
 import '../services/moments_api_service.dart';
+
+enum CreatorFollowButtonStyle { outlined, compact, profileCard }
 
 class FollowCreatorButton extends ConsumerStatefulWidget {
   const FollowCreatorButton({
@@ -10,13 +13,20 @@ class FollowCreatorButton extends ConsumerStatefulWidget {
     required this.creatorId,
     this.initiallyFollowing,
     this.compact = false,
+    this.style,
     this.onFollowChanged,
   });
 
   final String creatorId;
   final bool? initiallyFollowing;
   final bool compact;
+  final CreatorFollowButtonStyle? style;
   final void Function(bool isFollowing, int followerCount)? onFollowChanged;
+
+  CreatorFollowButtonStyle get _resolvedStyle {
+    if (style != null) return style!;
+    return compact ? CreatorFollowButtonStyle.compact : CreatorFollowButtonStyle.outlined;
+  }
 
   @override
   ConsumerState<FollowCreatorButton> createState() =>
@@ -69,15 +79,64 @@ class _FollowCreatorButtonState extends ConsumerState<FollowCreatorButton> {
   @override
   Widget build(BuildContext context) {
     final following = _following ?? false;
-    if (widget.compact) {
-      return TextButton(
-        onPressed: _busy ? null : _toggle,
-        child: Text(following ? 'Following' : 'Follow'),
-      );
+    final label = following ? 'Following' : 'Follow';
+
+    switch (widget._resolvedStyle) {
+      case CreatorFollowButtonStyle.compact:
+        return TextButton(
+          onPressed: _busy ? null : _toggle,
+          child: Text(label),
+        );
+      case CreatorFollowButtonStyle.profileCard:
+        return Material(
+          color: Colors.white,
+          elevation: 0,
+          shadowColor: Colors.black26,
+          borderRadius: BorderRadius.circular(16),
+          child: InkWell(
+            onTap: _busy ? null : _toggle,
+            borderRadius: BorderRadius.circular(16),
+            child: Ink(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: AppBrandGradients.accountMenuCardShadow,
+              ),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (_busy)
+                    const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  else
+                    Icon(
+                      following ? Icons.person : Icons.person_add_outlined,
+                      color: AppBrandGradients.creatorProfileAccentPink,
+                      size: 22,
+                    ),
+                  const SizedBox(width: 8),
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                      color: Color(0xFF2D2D2D),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      case CreatorFollowButtonStyle.outlined:
+        return OutlinedButton(
+          onPressed: _busy ? null : _toggle,
+          child: Text(label),
+        );
     }
-    return OutlinedButton(
-      onPressed: _busy ? null : _toggle,
-      child: Text(following ? 'Following' : 'Follow'),
-    );
   }
 }

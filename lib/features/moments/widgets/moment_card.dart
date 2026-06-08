@@ -18,6 +18,22 @@ class LockedMomentOverlay extends StatelessWidget {
   final MomentFeedItem item;
   final ValueChanged<MomentFeedItem> onUnlocked;
 
+  String _unlockLabel(MomentFeedItem item) {
+    if (item.vipFreeUnlockAvailable == true ||
+        item.media.vipFreeUnlockAvailable == true) {
+      return 'VIP Free Unlock';
+    }
+    if (item.discountApplied == true || item.media.discountApplied == true) {
+      final original = item.originalPriceCoins ?? item.media.originalPriceCoins;
+      final price = item.unlockPriceCoins ?? item.media.unlockPriceCoins ?? 0;
+      if (original != null && original > price) {
+        return 'VIP: $price Coins (was $original)';
+      }
+      return 'VIP: $price Coins';
+    }
+    return 'Unlock for ${item.unlockPriceCoins ?? item.media.unlockPriceCoins ?? 0} Coins';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Stack(
@@ -39,12 +55,13 @@ class LockedMomentOverlay extends StatelessWidget {
               const Icon(Icons.lock, color: Colors.white, size: 40),
               const SizedBox(height: 12),
               Text(
-                'Unlock for ${item.unlockPriceCoins ?? 0} Coins',
+                _unlockLabel(item),
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
                   fontSize: 16,
                 ),
+                textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
               FilledButton(

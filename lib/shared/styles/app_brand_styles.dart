@@ -65,6 +65,18 @@ class AppBrandGradients {
     ],
   );
 
+  /// VIP membership badge — gold premium accent.
+  static const Color vipBadgeGold = Color(0xFFFFB300);
+
+  static const LinearGradient vipBadgeGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [
+      Color(0xFFFFD54F),
+      Color(0xFFFF8F00),
+    ],
+  );
+
   static const Color avatarCarouselSelectedBorder = AppPalette.primaryRed;
 
   static Color get avatarCarouselUnselectedBorder =>
@@ -155,6 +167,65 @@ class AppBrandGradients {
           color: Colors.black.withValues(alpha: 0.08),
           blurRadius: 16,
           offset: const Offset(0, 6),
+        ),
+      ];
+
+  /// Creator profile primary CTA (Video Call).
+  static const LinearGradient creatorProfileVideoCallGradient = LinearGradient(
+    begin: Alignment.centerLeft,
+    end: Alignment.centerRight,
+    colors: [
+      Color(0xFFFF4081),
+      Color(0xFFFF9800),
+    ],
+  );
+
+  static const Color creatorProfileActiveTabColor = Color(0xFFFF4081);
+
+  static const Color creatorProfileInactiveTabColor = Color(0xFF7C4DFF);
+
+  static const Color creatorProfileAccentPink = Color(0xFFFF4081);
+
+  // ── Moments tab (discovery grid UI) ──
+
+  static const Color momentsPageBackground = Color(0xFFFFFFFF);
+
+  static const Color momentsTitleColor = Color(0xFF2D1B4E);
+
+  static const Color momentsSubtitleColor = Color(0xFF8E8E93);
+
+  static const Color momentsTabActiveColor = Color(0xFFFF4081);
+
+  static const Color momentsTabInactiveColor = Color(0xFF8E8E93);
+
+  static const Color momentsTrophyBackground = Color(0xFFF3F0F7);
+
+  static const LinearGradient momentsStoryRingGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [
+      Color(0xFFFF4081),
+      Color(0xFF7C4DFF),
+      Color(0xFFFF9800),
+    ],
+  );
+
+  static const LinearGradient momentsLiveBadgeGradient = LinearGradient(
+    begin: Alignment.centerLeft,
+    end: Alignment.centerRight,
+    colors: [
+      Color(0xFFFF4081),
+      Color(0xFFFF6B9D),
+    ],
+  );
+
+  static const double momentsCardRadius = 20;
+
+  static List<BoxShadow> get momentsCardShadow => [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: 0.08),
+          blurRadius: 12,
+          offset: const Offset(0, 4),
         ),
       ];
 }

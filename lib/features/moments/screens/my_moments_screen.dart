@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 import '../../../shared/widgets/brand_app_chrome.dart';
 import '../providers/moments_providers.dart';
-import '../services/moments_api_service.dart';
+import '../utils/moment_owner_actions.dart';
 import '../widgets/moment_status_badge.dart';
 import '../widgets/moment_upload_sheet.dart';
 import 'story_viewers_screen.dart';
@@ -61,7 +61,6 @@ class _MyStoriesTab extends ConsumerWidget {
         if (stories.isEmpty) {
           return const Center(child: Text('No active stories'));
         }
-        final api = StoriesApiService();
         return ListView.separated(
           padding: const EdgeInsets.all(16),
           itemCount: stories.length,
@@ -108,28 +107,7 @@ class _MyStoriesTab extends ConsumerWidget {
                         ),
                       );
                     } else if (value == 'delete') {
-                      final ok = await showDialog<bool>(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: const Text('Delete story?'),
-                          content: const Text('This cannot be undone.'),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(ctx, false),
-                              child: const Text('Cancel'),
-                            ),
-                            FilledButton(
-                              onPressed: () => Navigator.pop(ctx, true),
-                              child: const Text('Delete'),
-                            ),
-                          ],
-                        ),
-                      );
-                      if (ok == true) {
-                        await api.deleteStory(story.id);
-                        ref.invalidate(myStoriesProvider);
-                        ref.invalidate(storiesBarProvider);
-                      }
+                      await deleteStoryWithRefresh(ref, context, story.id);
                     }
                   },
                   itemBuilder: (_) => const [
@@ -159,7 +137,6 @@ class _MyPostsTab extends ConsumerWidget {
         if (moments.isEmpty) {
           return const Center(child: Text('No posts yet'));
         }
-        final api = MomentsApiService();
         return ListView.separated(
           padding: const EdgeInsets.all(16),
           itemCount: moments.length,
@@ -201,33 +178,12 @@ class _MyPostsTab extends ConsumerWidget {
                 ),
                 trailing: IconButton(
                   icon: const Icon(Icons.delete_outline),
-                  onPressed: () async {
-                    final ok = await showDialog<bool>(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text('Delete post?'),
-                        content: const Text(
-                          'Paid posts remain accessible to users who already purchased.',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(ctx, false),
-                            child: const Text('Cancel'),
-                          ),
-                          FilledButton(
-                            onPressed: () => Navigator.pop(ctx, true),
-                            child: const Text('Delete'),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (ok == true) {
-                      await api.deleteMoment(moment.id);
-                      ref.invalidate(myMomentsProvider);
-                      ref.invalidate(forYouFeedProvider);
-                      ref.invalidate(creatorMomentsAnalyticsProvider);
-                    }
-                  },
+                  onPressed: () => deleteMomentWithRefresh(
+                    ref,
+                    context,
+                    moment.id,
+                    creatorId: moment.creatorId,
+                  ),
                 ),
               ),
             );

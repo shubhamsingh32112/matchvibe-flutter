@@ -41,6 +41,7 @@ import '../../core/services/permission_reconciliation_service.dart';
 import '../../features/referral/services/referral_service.dart';
 import '../../features/referral/widgets/agency_referral_apply_dialog.dart';
 import '../../features/referral/utils/host_onboarding_routes.dart';
+import '../../features/vip/widgets/vip_call_queue_overlay.dart';
 import '../../shared/models/user_model.dart';
 
 /// Widget that wraps the app and handles lifecycle events.
@@ -504,6 +505,26 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     }
 
     if (uri.scheme != 'zztherapy') return;
+
+    if (uri.host == 'vip') {
+      final checkoutTxn =
+          SentryService.startTransaction('vip.checkout_return', 'navigation');
+      try {
+        await _handleVipPaymentDeepLink(uri);
+      } catch (e, stackTrace) {
+        unawaited(
+          SentryService.captureException(
+            e,
+            stackTrace: stackTrace,
+            tags: {'feature': 'vip_checkout_return'},
+          ),
+        );
+      } finally {
+        unawaited(checkoutTxn.finish());
+      }
+      return;
+    }
+
     if (uri.host != 'wallet') return;
 
     final checkoutTxn =
@@ -520,6 +541,39 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       );
     } finally {
       unawaited(checkoutTxn.finish());
+    }
+  }
+
+  Future<void> _handleVipPaymentDeepLink(Uri uri) async {
+    final paymentStatus =
+        uri.queryParameters['status'] ?? uri.queryParameters['payment'];
+    if (paymentStatus == null || paymentStatus.isEmpty) return;
+
+    if (!await _shouldHandlePaymentDeepLink(uri, paymentStatus)) {
+      debugPrint('⏭️  [APP LINKS] Ignoring duplicate VIP deep link: $uri');
+      return;
+    }
+
+    final deepLinkMessage = uri.queryParameters['message'];
+
+    if (paymentStatus == 'success') {
+      await ref.read(authProvider.notifier).refreshUser();
+      if (!mounted) return;
+      appRouter.go('/vip');
+      AppToast.showSuccess(
+        context,
+        deepLinkMessage ?? 'VIP membership activated!',
+      );
+      return;
+    }
+
+    if (paymentStatus == 'failed') {
+      if (!mounted) return;
+      appRouter.go('/vip');
+      AppToast.showError(
+        context,
+        deepLinkMessage ?? 'VIP payment failed or was cancelled. Please try again.',
+      );
     }
   }
 
@@ -1136,6 +1190,6 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
   @override
   Widget build(BuildContext context) {
     ref.watch(authProvider.select((s) => s.isAuthenticated));
-    return widget.child;
+    return VipCallQueueOverlay(child: widget.child);
   }
 }

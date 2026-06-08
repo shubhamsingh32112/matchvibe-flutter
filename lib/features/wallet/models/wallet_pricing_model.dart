@@ -2,6 +2,8 @@ class WalletCoinPack {
   final int coins;
   final int priceInr;
   final int? oldPriceInr;
+  final int? originalPriceInr;
+  final bool vipDiscountApplied;
   final String? badge;
   final int sortOrder;
 
@@ -10,6 +12,8 @@ class WalletCoinPack {
     required this.priceInr,
     required this.sortOrder,
     this.oldPriceInr,
+    this.originalPriceInr,
+    this.vipDiscountApplied = false,
     this.badge,
   });
 
@@ -18,6 +22,8 @@ class WalletCoinPack {
       coins: (json['coins'] as num?)?.toInt() ?? 0,
       priceInr: (json['priceInr'] as num?)?.toInt() ?? 0,
       oldPriceInr: (json['oldPriceInr'] as num?)?.toInt(),
+      originalPriceInr: (json['originalPriceInr'] as num?)?.toInt(),
+      vipDiscountApplied: json['vipDiscountApplied'] == true,
       badge: json['badge'] as String?,
       sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
     );
