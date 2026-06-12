@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../../../core/config/app_config_provider.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/loader_bg_wordmark_cover.dart';
@@ -87,6 +88,8 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     final deadline = DateTime.now().add(const Duration(seconds: 20));
 
     try {
+      await ref.read(appConfigProvider.notifier).load();
+
       while (mounted && DateTime.now().isBefore(deadline)) {
         final s = ref.read(authProvider);
         final firebaseUser = FirebaseAuth.instance.currentUser;

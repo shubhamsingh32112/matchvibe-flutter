@@ -34,6 +34,7 @@ import '../../moments/screens/creator_moment_viewer_screen.dart';
 import '../../moments/utils/moment_owner_actions.dart';
 import '../../moments/widgets/follow_creator_button.dart';
 import '../../video/controllers/call_connection_controller.dart';
+import '../../../core/config/app_config_provider.dart';
 import '../../vip/widgets/schedule_call_sheet.dart';
 import '../../vip/widgets/vip_upsell_dialog.dart';
 import '../../video/providers/call_billing_provider.dart';
@@ -321,6 +322,7 @@ class _CreatorProfileScreenState extends ConsumerState<CreatorProfileScreen> {
     );
     final isRegularUser = userRole == 'user';
     final isVip = ref.watch(authProvider.select((s) => s.user?.isVipActive == true));
+    final vipEnabled = ref.watch(appFeaturesProvider).vipEnabled;
     final callVariant = welcomeFreeCallEligible
         ? CallButtonVariant.welcomeFree
         : CallButtonVariant.normal;
@@ -378,26 +380,28 @@ class _CreatorProfileScreenState extends ConsumerState<CreatorProfileScreen> {
                         onPressed: onCall,
                       ),
                     ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      flex: 2,
-                      child: _CreatorProfileScheduleCallButton(
-                        isHostOnline:
-                            availability == CreatorAvailability.online,
-                        onPressed: () {
-                          if (isVip) {
-                            showScheduleCallSheet(
-                              context: context,
-                              ref: ref,
-                              creatorId: merged.id,
-                              creatorName: merged.name,
-                            );
-                          } else {
-                            showVipExclusiveFeatureDialog(context);
-                          }
-                        },
+                    if (vipEnabled) ...[
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        flex: 2,
+                        child: _CreatorProfileScheduleCallButton(
+                          isHostOnline:
+                              availability == CreatorAvailability.online,
+                          onPressed: () {
+                            if (isVip) {
+                              showScheduleCallSheet(
+                                context: context,
+                                ref: ref,
+                                creatorId: merged.id,
+                                creatorName: merged.name,
+                              );
+                            } else {
+                              showVipExclusiveFeatureDialog(context);
+                            }
+                          },
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: AppSpacing.sm),

@@ -121,46 +121,50 @@ class MomentsGridCard extends StatelessWidget {
                 left: 10,
                 right: 10,
                 bottom: 10,
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 11,
-                      backgroundColor: Colors.white24,
-                      backgroundImage: item.creatorAvatarUrl != null &&
-                              item.creatorAvatarUrl!.isNotEmpty
-                          ? NetworkImage(item.creatorAvatarUrl!)
-                          : null,
-                      child: item.creatorAvatarUrl == null ||
-                              item.creatorAvatarUrl!.isEmpty
-                          ? const Icon(Icons.person, size: 12, color: Colors.white70)
-                          : null,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              item.creatorName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 11,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onViewCreator,
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 11,
+                        backgroundColor: Colors.white24,
+                        backgroundImage: item.creatorAvatarUrl != null &&
+                                item.creatorAvatarUrl!.isNotEmpty
+                            ? NetworkImage(item.creatorAvatarUrl!)
+                            : null,
+                        child: item.creatorAvatarUrl == null ||
+                                item.creatorAvatarUrl!.isEmpty
+                            ? const Icon(Icons.person, size: 12, color: Colors.white70)
+                            : null,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                item.creatorName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 11,
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 2),
-                          const Icon(
-                            Icons.verified,
-                            size: 13,
-                            color: AppBrandGradients.momentsTabActiveColor,
-                          ),
-                        ],
+                            const SizedBox(width: 2),
+                            const Icon(
+                              Icons.verified,
+                              size: 13,
+                              color: AppBrandGradients.momentsTabActiveColor,
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ],

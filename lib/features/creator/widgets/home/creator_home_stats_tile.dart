@@ -178,7 +178,10 @@ class _CreatorHomeStatsTileState extends ConsumerState<CreatorHomeStatsTile> {
         decoration: CreatorHomeTokens.cardDecoration(),
         child: Column(
           children: [
-            const Text('Could not load stats'),
+            const Text(
+              'Could not load stats',
+              style: TextStyle(color: CreatorHomeTokens.textPrimary),
+            ),
             TextButton(
               onPressed: () => ref.invalidate(creatorDashboardProvider),
               child: const Text('Retry'),

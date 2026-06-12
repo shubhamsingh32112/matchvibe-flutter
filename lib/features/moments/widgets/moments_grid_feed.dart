@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../providers/moments_providers.dart';
 import '../models/moments_models.dart';
 import 'moments_add_center_button.dart';
 import 'moments_grid_card.dart';
@@ -9,6 +10,8 @@ class MomentsGridFeed extends StatefulWidget {
   const MomentsGridFeed({
     super.key,
     required this.items,
+    required this.viewerItems,
+    this.mediaFilter = MomentsMediaFilter.all,
     this.onLoadMore,
     required this.onItemUpdated,
     this.onCreatorTap,
@@ -19,6 +22,8 @@ class MomentsGridFeed extends StatefulWidget {
   });
 
   final List<MomentFeedItem> items;
+  final List<MomentFeedItem> viewerItems;
+  final MomentsMediaFilter mediaFilter;
   final VoidCallback? onLoadMore;
   final void Function(int index, MomentFeedItem item) onItemUpdated;
   final void Function(String creatorId)? onCreatorTap;
@@ -58,11 +63,15 @@ class _MomentsGridFeedState extends State<MomentsGridFeed> {
   }
 
   void _openViewer(int index) {
+    final tapped = widget.items[index];
+    final viewerIndex =
+        widget.viewerItems.indexWhere((item) => item.id == tapped.id);
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => CreatorMomentViewerScreen(
-          items: widget.items,
-          initialIndex: index,
+          items: widget.viewerItems,
+          initialIndex: viewerIndex >= 0 ? viewerIndex : index,
+          initialMediaFilter: widget.mediaFilter,
         ),
       ),
     );

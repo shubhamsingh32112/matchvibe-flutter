@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/creator_home_tokens.dart';
+
 /// Single stat cell matching the creator home reference (icon + value).
 class CreatorHomeStatColumn extends StatelessWidget {
   const CreatorHomeStatColumn({
@@ -18,7 +20,7 @@ class CreatorHomeStatColumn extends StatelessWidget {
   final String? unitSuffix;
   final FontWeight valueFontWeight;
 
-  static const _valueColor = Color(0xFF1B1B33);
+  static const _valueColor = CreatorHomeTokens.textPrimary;
   static const double _valueFontSize = 15;
   static const double _unitFontSize = 11;
 
@@ -91,7 +93,7 @@ class CreatorHomeStatDivider extends StatelessWidget {
     return Container(
       width: 1,
       margin: const EdgeInsets.symmetric(vertical: 6),
-      color: const Color(0xFFE6E6EB),
+      color: CreatorHomeTokens.cardDivider,
     );
   }
 }

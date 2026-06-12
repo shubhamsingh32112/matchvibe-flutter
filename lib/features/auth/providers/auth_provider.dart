@@ -24,10 +24,12 @@ import '../../../core/utils/referral_apply_messages.dart';
 import '../../../core/utils/referral_code_format.dart';
 import '../../referral/services/referral_service.dart';
 import '../../../app/router/app_router.dart';
+import '../../../core/config/app_config_model.dart';
+import '../../../core/config/app_config_provider.dart';
 import '../../../shared/widgets/app_toast.dart';
 
 final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
-  return AuthNotifier();
+  return AuthNotifier(ref);
 });
 
 class AuthState {
@@ -69,6 +71,11 @@ class AuthState {
 }
 
 class AuthNotifier extends StateNotifier<AuthState> {
+  AuthNotifier(this._ref) : super(AuthState()) {
+    _initialize();
+  }
+
+  final Ref? _ref;
   FirebaseAuth? _auth;
   ApiClient get _apiClient => ApiClient();
   bool _isInitializing = false;
@@ -81,13 +88,19 @@ class AuthNotifier extends StateNotifier<AuthState> {
   bool _isSyncingToBackend = false;
   String? _lastSyncedUid;
 
-  AuthNotifier() : super(AuthState()) {
-    _initialize();
+  @visibleForTesting
+  AuthNotifier.testInitial(AuthState initial) : _ref = null, super(initial) {
+    _isInitializing = true;
   }
 
-  @visibleForTesting
-  AuthNotifier.testInitial(AuthState initial) : super(initial) {
-    _isInitializing = true;
+  void _syncFeaturesFromResponse(Map<String, dynamic> responseData) {
+    final ref = _ref;
+    if (ref == null) return;
+    final featuresJson = responseData['features'] as Map<String, dynamic>?;
+    if (featuresJson == null) return;
+    ref.read(appConfigProvider.notifier).applyFeatures(
+          AppFeatures.fromJson(featuresJson),
+        );
   }
 
   Future<void> _initialize() async {
@@ -518,6 +531,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
           debugPrint('   👤 Creator Name: ${creatorData['name']}');
           debugPrint('   💰 Price: ${creatorData['price']}');
         }
+
+        _syncFeaturesFromResponse(responseData);
 
         debugPrint('───────────────────────────────────────────────────────');
         debugPrint('✅ [AUTH] Backend sync successful');
@@ -1089,6 +1104,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
         }
 
         debugPrint('   💰 Updated coins balance: ${user.coins}');
+
+        _syncFeaturesFromResponse(responseData);
 
         // Update state with refreshed user data
         state = state.copyWith(user: user, isLoading: false);

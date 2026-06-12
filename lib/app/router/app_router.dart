@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/config/app_config_model.dart';
 import '../../core/utils/user_message_mapper.dart';
 import '../../features/auth/screens/splash_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
@@ -22,7 +23,7 @@ import '../../features/wallet/screens/wallet_screen.dart';
 import '../../features/wallet/screens/payment_status_screen.dart';
 import '../../features/wallet/screens/transactions_screen.dart';
 import '../../features/account/screens/become_creator_screen.dart';
-import '../../features/account/screens/help_support_screen.dart';
+import '../../features/account/screens/moments_plan_screen.dart';
 import '../../features/creator/screens/creator_tasks_screen.dart';
 import '../../features/creator/screens/creator_leaderboard_screen.dart';
 import '../../features/chat/screens/chat_screen.dart';
@@ -88,22 +89,42 @@ final appRouter = GoRouter(
           ),
     GoRoute(
       path: '/moments',
+      redirect: (context, state) {
+        if (!appConfigSnapshot.features.momentsEnabled) return '/home';
+        return null;
+      },
       builder: (context, state) => const MomentsScreen(),
     ),
     GoRoute(
       path: '/account/my-moments',
+      redirect: (context, state) {
+        if (!appConfigSnapshot.features.momentsEnabled) return '/home';
+        return null;
+      },
       builder: (context, state) => const MyMomentsScreen(),
     ),
     GoRoute(
       path: '/vip',
+      redirect: (context, state) {
+        if (!appConfigSnapshot.features.vipEnabled) return '/home';
+        return null;
+      },
       builder: (context, state) => const VipScreen(),
     ),
     GoRoute(
       path: '/vip/scheduled',
+      redirect: (context, state) {
+        if (!appConfigSnapshot.features.vipEnabled) return '/home';
+        return null;
+      },
       builder: (context, state) => const ScheduledCallsScreen(),
     ),
     GoRoute(
       path: '/vip/incoming-scheduled',
+      redirect: (context, state) {
+        if (!appConfigSnapshot.features.vipEnabled) return '/home';
+        return null;
+      },
       builder: (context, state) => const CreatorIncomingScheduledCallsScreen(),
     ),
     GoRoute(
@@ -153,7 +174,7 @@ final appRouter = GoRouter(
           ),
           GoRoute(
             path: '/help-support',
-            builder: (context, state) => const HelpSupportScreen(),
+            redirect: (context, state) => '/support',
           ),
           GoRoute(
             path: '/account/settings',
@@ -170,6 +191,14 @@ final appRouter = GoRouter(
           GoRoute(
             path: '/account/become-creator',
             builder: (context, state) => const BecomeCreatorScreen(),
+          ),
+          GoRoute(
+            path: '/account/moments-plan',
+            redirect: (context, state) {
+              if (!appConfigSnapshot.features.momentsEnabled) return '/home';
+              return null;
+            },
+            builder: (context, state) => const MomentsPlanScreen(),
           ),
           GoRoute(
             path: '/creator/tasks',

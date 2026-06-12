@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../app/widgets/app_nav_index.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/utils/user_message_mapper.dart';
@@ -195,7 +196,7 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
         .fold<int>(0, (sum, t) => sum + t.amount);
 
     return MainLayout(
-      selectedIndex: 4,
+      selectedIndex: appNavSelectedIndex(ref, '/account'),
       accountMenuStyle: true,
       appBar: buildAccountFlowAppBar(
         context,

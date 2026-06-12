@@ -1,9 +1,26 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../core/utils/user_message_mapper.dart';
+import '../../../shared/models/creator_model.dart';
+import '../../../shared/providers/coin_purchase_popup_provider.dart';
+import '../../../shared/widgets/app_toast.dart';
+import '../../auth/providers/auth_provider.dart';
+import '../../chat/services/chat_service.dart';
+import '../../creator/providers/creator_dashboard_provider.dart';
+import '../../home/providers/home_provider.dart';
+import '../../home/utils/creator_location_display.dart';
+import '../../home/widgets/creator_profile_screen.dart';
+import '../../video/controllers/call_connection_controller.dart';
+import '../../video/utils/call_admission_constants.dart';
 import '../models/moments_models.dart';
+import '../providers/moments_providers.dart';
 import '../utils/moment_owner_actions.dart';
 import '../widgets/moment_card.dart';
+import '../widgets/moment_viewer_chrome.dart';
 
 class CreatorMomentViewerScreen extends ConsumerStatefulWidget {
   const CreatorMomentViewerScreen({
@@ -12,12 +29,14 @@ class CreatorMomentViewerScreen extends ConsumerStatefulWidget {
     required this.initialIndex,
     this.allowOwnerDelete = false,
     this.creatorId,
+    this.initialMediaFilter = MomentsMediaFilter.all,
   });
 
   final List<MomentFeedItem> items;
   final int initialIndex;
   final bool allowOwnerDelete;
   final String? creatorId;
+  final MomentsMediaFilter initialMediaFilter;
 
   @override
   ConsumerState<CreatorMomentViewerScreen> createState() =>
@@ -27,14 +46,32 @@ class CreatorMomentViewerScreen extends ConsumerStatefulWidget {
 class _CreatorMomentViewerScreenState
     extends ConsumerState<CreatorMomentViewerScreen> {
   late final PageController _controller;
-  late List<MomentFeedItem> _items;
+  late List<MomentFeedItem> _allItems;
+  late MomentsMediaFilter _mediaFilter;
   late int _currentIndex;
+  bool _isVideoMuted = true;
+  bool _isInitiatingCall = false;
+  bool _isOpeningChat = false;
+
+  List<MomentFeedItem> get _visibleItems =>
+      applyMediaFilter(_allItems, _mediaFilter);
+
+  MomentFeedItem? get _currentItem {
+    final items = _visibleItems;
+    if (items.isEmpty || _currentIndex >= items.length) return null;
+    return items[_currentIndex];
+  }
 
   @override
   void initState() {
     super.initState();
-    _items = List.of(widget.items);
-    _currentIndex = widget.initialIndex.clamp(0, _items.length - 1);
+    _allItems = List.of(widget.items);
+    _mediaFilter = widget.initialMediaFilter;
+    final visible = _visibleItems;
+    final startItem = widget.items[
+        widget.initialIndex.clamp(0, widget.items.length - 1)];
+    final visibleStart = visible.indexWhere((item) => item.id == startItem.id);
+    _currentIndex = visibleStart >= 0 ? visibleStart : 0;
     _controller = PageController(initialPage: _currentIndex);
   }
 
@@ -44,9 +81,27 @@ class _CreatorMomentViewerScreenState
     super.dispose();
   }
 
+  void _onFilterChanged(MomentsMediaFilter filter) {
+    if (filter == _mediaFilter) return;
+    final current = _currentItem;
+    setState(() {
+      _mediaFilter = filter;
+      if (current != null) {
+        final nextVisible = applyMediaFilter(_allItems, filter);
+        final nextIndex = nextVisible.indexWhere((item) => item.id == current.id);
+        _currentIndex = nextIndex >= 0 ? nextIndex : 0;
+      } else {
+        _currentIndex = 0;
+      }
+    });
+    if (_controller.hasClients) {
+      _controller.jumpToPage(_currentIndex);
+    }
+  }
+
   Future<void> _deleteCurrent() async {
-    if (_items.isEmpty) return;
-    final item = _items[_currentIndex];
+    final item = _currentItem;
+    if (item == null) return;
     final deleted = await deleteMomentWithRefresh(
       ref,
       context,
@@ -56,38 +111,276 @@ class _CreatorMomentViewerScreenState
     if (!deleted || !mounted) return;
 
     setState(() {
-      _items.removeAt(_currentIndex);
-      if (_items.isEmpty) {
+      _allItems.removeWhere((m) => m.id == item.id);
+      final visible = _visibleItems;
+      if (visible.isEmpty) {
         Navigator.of(context).pop();
         return;
       }
-      if (_currentIndex >= _items.length) {
-        _currentIndex = _items.length - 1;
+      if (_currentIndex >= visible.length) {
+        _currentIndex = visible.length - 1;
       }
     });
   }
 
+  String? _normalizedFirebaseUid(String? raw) {
+    if (raw == null) return null;
+    final trimmed = raw.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  Future<void> _openCreatorChat(CreatorModel creator) async {
+    if (_isOpeningChat) return;
+
+    setState(() => _isOpeningChat = true);
+    try {
+      final chatService = ChatService();
+      final result = await chatService.createOrGetChannel(creator.userId);
+      final channelId = result['channelId'] as String?;
+
+      if (channelId != null && mounted) {
+        context.push('/chat/$channelId');
+      }
+    } catch (e) {
+      if (mounted) {
+        AppToast.showError(
+          context,
+          UserMessageMapper.userMessageFor(
+            e,
+            fallback: 'Couldn\'t open chat. Please try again.',
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isOpeningChat = false);
+    }
+  }
+
+  Future<void> _initiateVideoCall(CreatorModel creator) async {
+    if (_isInitiatingCall) return;
+
+    final creatorFirebaseUid = _normalizedFirebaseUid(creator.firebaseUid);
+    if (creatorFirebaseUid == null) {
+      if (mounted) {
+        AppToast.showError(context, 'Creator information not available');
+      }
+      return;
+    }
+
+    final user = ref.read(authProvider).user;
+    if (user != null && user.spendableCallCoins < kMinCoinsToCall) {
+      if (mounted) {
+        ref.read(coinPurchasePopupProvider.notifier).state = CoinPopupIntent(
+          reason: 'preflight_low_coins_moment_viewer',
+          dedupeKey: 'low-coins-moment-${creator.id}',
+          remoteDisplayName: creator.name,
+          remotePhotoUrl: creator.feedTileUrl,
+          remoteFirebaseUid: creatorFirebaseUid,
+        );
+      }
+      return;
+    }
+
+    setState(() => _isInitiatingCall = true);
+    try {
+      await ref.read(callConnectionControllerProvider.notifier).startUserCall(
+            creatorFirebaseUid: creatorFirebaseUid,
+            creatorMongoId: creator.id,
+            creatorImageUrl: creator.feedTileUrl,
+            creatorName: creator.name,
+            creatorAge: creatorDisplayAge(creator),
+            creatorCountry: creatorDisplayCountry(creator),
+          );
+    } finally {
+      if (mounted) setState(() => _isInitiatingCall = false);
+    }
+  }
+
+  void _onFollowChanged(String creatorId, bool isFollowing) {
+    setState(() {
+      _allItems = _allItems
+          .map(
+            (item) => item.creatorId == creatorId
+                ? item.copyWith(isFollowing: isFollowing)
+                : item,
+          )
+          .toList();
+    });
+  }
+
+  void _showMoreMenu() {
+    final item = _currentItem;
+    if (item == null) return;
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E1E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.person_outline, color: Colors.white),
+                title: const Text(
+                  'View creator profile',
+                  style: TextStyle(color: Colors.white),
+                ),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  openCreatorProfile(context, ref, item.creatorId);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.flag_outlined, color: Colors.white),
+                title: const Text(
+                  'Report',
+                  style: TextStyle(color: Colors.white),
+                ),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Report submitted. Thank you.'),
+                    ),
+                  );
+                },
+              ),
+              if (widget.allowOwnerDelete)
+                ListTile(
+                  leading: const Icon(Icons.delete_outline, color: Colors.white),
+                  title: const Text(
+                    'Delete post',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    unawaited(_deleteCurrent());
+                  },
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (_items.isEmpty) {
-      return const Scaffold(
+    ref.listen<CallConnectionState>(callConnectionControllerProvider, (
+      prev,
+      next,
+    ) {
+      if (_isInitiatingCall &&
+          next.phase == CallConnectionPhase.failed &&
+          next.error != null &&
+          mounted) {
+        AppToast.showError(context, next.error!);
+      }
+    });
+
+    final visibleItems = _visibleItems;
+    if (visibleItems.isEmpty) {
+      return Scaffold(
         backgroundColor: Colors.black,
-        body: SizedBox.shrink(),
+        appBar: buildMomentViewerAppBar(
+          context,
+          mediaFilter: _mediaFilter,
+          onFilterChanged: _onFilterChanged,
+          itemCount: 0,
+          currentIndex: 0,
+        ),
+        body: const Center(
+          child: Text(
+            'No moments match this filter',
+            style: TextStyle(color: Colors.white70),
+          ),
+        ),
+      );
+    }
+
+    final currentItem = _currentItem!;
+    final ownCreatorId = ref.watch(
+      creatorDashboardProvider.select((a) => a.valueOrNull?.creatorProfile.id),
+    );
+    final viewingOwnMoment = widget.allowOwnerDelete ||
+        (ownCreatorId != null && ownCreatorId == currentItem.creatorId);
+    final showContactActions = !viewingOwnMoment;
+
+    final creatorAsync = showContactActions
+        ? ref.watch(creatorDetailProvider(currentItem.creatorId))
+        : null;
+
+    Widget? contactBar;
+    if (showContactActions && creatorAsync != null) {
+      contactBar = creatorAsync.when(
+        data: (creator) => MomentViewerBottomBar(
+          creatorId: currentItem.creatorId,
+          creatorName: creator.name,
+          countryFlag: creatorLocationFlagEmoji(creator.location),
+          isFollowing: currentItem.isFollowing,
+          isOpeningChat: _isOpeningChat,
+          isCalling: _isInitiatingCall,
+          onFollowChanged: (isFollowing, _) =>
+              _onFollowChanged(currentItem.creatorId, isFollowing),
+          onChatPressed: _isOpeningChat
+              ? null
+              : () => unawaited(_openCreatorChat(creator)),
+          onVideoCallPressed: _isInitiatingCall
+              ? null
+              : () => unawaited(_initiateVideoCall(creator)),
+        ),
+        loading: () => MomentViewerBottomBar(
+          creatorId: currentItem.creatorId,
+          creatorName: currentItem.creatorName,
+          countryFlag: creatorLocationFlagEmoji(null),
+          isFollowing: currentItem.isFollowing,
+          isOpeningChat: _isOpeningChat,
+          isCalling: _isInitiatingCall,
+          onFollowChanged: (isFollowing, _) =>
+              _onFollowChanged(currentItem.creatorId, isFollowing),
+          onChatPressed: null,
+          onVideoCallPressed: null,
+        ),
+        error: (_, __) => MomentViewerBottomBar(
+          creatorId: currentItem.creatorId,
+          creatorName: currentItem.creatorName,
+          countryFlag: creatorLocationFlagEmoji(null),
+          isFollowing: currentItem.isFollowing,
+          isOpeningChat: _isOpeningChat,
+          isCalling: _isInitiatingCall,
+          onFollowChanged: (isFollowing, _) =>
+              _onFollowChanged(currentItem.creatorId, isFollowing),
+          onChatPressed: null,
+          onVideoCallPressed: null,
+        ),
       );
     }
 
     return Scaffold(
       backgroundColor: Colors.black,
+      appBar: buildMomentViewerAppBar(
+        context,
+        mediaFilter: _mediaFilter,
+        onFilterChanged: _onFilterChanged,
+        itemCount: visibleItems.length,
+        currentIndex: _currentIndex,
+        onMorePressed: _showMoreMenu,
+      ),
       body: Stack(
+        fit: StackFit.expand,
         children: [
           PageView.builder(
             controller: _controller,
             scrollDirection: Axis.vertical,
             allowImplicitScrolling: false,
             onPageChanged: (index) => setState(() => _currentIndex = index),
-            itemCount: _items.length,
+            itemCount: visibleItems.length,
             itemBuilder: (context, index) {
-              final item = _items[index];
+              final item = visibleItems[index];
               final distance = (index - _currentIndex).abs();
               if (distance > 1) {
                 return ColoredBox(
@@ -105,31 +398,35 @@ class _CreatorMomentViewerScreenState
               return MomentCard(
                 key: ValueKey(item.id),
                 item: item,
+                viewerLayout: true,
                 playbackContext: 'profile',
                 playerInitDelay: initDelay,
+                isVideoMuted: _isVideoMuted,
+                bottomOverlayInset: showContactActions ? 140 : 0,
+                onMuteToggle: () =>
+                    setState(() => _isVideoMuted = !_isVideoMuted),
                 onItemUpdated: (updated) {
-                  setState(() => _items[index] = updated);
+                  setState(() {
+                    final allIndex =
+                        _allItems.indexWhere((m) => m.id == updated.id);
+                    if (allIndex >= 0) {
+                      _allItems[allIndex] = updated;
+                    }
+                  });
                 },
+                onCreatorTap: () =>
+                    openCreatorProfile(context, ref, item.creatorId),
+                onReport: _showMoreMenu,
               );
             },
           ),
-          SafeArea(
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.close, color: Colors.white),
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-                const Spacer(),
-                if (widget.allowOwnerDelete)
-                  IconButton(
-                    tooltip: 'Delete post',
-                    icon: const Icon(Icons.delete_outline, color: Colors.white),
-                    onPressed: _deleteCurrent,
-                  ),
-              ],
+          if (contactBar != null)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: SafeArea(top: false, child: contactBar),
             ),
-          ),
         ],
       ),
     );

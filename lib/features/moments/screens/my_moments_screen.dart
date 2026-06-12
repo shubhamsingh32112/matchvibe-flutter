@@ -6,45 +6,85 @@ import '../../../shared/widgets/brand_app_chrome.dart';
 import '../providers/moments_providers.dart';
 import '../utils/moment_owner_actions.dart';
 import '../widgets/moment_status_badge.dart';
-import '../widgets/moment_upload_sheet.dart';
+import '../widgets/moments_upload_flow.dart';
 import 'story_viewers_screen.dart';
 
-class MyMomentsScreen extends ConsumerWidget {
+class MyMomentsScreen extends ConsumerStatefulWidget {
   const MyMomentsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return DefaultTabController(
-      length: 3,
-      child: Scaffold(
-        backgroundColor: AppBrandGradients.accountMenuPageBackground,
-        appBar: buildAccountFlowAppBar(
-          context,
-          title: 'My Moments',
-          bottom: const TabBar(
-            labelColor: Colors.white,
-            unselectedLabelColor: Colors.white70,
-            indicatorColor: Colors.white,
-            tabs: [
-              Tab(text: 'Stories'),
-              Tab(text: 'Posts'),
-              Tab(text: 'Analytics'),
-            ],
-          ),
-        ),
-        floatingActionButton: FloatingActionButton(
-          backgroundColor: AppBrandGradients.accountMenuIconTint,
-          foregroundColor: Colors.white,
-          onPressed: () => showMomentUploadSheet(context),
-          child: const Icon(Icons.add),
-        ),
-        body: const TabBarView(
-          children: [
-            _MyStoriesTab(),
-            _MyPostsTab(),
-            _AnalyticsTab(),
+  ConsumerState<MyMomentsScreen> createState() => _MyMomentsScreenState();
+}
+
+class _MyMomentsScreenState extends ConsumerState<MyMomentsScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) {
+        setState(() {});
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  void _onFabPressed() {
+    switch (_tabController.index) {
+      case 0:
+        startStoryUploadFlow(context, ref);
+      case 1:
+        startMomentUploadFlow(context, ref);
+      default:
+        break;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tabIndex = _tabController.index;
+    final showFab = tabIndex == 0 || tabIndex == 1;
+
+    return Scaffold(
+      backgroundColor: AppBrandGradients.accountMenuPageBackground,
+      appBar: buildAccountFlowAppBar(
+        context,
+        title: 'My Moments',
+        bottom: TabBar(
+          controller: _tabController,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          indicatorColor: Colors.white,
+          tabs: const [
+            Tab(text: 'Stories'),
+            Tab(text: 'Posts'),
+            Tab(text: 'Analytics'),
           ],
         ),
+      ),
+      floatingActionButton: showFab
+          ? FloatingActionButton(
+              backgroundColor: AppBrandGradients.accountMenuIconTint,
+              foregroundColor: Colors.white,
+              onPressed: _onFabPressed,
+              child: const Icon(Icons.add),
+            )
+          : null,
+      body: TabBarView(
+        controller: _tabController,
+        children: const [
+          _MyStoriesTab(),
+          _MyPostsTab(),
+          _AnalyticsTab(),
+        ],
       ),
     );
   }

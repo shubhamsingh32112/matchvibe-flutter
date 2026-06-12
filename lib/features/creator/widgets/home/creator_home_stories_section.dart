@@ -6,7 +6,7 @@ import '../../../moments/models/moments_models.dart';
 import '../../../moments/providers/moments_providers.dart';
 import '../../../moments/screens/story_viewer_screen.dart';
 import '../../../moments/utils/moment_owner_actions.dart';
-import '../../../moments/widgets/moment_upload_sheet.dart';
+import '../../../moments/widgets/moments_upload_flow.dart';
 import '../../../../shared/styles/app_brand_styles.dart';
 import '../../providers/creator_dashboard_provider.dart';
 import '../../theme/creator_home_tokens.dart';
@@ -38,6 +38,7 @@ class CreatorHomeStoriesSection extends ConsumerWidget {
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
+                  color: CreatorHomeTokens.textPrimary,
                 ),
               ),
               TextButton(
@@ -65,10 +66,7 @@ class CreatorHomeStoriesSection extends ConsumerWidget {
                   itemBuilder: (context, index) {
                     if (index == 0) {
                       return _AddStoryButton(
-                        onTap: () => showMomentUploadSheet(
-                          context,
-                          initialType: MomentsUploadContentType.story,
-                        ),
+                        onTap: () => startStoryUploadFlow(context, ref),
                       );
                     }
                     if (index <= myStories.length) {
@@ -141,10 +139,7 @@ class CreatorHomeStoriesSection extends ConsumerWidget {
                 scrollDirection: Axis.horizontal,
                 children: [
                   _AddStoryButton(
-                    onTap: () => showMomentUploadSheet(
-                      context,
-                      initialType: MomentsUploadContentType.story,
-                    ),
+                    onTap: () => startStoryUploadFlow(context, ref),
                   ),
                 ],
               ),
@@ -250,7 +245,10 @@ class _StoryCircle extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 11),
+              style: const TextStyle(
+                fontSize: 11,
+                color: CreatorHomeTokens.textPrimary,
+              ),
             ),
           ),
           if (subtitle.isNotEmpty)

@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../app/widgets/app_nav_destinations.dart';
+import '../../../app/widgets/app_nav_index.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../home/widgets/creator_profile_screen.dart';
 import '../models/moments_models.dart';
 import '../providers/moments_providers.dart';
-import '../widgets/moment_upload_sheet.dart';
+import '../widgets/moments_upload_flow.dart';
 import '../widgets/moments_add_center_button.dart';
 import '../widgets/moments_feed_tab_bar.dart';
 import '../widgets/moments_grid_feed.dart';
@@ -29,14 +29,10 @@ class MomentsScreen extends ConsumerWidget {
         (s) => s.user?.role == 'creator' || s.user?.role == 'admin',
       ),
     );
-    void openPostReelSheet() => showMomentUploadSheet(
-          context,
-          initialType: MomentsUploadContentType.moment,
-          initialMediaKind: MomentsMediaKind.video,
-        );
+    void openPostReelSheet() => startMomentUploadFlow(context, ref);
 
     return MainLayout(
-      selectedIndex: AppNavDestinations.momentsIndex,
+      selectedIndex: appNavSelectedIndex(ref, '/moments'),
       accountMenuStyle: true,
       appBar: MomentsHeader.appBar(context, ref),
       child: Stack(
@@ -213,6 +209,8 @@ class _FilteredGridFeed extends StatelessWidget {
     }
     return MomentsGridFeed(
       items: filtered,
+      viewerItems: items,
+      mediaFilter: filter,
       onLoadMore: onLoadMore,
       onItemUpdated: (index, item) {
         final originalIndex = items.indexWhere((i) => i.id == item.id);

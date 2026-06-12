@@ -44,12 +44,13 @@ class CreatorHomeTasksSection extends ConsumerWidget {
                 ),
               ),
               const SizedBox(width: 6),
-              const Expanded(
+              Expanded(
                 child: Text(
                   'Tasks & Rewards',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
+                    color: CreatorHomeTokens.textPrimary,
                   ),
                 ),
               ),

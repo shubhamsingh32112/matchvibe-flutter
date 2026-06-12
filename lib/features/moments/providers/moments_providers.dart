@@ -1,7 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/config/app_config_provider.dart';
 import '../models/moments_models.dart';
 import '../services/moments_api_service.dart';
+
+bool _momentsEnabled(Ref ref) => ref.watch(appFeaturesProvider).momentsEnabled;
 
 enum MomentsFeedTab { popular, following }
 
@@ -30,29 +33,43 @@ List<MomentFeedItem> applyMediaFilter(
 }
 
 final storiesBarProvider = FutureProvider<List<StoryGroup>>((ref) async {
+  if (!_momentsEnabled(ref)) return [];
   return StoriesApiService().fetchStoryFeed();
 });
 
 final followingCreatorsProvider = FutureProvider<Set<String>>((ref) async {
+  if (!_momentsEnabled(ref)) return {};
   final ids = await MomentsApiService().fetchFollowingList();
   return ids.toSet();
 });
 
 final creatorSummaryProvider =
     FutureProvider.family<CreatorSummary, String>((ref, creatorId) async {
+  if (!_momentsEnabled(ref)) {
+    return CreatorSummary(
+      creatorId: creatorId,
+      followerCount: 0,
+      followingCount: 0,
+      postCount: 0,
+      isFollowing: false,
+    );
+  }
   return MomentsApiService().fetchCreatorSummary(creatorId);
 });
 
 final creatorMomentsProvider =
     FutureProvider.family<List<MomentFeedItem>, String>((ref, creatorId) async {
+  if (!_momentsEnabled(ref)) return [];
   return MomentsApiService().fetchCreatorMoments(creatorId);
 });
 
 final myStoriesProvider = FutureProvider<List<StoryPresentation>>((ref) async {
+  if (!_momentsEnabled(ref)) return [];
   return StoriesApiService().fetchMyStories();
 });
 
 final myMomentsProvider = FutureProvider<List<MomentFeedItem>>((ref) async {
+  if (!_momentsEnabled(ref)) return [];
   return MomentsApiService().fetchMyMoments();
 });
 
@@ -63,6 +80,7 @@ class FollowingFeedNotifier extends AsyncNotifier<List<MomentFeedItem>> {
 
   @override
   Future<List<MomentFeedItem>> build() async {
+    if (!ref.watch(appFeaturesProvider).momentsEnabled) return [];
     final result = await MomentsApiService().fetchFollowingFeed();
     _nextOffset = result.nextOffset;
     _hasMore = result.hasMore;
@@ -104,6 +122,7 @@ class PopularFeedNotifier extends AsyncNotifier<List<MomentFeedItem>> {
 
   @override
   Future<List<MomentFeedItem>> build() async {
+    if (!ref.watch(appFeaturesProvider).momentsEnabled) return [];
     final result = await MomentsApiService().fetchFeed();
     _nextCursor = result.nextCursor;
     return result.items;
@@ -137,6 +156,7 @@ final popularFeedProvider =
 
 final creatorMomentsAnalyticsProvider =
     FutureProvider<Map<String, dynamic>>((ref) async {
+  if (!_momentsEnabled(ref)) return {};
   return MomentsApiService().fetchCreatorAnalytics();
 });
 

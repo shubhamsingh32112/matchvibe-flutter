@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/services/sentry_service.dart';
+import '../../../app/widgets/app_nav_index.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../creator/providers/creator_dashboard_provider.dart';
@@ -251,7 +252,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
     }
 
     return MainLayout(
-      selectedIndex: 0,
+      selectedIndex: appNavSelectedIndex(ref, '/home'),
       child: AppScaffold(
         // Full-width white sheet (no duplicate horizontal inset vs. inner padding).
         padded: false,

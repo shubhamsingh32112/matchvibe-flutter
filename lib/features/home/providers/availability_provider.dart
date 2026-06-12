@@ -14,6 +14,7 @@ import '../../../shared/providers/app_update_popup_provider.dart';
 import '../../support/services/support_realtime_handler.dart';
 import '../../moments/services/moments_realtime_handler.dart';
 import '../../vip/providers/vip_call_queue_provider.dart';
+import '../../../core/config/app_config_provider.dart';
 
 // ── Enum ──────────────────────────────────────────────────────────────────
 enum CreatorAvailability { online, onCall, offline }
@@ -399,33 +400,44 @@ final socketServiceProvider = Provider<SocketService>((ref) {
     handleSupportTicketSocketUpdate(ref, data);
   };
 
+  void handleMomentsSocketIfEnabled(
+    String event,
+    Map<String, dynamic> data,
+  ) {
+    if (!ref.read(appFeaturesProvider).momentsEnabled) return;
+    handleMomentsSocketEvent(ref, event, data);
+  }
+
   service.onMomentUploaded = (data) {
-    handleMomentsSocketEvent(ref, 'moment:uploaded', data);
+    handleMomentsSocketIfEnabled('moment:uploaded', data);
   };
   service.onStoryUploaded = (data) {
-    handleMomentsSocketEvent(ref, 'story:uploaded', data);
+    handleMomentsSocketIfEnabled('story:uploaded', data);
   };
   service.onMomentPurchased = (data) {
-    handleMomentsSocketEvent(ref, 'moment:purchased', data);
+    handleMomentsSocketIfEnabled('moment:purchased', data);
   };
   service.onCreatorFollowed = (data) {
-    handleMomentsSocketEvent(ref, 'creator:followed', data);
+    handleMomentsSocketIfEnabled('creator:followed', data);
   };
   service.onMediaReady = (data) {
-    handleMomentsSocketEvent(ref, 'media:ready', data);
+    handleMomentsSocketIfEnabled('media:ready', data);
   };
 
   service.onVipCallQueued = (data) {
+    if (!ref.read(appFeaturesProvider).vipEnabled) return;
     debugPrint('👑 [SOCKET→PROVIDER] vip:call:queued position=${data['position']}');
     ref.read(vipCallQueueProvider.notifier).onQueued(data);
   };
 
   service.onVipCallDequeued = (data) {
+    if (!ref.read(appFeaturesProvider).vipEnabled) return;
     debugPrint('👑 [SOCKET→PROVIDER] vip:call:dequeued');
     ref.read(vipCallQueueProvider.notifier).onDequeued(data);
   };
 
   service.onVipCallReadyToRing = (data) {
+    if (!ref.read(appFeaturesProvider).vipEnabled) return;
     final creatorId = data['creatorId']?.toString();
     final creatorFirebaseUid = data['creatorFirebaseUid']?.toString();
     if (creatorFirebaseUid != null && creatorId != null) {

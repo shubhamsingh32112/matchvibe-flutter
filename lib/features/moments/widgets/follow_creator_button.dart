@@ -5,7 +5,7 @@ import '../../../shared/styles/app_brand_styles.dart';
 import '../providers/moments_providers.dart';
 import '../services/moments_api_service.dart';
 
-enum CreatorFollowButtonStyle { outlined, compact, profileCard }
+enum CreatorFollowButtonStyle { outlined, compact, profileCard, viewerGradient }
 
 class FollowCreatorButton extends ConsumerStatefulWidget {
   const FollowCreatorButton({
@@ -137,6 +137,38 @@ class _FollowCreatorButtonState extends ConsumerState<FollowCreatorButton> {
         return OutlinedButton(
           onPressed: _busy ? null : _toggle,
           child: Text(label),
+        );
+      case CreatorFollowButtonStyle.viewerGradient:
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: _busy ? null : _toggle,
+            borderRadius: BorderRadius.circular(14),
+            child: Ink(
+              decoration: BoxDecoration(
+                gradient: AppBrandGradients.momentsViewerActionGradient,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: _busy
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Text(
+                      label,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
+                    ),
+            ),
+          ),
         );
     }
   }

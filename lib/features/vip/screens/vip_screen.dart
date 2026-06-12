@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/widgets/app_nav_destinations.dart';
+import '../../../app/widgets/app_nav_index.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -100,7 +101,7 @@ class _VipScreenState extends ConsumerState<VipScreen> {
     return Theme(
       data: AppTheme.vipInheritedTheme,
       child: MainLayout(
-        selectedIndex: AppNavDestinations.centerIndex,
+        selectedIndex: appNavSelectedIndex(ref, '/vip'),
         vipPageStyle: true,
         child: DecoratedBox(
           decoration: const BoxDecoration(gradient: VipPageTokens.pageBackground),
@@ -123,89 +124,87 @@ class _VipScreenState extends ConsumerState<VipScreen> {
             final activePlans = response.activePlans;
             final canPurchase = activePlans.isNotEmpty && selectedPlan != null;
 
-            return RefreshIndicator(
-              color: VipPageTokens.borderGold,
-              backgroundColor: VipPageTokens.surface,
-              onRefresh: _refresh,
-              child: Stack(
-                children: [
-                  CustomScrollView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    slivers: [
-                      const SliverToBoxAdapter(child: VipPageHeader()),
-                      SliverToBoxAdapter(
-                        child: VipHeroSection(compact: isActive),
-                      ),
-                      if (isActive) ...[
+            return Column(
+              children: [
+                Expanded(
+                  child: RefreshIndicator(
+                    color: VipPageTokens.borderGold,
+                    backgroundColor: VipPageTokens.surface,
+                    onRefresh: _refresh,
+                    child: CustomScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      slivers: [
+                        const SliverToBoxAdapter(child: VipPageHeader()),
                         SliverToBoxAdapter(
-                          child: Padding(
-                            padding: const EdgeInsets.only(top: 16),
-                            child: VipActiveMemberPanel(
-                              expiresLabel: vipStatus!.expiresAt != null
-                                  ? 'Active until ${_formatDate(vipStatus.expiresAt!)}'
-                                  : 'VIP Active',
-                              remaining: vipStatus.freeMomentsRemainingToday,
-                              total: vipStatus.freeMomentsDailyLimit,
+                          child: VipHeroSection(compact: isActive),
+                        ),
+                        if (isActive) ...[
+                          SliverToBoxAdapter(
+                            child: Padding(
+                              padding: const EdgeInsets.only(top: 16),
+                              child: VipActiveMemberPanel(
+                                expiresLabel: vipStatus!.expiresAt != null
+                                    ? 'Active until ${_formatDate(vipStatus.expiresAt!)}'
+                                    : 'VIP Active',
+                                remaining: vipStatus.freeMomentsRemainingToday,
+                                total: vipStatus.freeMomentsDailyLimit,
+                              ),
                             ),
                           ),
-                        ),
-                      ] else ...[
+                        ] else ...[
+                          const SliverToBoxAdapter(child: SizedBox(height: 18)),
+                          SliverToBoxAdapter(
+                            child: VipQuickBenefitsRow(
+                              sections: quickBenefitSections,
+                            ),
+                          ),
+                        ],
                         const SliverToBoxAdapter(child: SizedBox(height: 18)),
                         SliverToBoxAdapter(
-                          child: VipQuickBenefitsRow(
-                            sections: quickBenefitSections,
-                          ),
+                          child: VipBenefitsDetailList(sections: benefitSections),
                         ),
+                        if (selectedPlan != null) ...[
+                          const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                          if (activePlans.length > 1)
+                            SliverToBoxAdapter(
+                              child: VipPlanSelector(
+                                plans: activePlans,
+                                selectedPlanId:
+                                    _selectedPlanId ?? activePlans.first.planId,
+                                onPlanSelected: (planId) {
+                                  setState(() => _selectedPlanId = planId);
+                                },
+                              ),
+                            )
+                          else
+                            SliverToBoxAdapter(
+                              child: VipFeaturedPlanBanner(plan: selectedPlan),
+                            ),
+                        ],
+                        const SliverToBoxAdapter(child: SizedBox(height: 16)),
                       ],
-                      const SliverToBoxAdapter(child: SizedBox(height: 18)),
-                      SliverToBoxAdapter(
-                        child: VipBenefitsDetailList(sections: benefitSections),
-                      ),
-                      if (selectedPlan != null) ...[
-                        const SliverToBoxAdapter(child: SizedBox(height: 24)),
-                        if (activePlans.length > 1)
-                          SliverToBoxAdapter(
-                            child: VipPlanSelector(
-                              plans: activePlans,
-                              selectedPlanId:
-                                  _selectedPlanId ?? activePlans.first.planId,
-                              onPlanSelected: (planId) {
-                                setState(() => _selectedPlanId = planId);
-                              },
-                            ),
-                          )
-                        else
-                          SliverToBoxAdapter(
-                            child: VipFeaturedPlanBanner(plan: selectedPlan),
-                          ),
-                      ],
-                      const SliverToBoxAdapter(child: SizedBox(height: 96)),
-                    ],
+                    ),
                   ),
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: canPurchase
-                        ? VipSubscribeFooter(
-                            label: isActive ? 'Renew VIP' : 'Become VIP Now',
-                            isLoading: _isCheckingOut,
-                            onPressed: () => _subscribe(
-                              selectedPlan.planId,
-                              isActive: isActive,
-                            ),
-                          )
-                        : Padding(
-                            padding: const EdgeInsets.all(20),
-                            child: Text(
-                              'VIP is not available right now.',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: VipPageTokens.textMuted),
-                            ),
-                          ),
+                ),
+                if (canPurchase)
+                  VipSubscribeFooter(
+                    label: isActive ? 'Renew VIP' : 'Become VIP Now',
+                    isLoading: _isCheckingOut,
+                    onPressed: () => _subscribe(
+                      selectedPlan.planId,
+                      isActive: isActive,
+                    ),
+                  )
+                else
+                  Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Text(
+                      'VIP is not available right now.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: VipPageTokens.textMuted),
+                    ),
                   ),
-                ],
-              ),
+              ],
             );
           },
         ),

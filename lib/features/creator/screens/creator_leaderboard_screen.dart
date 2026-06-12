@@ -53,7 +53,10 @@ class CreatorLeaderboardScreen extends ConsumerWidget {
                             const SizedBox(width: 4),
                             Text(
                               'Top ${summary.topRewardRank} win ${summary.topRewardCoins} coins',
-                              style: const TextStyle(fontSize: 13),
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: CreatorHomeTokens.textPrimary,
+                              ),
                             ),
                           ],
                         ),
@@ -96,6 +99,7 @@ class CreatorLeaderboardScreen extends ConsumerWidget {
                                 row.hostName,
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w600,
+                                  color: CreatorHomeTokens.textPrimary,
                                 ),
                               ),
                               Text(
@@ -113,7 +117,12 @@ class CreatorLeaderboardScreen extends ConsumerWidget {
                           children: [
                             const GemIcon(size: 14),
                             const SizedBox(width: 2),
-                            Text('${row.earningsCoins}'),
+                            Text(
+                              '${row.earningsCoins}',
+                              style: const TextStyle(
+                                color: CreatorHomeTokens.textPrimary,
+                              ),
+                            ),
                           ],
                         ),
                       ],

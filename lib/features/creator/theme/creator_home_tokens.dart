@@ -12,7 +12,10 @@ class CreatorHomeTokens {
   static const Color pinkAccent = Color(0xFFFF4081);
   static const Color pinkAccentDeep = Color(0xFFFF4D6D);
   static const Color orangeAccent = Color(0xFFFF8A50);
-  static const Color labelGrey = Color(0xFF8E8E93);
+  static const Color labelGrey = Color(0xFFB0B0B5);
+  static const Color textPrimary = AppPalette.onSurface;
+  static const Color textSecondary = AppPalette.subtitle;
+  static const Color cardDivider = Color(0xFF3A3A3A);
   static const Color statBlue = Color(0xFF5C6BC0);
   static const Color statYellow = Color(0xFFF9A825);
   static const Color trophyGold = Color(0xFFFFB300);

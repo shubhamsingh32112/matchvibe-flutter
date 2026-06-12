@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
+import '../../../app/widgets/app_nav_index.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../../core/services/image_upload_service.dart';
 import '../../home/providers/availability_provider.dart';
@@ -134,11 +135,11 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
     });
 
     return MainLayout(
-      selectedIndex: 4,
+      selectedIndex: appNavSelectedIndex(ref, '/account'),
       accountMenuStyle: true,
       appBar: buildAccountFlowAppBar(
         context,
-        title: 'Support',
+        title: 'Help & Support',
         actions: [BrandHeaderCoinsChip(coins: coins)],
       ),
       child: ColoredBox(
@@ -895,29 +896,41 @@ class _TicketCard extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: scheme.surfaceContainer,
+                color: const Color(0xFF7C4DFF).withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: scheme.outlineVariant),
+                border: Border.all(
+                  color: const Color(0xFF7C4DFF).withValues(alpha: 0.35),
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'ADMIN REPLY',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
-                      color: Color(0xFF7C4DFF),
-                    ),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.mark_chat_unread_outlined,
+                        size: 16,
+                        color: const Color(0xFF7C4DFF).withValues(alpha: 0.9),
+                      ),
+                      const SizedBox(width: 6),
+                      const Text(
+                        'Update from support',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF7C4DFF),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 8),
                   Text(
                     ticket.adminNotes!,
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
                       color: scheme.onSurface,
-                      height: 1.35,
+                      height: 1.4,
                     ),
                   ),
                 ],

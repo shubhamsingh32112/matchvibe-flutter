@@ -2,24 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../features/chat/providers/stream_chat_provider.dart';
 import '../../shared/styles/app_brand_styles.dart';
-import 'app_nav_assets.dart';
 import 'app_nav_bar_shape.dart';
 import 'app_nav_destinations.dart';
+import 'app_nav_index.dart';
 
 class AppBottomNavBar extends ConsumerWidget {
   final int selectedIndex;
   final ValueChanged<int> onDestinationSelected;
-  final bool showVipCenter;
 
   const AppBottomNavBar({
     super.key,
     required this.selectedIndex,
     required this.onDestinationSelected,
-    required this.showVipCenter,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final tabs = ref.watch(appNavTabsProvider);
     final unreadCount = ref.watch(
       chatUnreadCountProvider.select((a) => a.valueOrNull ?? 0),
     );
@@ -28,70 +27,16 @@ class AppBottomNavBar extends ConsumerWidget {
 
     final navRow = Row(
       children: [
-        Expanded(
-          child: _NavItem(
-            tooltip: 'Home',
-            assetIconPath: AppNavAssets.homeIcon,
-            selected: selectedIndex == AppNavDestinations.homeIndex,
-            showDot: false,
-            onTap: () => onDestinationSelected(AppNavDestinations.homeIndex),
-          ),
-        ),
-        Expanded(
-          child: _NavItem(
-            tooltip: 'Moments',
-            assetIconPath: AppNavAssets.momentsIcon,
-            selected: selectedIndex == AppNavDestinations.momentsIndex,
-            showDot: false,
-            onTap: () =>
-                onDestinationSelected(AppNavDestinations.momentsIndex),
-          ),
-        ),
-        if (showVipCenter)
+        for (var i = 0; i < tabs.length; i++)
           Expanded(
-            child: _NavItem(
-              tooltip: 'VIP',
-              assetIconPath: AppNavAssets.vipIcon,
-              iconSize: AppNavDestinations.vipNavIconSize,
-              iconSizeSelected: AppNavDestinations.vipNavIconSizeSelected,
-              iconHitSize: AppNavDestinations.vipNavIconHitSize,
-              selected: selectedIndex == AppNavDestinations.centerIndex,
-              showDot: false,
-              onTap: () =>
-                  onDestinationSelected(AppNavDestinations.centerIndex),
-            ),
-          )
-        else
-          Expanded(
-            child: _NavItem(
-              tooltip: 'Recent',
-              icon: Icons.history_outlined,
-              selectedIcon: Icons.history,
-              selected: selectedIndex == AppNavDestinations.centerIndex,
-              showDot: false,
-              onTap: () =>
-                  onDestinationSelected(AppNavDestinations.centerIndex),
+            child: _buildNavItem(
+              tab: tabs[i],
+              index: i,
+              selected: selectedIndex == i,
+              showDot: tabs[i].id == AppNavTabId.chat && unreadCount > 0,
+              onTap: () => onDestinationSelected(i),
             ),
           ),
-        Expanded(
-          child: _NavItem(
-            tooltip: 'Chats',
-            assetIconPath: AppNavAssets.chatsIcon,
-            selected: selectedIndex == AppNavDestinations.chatIndex,
-            showDot: unreadCount > 0,
-            onTap: () => onDestinationSelected(AppNavDestinations.chatIndex),
-          ),
-        ),
-        Expanded(
-          child: _NavItem(
-            tooltip: 'Profile',
-            assetIconPath: AppNavAssets.profileIcon,
-            selected: selectedIndex == AppNavDestinations.profileIndex,
-            showDot: false,
-            onTap: () =>
-                onDestinationSelected(AppNavDestinations.profileIndex),
-          ),
-        ),
       ],
     );
 
@@ -104,6 +49,27 @@ class AppBottomNavBar extends ConsumerWidget {
           child: navRow,
         ),
       ),
+    );
+  }
+
+  Widget _buildNavItem({
+    required AppNavTab tab,
+    required int index,
+    required bool selected,
+    required bool showDot,
+    required VoidCallback onTap,
+  }) {
+    return _NavItem(
+      tooltip: tab.tooltip,
+      assetIconPath: tab.assetIconPath,
+      icon: tab.icon,
+      selectedIcon: tab.selectedIcon,
+      iconSize: tab.iconSize,
+      iconSizeSelected: tab.iconSizeSelected,
+      iconHitSize: tab.iconHitSize,
+      selected: selected,
+      showDot: showDot,
+      onTap: onTap,
     );
   }
 }
@@ -227,10 +193,10 @@ class _NavAssetIcon extends StatelessWidget {
               top: 4,
               right: 4,
               child: Container(
-                width: 9,
-                height: 9,
+                width: 8,
+                height: 8,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFF4081),
+                  color: AppBrandGradients.accountMenuIconTint,
                   shape: BoxShape.circle,
                   border: Border.all(color: Colors.white, width: 1.5),
                 ),
@@ -253,7 +219,7 @@ class _NavIcon extends StatelessWidget {
   const _NavIcon({
     required this.icon,
     required this.selected,
-    required this.showDot,
+    this.showDot = false,
     this.iconSize,
     this.iconSizeSelected,
     this.hitSize,
@@ -261,9 +227,6 @@ class _NavIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final iconColor = selected
-        ? AppBrandGradients.accountMenuIconTint
-        : AppBrandGradients.accountMenuIconTint.withValues(alpha: 0.55);
     final size = selected
         ? (iconSizeSelected ?? AppNavDestinations.navIconSizeSelected)
         : (iconSize ?? AppNavDestinations.navIconSize);
@@ -276,16 +239,27 @@ class _NavIcon extends StatelessWidget {
         clipBehavior: Clip.none,
         alignment: Alignment.center,
         children: [
-          Icon(icon, size: size, color: iconColor),
+          AnimatedScale(
+            scale: selected ? 1.06 : 1.0,
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            child: Icon(
+              icon,
+              size: size,
+              color: selected
+                  ? AppBrandGradients.accountMenuIconTint
+                  : AppBrandGradients.accountMenuIconTint.withValues(alpha: 0.78),
+            ),
+          ),
           if (showDot)
             Positioned(
               top: 4,
               right: 4,
               child: Container(
-                width: 9,
-                height: 9,
+                width: 8,
+                height: 8,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFF4081),
+                  color: AppBrandGradients.accountMenuIconTint,
                   shape: BoxShape.circle,
                   border: Border.all(color: Colors.white, width: 1.5),
                 ),
@@ -296,4 +270,3 @@ class _NavIcon extends StatelessWidget {
     );
   }
 }
-

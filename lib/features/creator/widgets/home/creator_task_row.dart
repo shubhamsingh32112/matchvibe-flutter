@@ -46,6 +46,7 @@ class CreatorTaskRow extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w800,
+                    color: CreatorHomeTokens.textPrimary,
                   ),
                 ),
                 const Text(
@@ -92,6 +93,7 @@ class CreatorTaskRow extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
+                      color: CreatorHomeTokens.textPrimary,
                     ),
                   ),
                 ],

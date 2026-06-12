@@ -55,7 +55,7 @@ class StreamUploadService {
   }) async {
     final bytes = await file.readAsBytes();
     final dio = Dio();
-    await dio.post<void>(
+    final response = await dio.post<dynamic>(
       uploadURL,
       data: FormData.fromMap({
         'file': MultipartFile.fromBytes(bytes, filename: 'upload.mp4'),
@@ -63,8 +63,11 @@ class StreamUploadService {
       onSendProgress: onProgress,
       options: Options(
         headers: {'Content-Type': 'multipart/form-data'},
-        validateStatus: (s) => s != null && s < 500,
       ),
     );
+    final status = response.statusCode;
+    if (status == null || status < 200 || status >= 300) {
+      throw Exception('Cloudflare Stream upload returned status $status');
+    }
   }
 }

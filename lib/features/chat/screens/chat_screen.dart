@@ -17,6 +17,7 @@ import '../services/chat_service.dart';
 import '../exceptions/chat_send_exceptions.dart';
 import '../utils/chat_utils.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../../core/config/app_config_provider.dart';
 import '../../vip/widgets/vip_badge.dart';
 import '../../home/providers/availability_provider.dart';
 import '../../video/utils/call_admission_constants.dart';
@@ -1020,8 +1021,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Widget _buildQuotaBar() {
     final scheme = Theme.of(context).colorScheme;
+    final vipEnabled = ref.watch(appFeaturesProvider).vipEnabled;
     final isVipFromAuth = ref.watch(authProvider).user?.isVipActive ?? false;
-    final showVipUnlimited = _isVipUnlimited || isVipFromAuth;
+    final showVipUnlimited =
+        vipEnabled && (_isVipUnlimited || isVipFromAuth);
 
     if (showVipUnlimited) {
       return Container(
@@ -1111,7 +1114,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final canCallFromChat = _showCallButton;
     final canReportFromChat = _canReportCreatorFromChat;
     final canCreatorCallFromChat = _showCreatorCallButton;
-    final isVipActive = ref.watch(authProvider).user?.isVipActive ?? false;
+    final vipEnabled = ref.watch(appFeaturesProvider).vipEnabled;
+    final isVipActive =
+        vipEnabled && (ref.watch(authProvider).user?.isVipActive ?? false);
 
     return StreamChatTheme(
       data: StreamChatThemeData(

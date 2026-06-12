@@ -199,6 +199,16 @@ class AppBrandGradients {
     ],
   );
 
+  /// Purple → pink gradient for moment viewer Chat / Video Call buttons.
+  static const LinearGradient momentsViewerActionGradient = LinearGradient(
+    begin: Alignment.centerLeft,
+    end: Alignment.centerRight,
+    colors: [
+      Color(0xFF7B2FF7),
+      Color(0xFFF13DD4),
+    ],
+  );
+
   static const LinearGradient momentsLiveBadgeGradient = LinearGradient(
     begin: Alignment.centerLeft,
     end: Alignment.centerRight,

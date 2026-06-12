@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../../app/widgets/app_nav_destinations.dart';
+import '../../../app/widgets/app_nav_index.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../widgets/recent_calls_tab.dart';
@@ -21,9 +21,9 @@ class RecentScreen extends ConsumerWidget {
       return const SizedBox.shrink();
     }
 
-    return const MainLayout(
-      selectedIndex: AppNavDestinations.centerIndex,
-      child: RecentCallsTab(),
+    return MainLayout(
+      selectedIndex: appNavSelectedIndex(ref, '/recent'),
+      child: const RecentCallsTab(),
     );
   }
 }

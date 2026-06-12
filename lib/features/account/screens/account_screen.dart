@@ -3,7 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import '../../../app/widgets/app_nav_destinations.dart';
+import '../../../app/widgets/app_nav_index.dart';
+import '../../../core/config/app_config_provider.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/models/user_model.dart';
@@ -135,10 +136,6 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     context.push('/transactions');
   }
 
-  void _openHelpSupport(BuildContext context) {
-    context.push('/help-support');
-  }
-
   void _openSupport(BuildContext context) {
     context.push('/support');
   }
@@ -193,7 +190,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
         statusBarColor: Colors.transparent,
       ),
       child: MainLayout(
-        selectedIndex: AppNavDestinations.profileIndex,
+        selectedIndex: appNavSelectedIndex(ref, '/account'),
         accountMenuStyle: true,
         child: authLoading && user == null
             ? const Center(child: LoadingIndicator())
@@ -250,6 +247,9 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                                 isCreator: isCreator,
                                 isPlainUser: isPlainUser,
                                 coins: coins,
+                                momentsEnabled: ref
+                                    .watch(appFeaturesProvider)
+                                    .momentsEnabled,
                               ),
                             ),
                           );
@@ -548,58 +548,71 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     required bool isCreator,
     required bool isPlainUser,
     required int coins,
+    required bool momentsEnabled,
   }) {
-    final tiles = <Widget>[
-      _exploreTile(
-        context: context,
-        icon: Icons.support_agent_outlined,
-        title: 'Contact us',
-        onTap: () => _openSupport(context),
-      ),
-      _exploreTile(
-        context: context,
-        leading: HelpSupportIcon(size: _exploreLeadingExtent),
-        title: 'Help & Support',
-        onTap: () => _openHelpSupport(context),
-      ),
-      _exploreTile(
-        context: context,
-        leading: TransactionsIcon(size: _exploreLeadingExtent),
-        title: 'Transactions',
-        onTap: () => _openTransactions(context),
-      ),
-      _exploreTile(
-        context: context,
-        leading: GemIcon(size: _exploreLeadingExtent),
-        title: 'Coins',
-        subtitle: '$coins',
-        onTap: () => context.push('/wallet'),
-      ),
-      _exploreTile(
-        context: context,
-        leading: ReferralIcon(size: _exploreLeadingExtent),
-        title: 'Referral',
-        onTap: () => _showReferralBottomSheet(context),
-      ),
-    ];
+    final transactionsTile = _exploreTile(
+      context: context,
+      leading: TransactionsIcon(size: _exploreLeadingExtent),
+      title: 'Transactions',
+      onTap: () => _openTransactions(context),
+    );
+    final coinsTile = _exploreTile(
+      context: context,
+      leading: GemIcon(size: _exploreLeadingExtent),
+      title: 'Coins',
+      subtitle: '$coins',
+      onTap: () => context.push('/wallet'),
+    );
+    final referralTile = _exploreTile(
+      context: context,
+      leading: ReferralIcon(size: _exploreLeadingExtent),
+      title: 'Referral',
+      onTap: () => _showReferralBottomSheet(context),
+    );
+    final supportTile = _exploreTile(
+      context: context,
+      leading: HelpSupportIcon(size: _exploreLeadingExtent),
+      title: 'Support',
+      onTap: () => _openSupport(context),
+    );
 
-    if (isCreator) {
-      tiles.add(
-        _exploreTile(
-          context: context,
-          icon: Icons.perm_media_outlined,
-          title: 'My Moments',
-          onTap: () => context.push('/account/my-moments'),
-        ),
-      );
-    } else if (isPlainUser) {
-      tiles.add(
+    if (isPlainUser) {
+      return [
+        if (momentsEnabled)
+          _exploreTile(
+            context: context,
+            icon: Icons.play_circle_outline,
+            title: 'Moments Plan',
+            onTap: () => context.push('/account/moments-plan'),
+          ),
+        transactionsTile,
+        coinsTile,
+        referralTile,
+        supportTile,
         _exploreTile(
           context: context,
           leading: BecomeCreatorIcon(size: _exploreLeadingExtent),
           title: 'Become a Creator',
           subtitle: 'We\'ll contact you',
           onTap: () => _openBecomeCreator(context),
+        ),
+      ];
+    }
+
+    final tiles = <Widget>[
+      transactionsTile,
+      coinsTile,
+      referralTile,
+      supportTile,
+    ];
+
+    if (isCreator && momentsEnabled) {
+      tiles.add(
+        _exploreTile(
+          context: context,
+          icon: Icons.perm_media_outlined,
+          title: 'My Moments',
+          onTap: () => context.push('/account/my-moments'),
         ),
       );
     }

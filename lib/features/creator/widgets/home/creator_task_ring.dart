@@ -55,6 +55,7 @@ class CreatorTaskRing extends StatelessWidget {
                       fontSize: 14,
                       fontWeight: FontWeight.bold,
                       height: 1,
+                      color: CreatorHomeTokens.textPrimary,
                     ),
                   ),
                   const Text(

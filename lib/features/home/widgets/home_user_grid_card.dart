@@ -549,16 +549,33 @@ class _AvailabilityTag extends StatelessWidget {
 
   const _AvailabilityTag({required this.availability});
 
+  Color get _backgroundColor {
+    switch (availability) {
+      case CreatorAvailability.online:
+        return AppPalette.success.withValues(alpha: 0.92);
+      case CreatorAvailability.onCall:
+        return AppPalette.warning.withValues(alpha: 0.92);
+      case CreatorAvailability.offline:
+        return const Color(0xFFE57373).withValues(alpha: 0.95);
+    }
+  }
+
+  Color get _dotColor {
+    switch (availability) {
+      case CreatorAvailability.online:
+      case CreatorAvailability.onCall:
+        return Colors.white;
+      case CreatorAvailability.offline:
+        return const Color(0xFFFFEBEE);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: availability == CreatorAvailability.online
-            ? AppPalette.success.withValues(alpha: 0.92)
-            : availability == CreatorAvailability.onCall
-            ? AppPalette.warning.withValues(alpha: 0.92)
-            : AppPalette.subtitle.withValues(alpha: 0.92),
+        color: _backgroundColor,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -567,9 +584,9 @@ class _AvailabilityTag extends StatelessWidget {
           Container(
             width: 6,
             height: 6,
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.white,
+              color: _dotColor,
             ),
           ),
           const SizedBox(width: 4),

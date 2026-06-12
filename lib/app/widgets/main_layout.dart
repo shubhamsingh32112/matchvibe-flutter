@@ -17,6 +17,7 @@ import '../../shared/widgets/gem_icon.dart';
 import '../../shared/widgets/brand_app_chrome.dart';
 import 'app_bottom_nav_bar.dart';
 import 'app_nav_destinations.dart';
+import 'app_nav_index.dart';
 
 class MainLayout extends ConsumerStatefulWidget {
   final Widget child;
@@ -47,7 +48,8 @@ class MainLayout extends ConsumerStatefulWidget {
 class _MainLayoutState extends ConsumerState<MainLayout> {
   void _onItemTapped(int index) {
     final role = ref.read(authProvider).user?.role;
-    if (index == AppNavDestinations.homeIndex) {
+    final tabs = ref.read(appNavTabsProvider);
+    if (tabs[index].id == AppNavTabId.home) {
       if (AppNavDestinations.isCreatorOrAdmin(role)) {
         unawaited(
           ref
@@ -64,7 +66,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
         );
       }
     }
-    context.go(AppNavDestinations.routeForIndex(role, index));
+    context.go(AppNavDestinations.routeForIndex(tabs, index));
   }
 
   @override
@@ -72,8 +74,10 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
     final userRole = ref.watch(authProvider.select((s) => s.user?.role));
     final isCreator = AppNavDestinations.isCreatorOrAdmin(userRole);
     final isRegularUser = userRole == 'user';
-    final isHomePage = widget.selectedIndex == AppNavDestinations.homeIndex;
-    final showVipCenter = isRegularUser;
+    final tabs = ref.watch(appNavTabsProvider);
+    final isHomePage = widget.selectedIndex >= 0 &&
+        widget.selectedIndex < tabs.length &&
+        tabs[widget.selectedIndex].id == AppNavTabId.home;
 
     ref.listen<CallBillingState>(callBillingProvider, (prev, next) {
       if (prev?.isBillingSettled != true && next.isBillingSettled) {
@@ -126,7 +130,6 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
       bottomNavigationBar: AppBottomNavBar(
         selectedIndex: widget.selectedIndex,
         onDestinationSelected: _onItemTapped,
-        showVipCenter: showVipCenter,
       ),
     );
 

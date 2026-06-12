@@ -157,7 +157,7 @@ class MomentsApiService {
     });
   }
 
-  Future<void> createMoment({
+  Future<int> createMoment({
     required String type,
     required String accessType,
     String? imageSessionId,
@@ -165,7 +165,7 @@ class MomentsApiService {
     String? thumbnailSessionId,
     String? caption,
   }) async {
-    await _api.post('/moments', data: {
+    final response = await _api.post('/moments', data: {
       'type': type,
       'accessType': accessType,
       if (imageSessionId != null) 'imageSessionId': imageSessionId,
@@ -173,6 +173,8 @@ class MomentsApiService {
       if (thumbnailSessionId != null) 'thumbnailSessionId': thumbnailSessionId,
       if (caption != null && caption.isNotEmpty) 'caption': caption,
     });
+    final data = response.data['data'] as Map<String, dynamic>? ?? {};
+    return (data['uploadRewardCoins'] as num?)?.toInt() ?? 0;
   }
 }
 

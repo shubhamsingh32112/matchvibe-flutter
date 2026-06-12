@@ -31,6 +31,7 @@ class CreatorHomeLeaderboardCard extends ConsumerWidget {
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
+                      color: CreatorHomeTokens.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -38,7 +39,7 @@ class CreatorHomeLeaderboardCard extends ConsumerWidget {
                     text: TextSpan(
                       style: const TextStyle(
                         fontSize: 13,
-                        color: Colors.black87,
+                        color: CreatorHomeTokens.textSecondary,
                       ),
                       children: [
                         const TextSpan(text: 'Current Rank '),

@@ -7,7 +7,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/widgets/app_avatar.dart';
 import '../../../shared/widgets/app_toast.dart';
-import '../../../app/widgets/app_nav_destinations.dart';
+import '../../../app/widgets/app_nav_index.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../../shared/models/profile_model.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -101,7 +101,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
 
     if (streamChat == null || streamChat.client.state.currentUser == null) {
       return MainLayout(
-        selectedIndex: AppNavDestinations.chatIndex,
+        selectedIndex: appNavSelectedIndex(ref, '/chat-list'),
         child: const Center(
           child: CircularProgressIndicator(),
         ),
@@ -111,7 +111,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
     if (_controller == null) {
       _initializeController();
       return MainLayout(
-        selectedIndex: AppNavDestinations.chatIndex,
+        selectedIndex: appNavSelectedIndex(ref, '/chat-list'),
         child: const Center(
           child: CircularProgressIndicator(),
         ),
@@ -132,7 +132,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
 
     if (isCreator && _creatorTabController != null) {
       return MainLayout(
-        selectedIndex: AppNavDestinations.chatIndex,
+        selectedIndex: appNavSelectedIndex(ref, '/chat-list'),
         child: Scaffold(
           body: Column(
             children: [
@@ -172,7 +172,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
 
     if (isUser && _userTabController != null) {
       return MainLayout(
-        selectedIndex: AppNavDestinations.chatIndex,
+        selectedIndex: appNavSelectedIndex(ref, '/chat-list'),
         child: Scaffold(
           body: Column(
             children: [
@@ -210,7 +210,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
     }
 
     return MainLayout(
-      selectedIndex: AppNavDestinations.chatIndex,
+      selectedIndex: appNavSelectedIndex(ref, '/chat-list'),
       child: Scaffold(
         body: _RecentChatsChannelList(
           controller: _controller!,

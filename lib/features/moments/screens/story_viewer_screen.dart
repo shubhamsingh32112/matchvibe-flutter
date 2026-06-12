@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../home/widgets/creator_profile_screen.dart';
 import '../models/moments_models.dart';
 import '../services/moments_api_service.dart';
 import '../utils/moment_owner_actions.dart';
@@ -204,25 +205,48 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     child: Row(
                       children: [
-                        CircleAvatar(
-                          radius: 16,
-                          backgroundImage: widget.group.creatorAvatarUrl != null
-                              ? NetworkImage(widget.group.creatorAvatarUrl!)
-                              : null,
-                          child: widget.group.creatorAvatarUrl == null
-                              ? const Icon(Icons.person, size: 18)
-                              : null,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            widget.group.creatorName ?? 'Creator',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                            ),
+                        GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => openCreatorProfile(
+                            context,
+                            ref,
+                            widget.group.creatorId,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircleAvatar(
+                                radius: 16,
+                                backgroundImage:
+                                    widget.group.creatorAvatarUrl != null
+                                    ? NetworkImage(
+                                        widget.group.creatorAvatarUrl!,
+                                      )
+                                    : null,
+                                child: widget.group.creatorAvatarUrl == null
+                                    ? const Icon(Icons.person, size: 18)
+                                    : null,
+                              ),
+                              const SizedBox(width: 8),
+                              ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxWidth:
+                                      MediaQuery.sizeOf(context).width * 0.45,
+                                ),
+                                child: Text(
+                                  widget.group.creatorName ?? 'Creator',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
+                        const Spacer(),
                         IconButton(
                           icon: const Icon(Icons.close, color: Colors.white),
                           onPressed: () => Navigator.of(context).pop(),

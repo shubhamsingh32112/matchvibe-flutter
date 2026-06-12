@@ -45,7 +45,7 @@ class CreatorHomeHeader extends ConsumerWidget {
                         style: const TextStyle(
                           fontSize: 17,
                           fontWeight: FontWeight.bold,
-                          color: Colors.black,
+                          color: CreatorHomeTokens.textPrimary,
                         ),
                         overflow: TextOverflow.ellipsis,
                         textAlign: TextAlign.center,

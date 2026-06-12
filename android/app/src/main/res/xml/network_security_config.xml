@@ -2,6 +2,8 @@
 <network-security-config>
     <!-- Trust Railway's SSL certificates -->
     <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">api.prestigeinteriordesign.com</domain>
+        <domain includeSubdomains="true">prestigeinteriordesign.com</domain>
         <domain includeSubdomains="true">vibemeet-backend-production.up.railway.app</domain>
         <domain includeSubdomains="true">*.up.railway.app</domain>
         <domain includeSubdomains="true">railway.app</domain>

@@ -5,7 +5,7 @@ import '../../../moments/models/moments_models.dart';
 import '../../../moments/providers/moments_providers.dart';
 import '../../../moments/screens/creator_moment_viewer_screen.dart';
 import '../../../moments/utils/moment_owner_actions.dart';
-import '../../../moments/widgets/moment_upload_sheet.dart';
+import '../../../moments/widgets/moments_upload_flow.dart';
 import '../../constants/creator_home_assets.dart';
 import '../../providers/creator_dashboard_provider.dart';
 import '../../theme/creator_home_tokens.dart';
@@ -171,7 +171,7 @@ class _MediaGrid extends ConsumerWidget {
     if (items.isEmpty) {
       return Center(
         child: TextButton.icon(
-          onPressed: () => showMomentUploadSheet(context),
+          onPressed: () => startMomentUploadFlow(context, ref),
           icon: const Icon(Icons.add),
           label: Text(isVideo ? 'Upload a reel' : 'Upload a post'),
         ),

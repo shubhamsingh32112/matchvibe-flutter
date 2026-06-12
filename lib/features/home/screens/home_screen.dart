@@ -11,6 +11,7 @@ import '../../../core/services/sentry_service.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/widgets/app_toast.dart';
+import '../../../app/widgets/app_nav_index.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../../shared/widgets/skeleton_card.dart';
 import '../../../shared/widgets/welcome_dialog.dart';
@@ -1053,7 +1054,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final isCreator = userRole == 'creator' || userRole == 'admin';
 
     return MainLayout(
-      selectedIndex: 0,
+      selectedIndex: appNavSelectedIndex(ref, '/home'),
       child: AppScaffold(
         padded: false,
         safeAreaBottom: false,

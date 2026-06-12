@@ -22,20 +22,11 @@ class VipSubscribeFooter extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(
         VipPageTokens.horizontalPadding,
-        12,
+        8,
         VipPageTokens.horizontalPadding,
         12,
       ),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            VipPageTokens.pageBackgroundBottom.withValues(alpha: 0),
-            VipPageTokens.pageBackgroundBottom,
-          ],
-        ),
-      ),
+      color: VipPageTokens.pageBackgroundBottom,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [

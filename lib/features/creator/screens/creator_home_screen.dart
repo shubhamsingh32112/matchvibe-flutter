@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/creator_availability_toggle_provider.dart';
 import '../providers/creator_dashboard_provider.dart';
 import '../providers/creator_leaderboard_provider.dart';
+import '../../../core/config/app_config_provider.dart';
 import '../../moments/providers/moments_providers.dart';
 import '../theme/creator_home_tokens.dart';
 import '../widgets/home/creator_home_header.dart';
@@ -59,33 +60,43 @@ class _CreatorHomeScreenState extends ConsumerState<CreatorHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return ColoredBox(
-      color: CreatorHomeTokens.pageBackground,
-      child: RefreshIndicator(
-        onRefresh: _onRefresh,
-        color: CreatorHomeTokens.primaryPurple,
-        child: CustomScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          slivers: [
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(
-                CreatorHomeTokens.sectionPaddingH,
-                8,
-                CreatorHomeTokens.sectionPaddingH,
-                24,
+    final momentsEnabled = ref.watch(appFeaturesProvider).momentsEnabled;
+
+    return Theme(
+      data: Theme.of(context).copyWith(
+        textTheme: Theme.of(context).textTheme.apply(
+          bodyColor: CreatorHomeTokens.textPrimary,
+          displayColor: CreatorHomeTokens.textPrimary,
+        ),
+      ),
+      child: ColoredBox(
+        color: CreatorHomeTokens.pageBackground,
+        child: RefreshIndicator(
+          onRefresh: _onRefresh,
+          color: CreatorHomeTokens.primaryPurple,
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(
+                  CreatorHomeTokens.sectionPaddingH,
+                  8,
+                  CreatorHomeTokens.sectionPaddingH,
+                  24,
+                ),
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate([
+                    const CreatorHomeHeader(),
+                    const CreatorHomeStatsTile(),
+                    const CreatorHomeLeaderboardCard(),
+                    if (momentsEnabled) const CreatorHomeStoriesSection(),
+                    const CreatorHomeTasksSection(),
+                    if (momentsEnabled) const CreatorHomeMediaTabs(),
+                  ]),
+                ),
               ),
-              sliver: SliverList(
-                delegate: SliverChildListDelegate([
-                  const CreatorHomeHeader(),
-                  const CreatorHomeStatsTile(),
-                  const CreatorHomeLeaderboardCard(),
-                  const CreatorHomeStoriesSection(),
-                  const CreatorHomeTasksSection(),
-                  const CreatorHomeMediaTabs(),
-                ]),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

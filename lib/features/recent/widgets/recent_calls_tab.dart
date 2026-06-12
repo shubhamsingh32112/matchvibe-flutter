@@ -9,6 +9,7 @@ import '../../../shared/widgets/app_avatar.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/skeleton_list.dart';
 import '../../../shared/widgets/gem_icon.dart';
+import '../../../core/config/app_config_provider.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../chat/services/chat_service.dart';
 import '../../home/providers/availability_provider.dart';
@@ -56,8 +57,10 @@ class _RecentCallListBody extends ConsumerWidget {
       ),
     );
 
+    final vipEnabled = ref.watch(appFeaturesProvider).vipEnabled;
+
     Widget creatorScheduleBanner() {
-      if (!isCreator) return const SizedBox.shrink();
+      if (!isCreator || !vipEnabled) return const SizedBox.shrink();
       return Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
         child: OutlinedButton.icon(

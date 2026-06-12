@@ -45,7 +45,7 @@ class CreatorHomeAvailabilitySwitch extends ConsumerWidget {
         Text(
           toggleState.toggleOn ? 'Online' : 'Offline',
           style: const TextStyle(
-            color: CreatorHomeTokens.primaryPurple,
+            color: CreatorHomeTokens.textPrimary,
             fontSize: 11,
             fontWeight: FontWeight.w600,
           ),
