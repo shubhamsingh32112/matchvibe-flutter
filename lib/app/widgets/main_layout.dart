@@ -80,6 +80,9 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
         tabs[widget.selectedIndex].id == AppNavTabId.home;
 
     ref.listen<CallBillingState>(callBillingProvider, (prev, next) {
+      if (prev?.isBillingEnding != true && next.isBillingEnding) {
+        ref.invalidate(recentCallsProvider);
+      }
       if (prev?.isBillingSettled != true && next.isBillingSettled) {
         ref.read(authProvider.notifier).refreshUser();
         ref.invalidate(recentCallsProvider);
