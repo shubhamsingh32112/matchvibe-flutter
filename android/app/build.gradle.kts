@@ -19,8 +19,8 @@ android {
     namespace = "com.matchvibe.app"
     compileSdk = flutter.compileSdkVersion
     // Required for Google Play's 16 KB page-size compatibility checks.
-    // Pin to a modern NDK so any native plugins rebuild with correct alignment.
-    ndkVersion = "28.0.13004108"
+    // Pin to the highest NDK version required by plugins (backward compatible).
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true

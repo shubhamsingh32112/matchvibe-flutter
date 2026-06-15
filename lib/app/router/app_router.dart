@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/config/app_config_model.dart';
 import '../../core/utils/user_message_mapper.dart';
+import '../widgets/app_nav_destinations.dart';
+import '../../features/auth/providers/auth_provider.dart';
 import '../../features/auth/screens/splash_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/onboarding/screens/gender_selection_screen.dart';
@@ -129,13 +131,35 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: '/recent',
+      redirect: (context, state) {
+        return AppNavDestinations.redirectForRecentRoute(
+          appConfigSnapshot.features,
+          authRoleSnapshot,
+        );
+      },
       builder: (context, state) => const RecentScreen(),
     ),
     GoRoute(
       path: '/chat-list',
+      redirect: (context, state) {
+        final tab = state.uri.queryParameters['tab'];
+        if (tab == 'calls' &&
+            AppNavDestinations.showRecentsInNav(
+              appConfigSnapshot.features,
+              authRoleSnapshot,
+            )) {
+          return '/chat-list';
+        }
+        return null;
+      },
       builder: (context, state) {
         final tab = state.uri.queryParameters['tab'];
-        final initialTab = tab == 'calls' ? 1 : 0;
+        final showRecentsInNav = AppNavDestinations.showRecentsInNav(
+          appConfigSnapshot.features,
+          authRoleSnapshot,
+        );
+        final initialTab =
+            !showRecentsInNav && tab == 'calls' ? 1 : 0;
         return ChatListScreen(initialTabIndex: initialTab);
       },
     ),

@@ -41,15 +41,19 @@ class AppNavDestinations {
   static bool isCreatorOrAdmin(String? role) =>
       role == 'creator' || role == 'admin';
 
+  /// Whether Recents appears as a bottom-nav center tab (not Chat sub-tab).
+  static bool showRecentsInNav(AppFeatures features, String? role) {
+    if (isCreatorOrAdmin(role)) return true;
+    return !features.vipEnabled && !features.momentsEnabled;
+  }
+
   static List<AppNavTab> buildVisibleTabs({
     required AppFeatures features,
     required String? role,
   }) {
     final isCreator = isCreatorOrAdmin(role);
     final showVipCenter = !isCreator && features.vipEnabled;
-    final centerRoute = isCreator
-        ? '/recent'
-        : (showVipCenter ? '/vip' : '/recent');
+    final showRecentsCenter = showRecentsInNav(features, role);
 
     return [
       const AppNavTab(
@@ -65,18 +69,27 @@ class AppNavDestinations {
           tooltip: 'Moments',
           assetIconPath: AppNavAssets.momentsIcon,
         ),
-      AppNavTab(
-        id: AppNavTabId.center,
-        route: centerRoute,
-        tooltip: showVipCenter ? 'VIP' : 'Recent',
-        assetIconPath: showVipCenter ? AppNavAssets.vipIcon : null,
-        icon: showVipCenter ? null : Icons.history_outlined,
-        selectedIcon: showVipCenter ? null : Icons.history,
-        iconSize: showVipCenter ? vipNavIconSize : navIconSize,
-        iconSizeSelected:
-            showVipCenter ? vipNavIconSizeSelected : navIconSizeSelected,
-        iconHitSize: showVipCenter ? vipNavIconHitSize : navIconHitSize,
-      ),
+      if (showVipCenter)
+        const AppNavTab(
+          id: AppNavTabId.center,
+          route: '/vip',
+          tooltip: 'VIP',
+          assetIconPath: AppNavAssets.vipIcon,
+          iconSize: vipNavIconSize,
+          iconSizeSelected: vipNavIconSizeSelected,
+          iconHitSize: vipNavIconHitSize,
+        ),
+      if (showRecentsCenter && !showVipCenter)
+        const AppNavTab(
+          id: AppNavTabId.center,
+          route: '/recent',
+          tooltip: 'Recents',
+          icon: Icons.history_outlined,
+          selectedIcon: Icons.history,
+          iconSize: navIconSize,
+          iconSizeSelected: navIconSizeSelected,
+          iconHitSize: navIconHitSize,
+        ),
       const AppNavTab(
         id: AppNavTabId.chat,
         route: '/chat-list',
@@ -98,18 +111,34 @@ class AppNavDestinations {
     if (idx >= 0) return idx;
 
     if (normalized.startsWith('/vip')) {
-      return tabs.indexWhere((tab) => tab.id == AppNavTabId.center);
+      final centerIdx =
+          tabs.indexWhere((tab) => tab.id == AppNavTabId.center);
+      return centerIdx >= 0 ? centerIdx : 0;
     }
     if (normalized.startsWith('/recent')) {
-      return tabs.indexWhere((tab) => tab.id == AppNavTabId.center);
+      final centerIdx =
+          tabs.indexWhere((tab) => tab.id == AppNavTabId.center);
+      return centerIdx >= 0 ? centerIdx : 0;
     }
     if (normalized.startsWith('/account')) {
-      return tabs.indexWhere((tab) => tab.id == AppNavTabId.profile);
+      final profileIdx =
+          tabs.indexWhere((tab) => tab.id == AppNavTabId.profile);
+      return profileIdx >= 0 ? profileIdx : 0;
     }
     if (normalized.startsWith('/chat')) {
-      return tabs.indexWhere((tab) => tab.id == AppNavTabId.chat);
+      final chatIdx = tabs.indexWhere((tab) => tab.id == AppNavTabId.chat);
+      return chatIdx >= 0 ? chatIdx : 0;
     }
     return 0;
+  }
+
+  /// Redirect when `/recent` is opened but Recents is not in bottom nav.
+  static String? redirectForRecentRoute(AppFeatures features, String? role) {
+    if (showRecentsInNav(features, role)) return null;
+    if (!features.vipEnabled && features.momentsEnabled) {
+      return '/chat-list?tab=calls';
+    }
+    return '/home';
   }
 
   static String routeForIndex(List<AppNavTab> tabs, int index) {

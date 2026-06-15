@@ -7,8 +7,10 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/widgets/app_avatar.dart';
 import '../../../shared/widgets/app_toast.dart';
+import '../../../app/widgets/app_nav_destinations.dart';
 import '../../../app/widgets/app_nav_index.dart';
 import '../../../app/widgets/main_layout.dart';
+import '../../../core/config/app_config_provider.dart';
 import '../../../shared/models/profile_model.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../recent/widgets/recent_calls_tab.dart';
@@ -71,11 +73,14 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
       final isCreator = authState.user?.role == 'creator' ||
           authState.user?.role == 'admin';
       final isUser = authState.user?.role == 'user';
+      final features = ref.read(appFeaturesProvider);
+      final showUserChatSubTabs = isUser &&
+          !AppNavDestinations.showRecentsInNav(features, authState.user?.role);
 
       if (isCreator && _creatorTabController == null) {
         _creatorTabController = TabController(length: 2, vsync: this);
       }
-      if (isUser && _userTabController == null) {
+      if (showUserChatSubTabs && _userTabController == null) {
         final tabIndex = widget.initialTabIndex.clamp(0, 1);
         _userTabController = TabController(
           length: 2,
@@ -95,9 +100,12 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
   Widget build(BuildContext context) {
     final streamChat = StreamChat.maybeOf(context);
     final userRole = ref.watch(authProvider.select((s) => s.user?.role));
+    final features = ref.watch(appFeaturesProvider);
     final isCreator =
         userRole == 'creator' || userRole == 'admin';
     final isUser = userRole == 'user';
+    final showUserChatSubTabs =
+        isUser && !AppNavDestinations.showRecentsInNav(features, userRole);
 
     if (streamChat == null || streamChat.client.state.currentUser == null) {
       return MainLayout(
@@ -121,7 +129,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
     if (isCreator && _creatorTabController == null) {
       _creatorTabController = TabController(length: 2, vsync: this);
     }
-    if (isUser && _userTabController == null) {
+    if (showUserChatSubTabs && _userTabController == null) {
       final tabIndex = widget.initialTabIndex.clamp(0, 1);
       _userTabController = TabController(
         length: 2,
@@ -170,7 +178,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen>
       );
     }
 
-    if (isUser && _userTabController != null) {
+    if (showUserChatSubTabs && _userTabController != null) {
       return MainLayout(
         selectedIndex: appNavSelectedIndex(ref, '/chat-list'),
         child: Scaffold(

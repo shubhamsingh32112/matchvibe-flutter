@@ -28,6 +28,9 @@ import '../../../core/config/app_config_model.dart';
 import '../../../core/config/app_config_provider.dart';
 import '../../../shared/widgets/app_toast.dart';
 
+/// Snapshot for GoRouter redirects (updated when auth state changes).
+String? authRoleSnapshot;
+
 final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
   return AuthNotifier(ref);
 });
@@ -73,6 +76,12 @@ class AuthState {
 class AuthNotifier extends StateNotifier<AuthState> {
   AuthNotifier(this._ref) : super(AuthState()) {
     _initialize();
+  }
+
+  @override
+  set state(AuthState value) {
+    super.state = value;
+    authRoleSnapshot = value.user?.role;
   }
 
   final Ref? _ref;
