@@ -18,6 +18,7 @@ import '../../video/controllers/call_connection_controller.dart';
 import '../../video/utils/call_admission_constants.dart';
 import '../models/moments_models.dart';
 import '../providers/moments_providers.dart';
+import '../services/moments_api_service.dart';
 import '../utils/moment_owner_actions.dart';
 import '../widgets/moment_card.dart';
 import '../widgets/moment_viewer_chrome.dart';
@@ -52,6 +53,7 @@ class _CreatorMomentViewerScreenState
   bool _isVideoMuted = true;
   bool _isInitiatingCall = false;
   bool _isOpeningChat = false;
+  final _momentsApi = MomentsApiService();
 
   List<MomentFeedItem> get _visibleItems =>
       applyMediaFilter(_allItems, _mediaFilter);
@@ -73,6 +75,27 @@ class _CreatorMomentViewerScreenState
     final visibleStart = visible.indexWhere((item) => item.id == startItem.id);
     _currentIndex = visibleStart >= 0 ? visibleStart : 0;
     _controller = PageController(initialPage: _currentIndex);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _recordViewForCurrentItem());
+  }
+
+  String? _ownCreatorId() {
+    return ref.read(creatorDashboardProvider).valueOrNull?.creatorProfile.id;
+  }
+
+  bool _isViewingOwnMoment(MomentFeedItem item) {
+    if (widget.allowOwnerDelete) return true;
+    final ownId = _ownCreatorId();
+    return ownId != null && ownId == item.creatorId;
+  }
+
+  Future<void> _recordViewForCurrentItem() async {
+    final item = _currentItem;
+    if (item == null || _isViewingOwnMoment(item)) return;
+    try {
+      await _momentsApi.recordMomentView(item.id);
+    } catch (_) {
+      // Non-blocking; view counts are best-effort.
+    }
   }
 
   @override
@@ -303,12 +326,17 @@ class _CreatorMomentViewerScreenState
     }
 
     final currentItem = _currentItem!;
-    final ownCreatorId = ref.watch(
-      creatorDashboardProvider.select((a) => a.valueOrNull?.creatorProfile.id),
-    );
-    final viewingOwnMoment = widget.allowOwnerDelete ||
-        (ownCreatorId != null && ownCreatorId == currentItem.creatorId);
+    final viewingOwnMoment = _isViewingOwnMoment(currentItem);
     final showContactActions = !viewingOwnMoment;
+    final myMoments = ref.watch(myMomentsProvider).valueOrNull;
+    final ownerViewCount = viewingOwnMoment
+        ? myMoments
+                ?.where((m) => m.id == currentItem.id)
+                .map((m) => m.viewsCount)
+                .firstOrNull ??
+            currentItem.viewsCount ??
+            0
+        : null;
 
     final creatorAsync = showContactActions
         ? ref.watch(creatorDetailProvider(currentItem.creatorId))
@@ -377,7 +405,10 @@ class _CreatorMomentViewerScreenState
             controller: _controller,
             scrollDirection: Axis.vertical,
             allowImplicitScrolling: false,
-            onPageChanged: (index) => setState(() => _currentIndex = index),
+            onPageChanged: (index) {
+              setState(() => _currentIndex = index);
+              _recordViewForCurrentItem();
+            },
             itemCount: visibleItems.length,
             itemBuilder: (context, index) {
               final item = visibleItems[index];
@@ -420,6 +451,37 @@ class _CreatorMomentViewerScreenState
               );
             },
           ),
+          if (viewingOwnMoment && ownerViewCount != null)
+            Positioned(
+              top: MediaQuery.paddingOf(context).top + 56,
+              right: 16,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.45),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.visibility_outlined,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Unique views: $ownerViewCount',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           if (contactBar != null)
             Positioned(
               left: 0,

@@ -582,7 +582,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
           _exploreTile(
             context: context,
             icon: Icons.play_circle_outline,
-            title: 'Moments Plan',
+            title: 'Moments Premium',
             onTap: () => context.push('/account/moments-plan'),
           ),
         transactionsTile,

@@ -62,7 +62,7 @@ class MomentsFeedEmptyState extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24),
         child: Text(
-          onAddMoment != null ? '$message\nTap + below to post a reel' : message,
+          onAddMoment != null ? '$message\nTap + below to post a moment' : message,
           textAlign: TextAlign.center,
           style: TextStyle(
             color: AppBrandGradients.momentsTabInactiveColor,

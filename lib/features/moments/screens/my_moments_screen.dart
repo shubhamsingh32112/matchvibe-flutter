@@ -136,7 +136,7 @@ class _MyStoriesTab extends ConsumerWidget {
                   ],
                 ),
                 subtitle: Text(
-                  'Views: ${story.viewsCount ?? 0} · Expires ${DateTime.tryParse(story.expiresAt)?.toLocal()}',
+                  'Unique views: ${story.viewsCount ?? 0} · Expires ${DateTime.tryParse(story.expiresAt)?.toLocal()}',
                 ),
                 trailing: PopupMenuButton<String>(
                   onSelected: (value) async {
@@ -213,7 +213,7 @@ class _MyPostsTab extends ConsumerWidget {
                   ],
                 ),
                 subtitle: Text(
-                  '${paid ? 'Paid' : 'Free'} · Views: ${moment.viewsCount ?? 0} · '
+                  '${paid ? 'Paid' : 'Free'} · Unique views: ${moment.viewsCount ?? 0} · '
                   'Purchases: ${moment.purchaseCount ?? 0}',
                 ),
                 trailing: IconButton(
@@ -259,7 +259,7 @@ class _AnalyticsTab extends ConsumerWidget {
                 subtitle: Text(
                   '${data['momentsEarnings'] ?? 0} coins · '
                   '${data['purchaseCount'] ?? 0} purchases · '
-                  '${data['totalViews'] ?? 0} views · '
+                  '${data['totalViews'] ?? 0} unique views · '
                   '${data['postCount'] ?? 0} posts',
                 ),
               ),
@@ -291,7 +291,7 @@ class _AnalyticsTab extends ConsumerWidget {
                                 ? m.caption!
                                 : (m.media.isVideo ? 'Video' : 'Photo')),
                             subtitle: Text(
-                              'Views: ${m.viewsCount ?? 0} · Purchases: ${m.purchaseCount ?? 0}',
+                              'Unique views: ${m.viewsCount ?? 0} · Purchases: ${m.purchaseCount ?? 0}',
                             ),
                           ),
                         ),

@@ -9,14 +9,18 @@ void main() {
         'momentsEnabled': false,
       },
       'pricing': {
-        'welcomeIntroCallCredits': 30,
+        'freeCallEnabled': true,
+        'freeCallDurationSeconds': 45,
+        'welcomeIntroCallCredits': 45,
         'minCoinsToCall': 10,
       },
     });
 
     expect(config.features.vipEnabled, isTrue);
     expect(config.features.momentsEnabled, isFalse);
-    expect(config.pricing.welcomeIntroCallCredits, 30);
+    expect(config.pricing.freeCallEnabled, isTrue);
+    expect(config.pricing.freeCallDurationSeconds, 45);
+    expect(config.pricing.welcomeIntroCallCredits, 45);
     expect(config.pricing.minCoinsToCall, 10);
   });
 
@@ -24,6 +28,8 @@ void main() {
     final config = AppConfig.safeDefaults();
     expect(config.features.vipEnabled, isFalse);
     expect(config.features.momentsEnabled, isFalse);
-    expect(config.pricing.welcomeIntroCallCredits, 60);
+    expect(config.pricing.freeCallEnabled, isTrue);
+    expect(config.pricing.freeCallDurationSeconds, 30);
+    expect(config.pricing.welcomeIntroCallCredits, 30);
   });
 }

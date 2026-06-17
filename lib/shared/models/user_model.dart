@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 
 import '../../core/images/image_asset_view.dart';
 import '../../features/vip/models/vip_models.dart';
+import '../../features/account/models/moments_premium_models.dart';
 
 class UserModel extends Equatable {
   final String id;
@@ -50,6 +51,7 @@ class UserModel extends Equatable {
   final String onboardingCameraMicStatus;
   final String onboardingNotificationStatus;
   final VipStatus vipStatus;
+  final MomentsPremiumStatus momentsPremiumStatus;
 
   const UserModel({
     required this.id,
@@ -87,9 +89,11 @@ class UserModel extends Equatable {
     this.onboardingCameraMicStatus = 'unknown',
     this.onboardingNotificationStatus = 'unknown',
     this.vipStatus = const VipStatus(),
+    this.momentsPremiumStatus = const MomentsPremiumStatus(),
   });
 
   bool get isVipActive => vipStatus.active;
+  bool get isMomentsPremiumActive => momentsPremiumStatus.active;
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
     final onboarding = json['onboarding'] as Map<String, dynamic>?;
@@ -243,6 +247,7 @@ class UserModel extends Equatable {
     String? onboardingCameraMicStatus,
     String? onboardingNotificationStatus,
     VipStatus? vipStatus,
+    MomentsPremiumStatus? momentsPremiumStatus,
   }) {
     return UserModel(
       id: id ?? this.id,
@@ -295,6 +300,7 @@ class UserModel extends Equatable {
       onboardingNotificationStatus:
           onboardingNotificationStatus ?? this.onboardingNotificationStatus,
       vipStatus: vipStatus ?? this.vipStatus,
+      momentsPremiumStatus: momentsPremiumStatus ?? this.momentsPremiumStatus,
     );
   }
 
@@ -335,5 +341,6 @@ class UserModel extends Equatable {
         onboardingCameraMicStatus,
         onboardingNotificationStatus,
         vipStatus,
+        momentsPremiumStatus,
       ];
 }

@@ -66,7 +66,7 @@ class _StoryViewersScreenState extends ConsumerState<StoryViewersScreen> {
                       ),
                       padding: const EdgeInsets.all(16),
                       child: Text(
-                        'Story Views: $_viewsCount',
+                        'Unique views: $_viewsCount',
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                     ),

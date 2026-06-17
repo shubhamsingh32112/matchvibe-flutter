@@ -5,6 +5,7 @@ import '../../../app/widgets/app_nav_index.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../creator/providers/creator_dashboard_provider.dart';
 import '../../home/widgets/creator_profile_screen.dart';
 import '../models/moments_models.dart';
 import '../providers/moments_providers.dart';
@@ -12,8 +13,8 @@ import '../widgets/moments_upload_flow.dart';
 import '../widgets/moments_add_center_button.dart';
 import '../widgets/moments_feed_tab_bar.dart';
 import '../widgets/moments_grid_feed.dart';
+import '../widgets/moments_stories_row.dart';
 import '../widgets/moments_header.dart';
-import '../widgets/stories_row.dart';
 import 'story_viewer_screen.dart';
 
 class MomentsScreen extends ConsumerWidget {
@@ -29,7 +30,11 @@ class MomentsScreen extends ConsumerWidget {
         (s) => s.user?.role == 'creator' || s.user?.role == 'admin',
       ),
     );
+    final myCreatorId = ref.watch(
+      creatorDashboardProvider.select((a) => a.valueOrNull?.creatorProfile.id),
+    );
     void openPostReelSheet() => startMomentUploadFlow(context, ref);
+    void openStoryUpload() => startStoryUploadFlow(context, ref);
 
     return MainLayout(
       selectedIndex: appNavSelectedIndex(ref, '/moments'),
@@ -42,12 +47,19 @@ class MomentsScreen extends ConsumerWidget {
             child: Column(
               children: [
                 storiesAsync.when(
-                  data: (groups) => StoriesRow(
+                  data: (groups) => MomentsStoriesRow(
                     groups: groups,
+                    isCreator: canUploadMoments,
+                    onAddStory: canUploadMoments ? openStoryUpload : null,
                     onGroupTap: (group) {
+                      final isOwnStory = myCreatorId != null &&
+                          group.creatorId == myCreatorId;
                       Navigator.of(context).push(
                         MaterialPageRoute<void>(
-                          builder: (_) => StoryViewerScreen(group: group),
+                          builder: (_) => StoryViewerScreen(
+                            group: group,
+                            allowOwnerDelete: isOwnStory,
+                          ),
                         ),
                       );
                     },

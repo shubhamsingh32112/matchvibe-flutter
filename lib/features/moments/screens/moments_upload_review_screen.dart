@@ -73,9 +73,14 @@ class _MomentsUploadReviewScreenState
     super.dispose();
   }
 
-  String get _ctaLabel => widget.contentType == MomentsUploadContentType.story
-      ? 'Add Story'
-      : 'Add Moment';
+  bool get _isStory =>
+      widget.contentType == MomentsUploadContentType.story;
+
+  String get _ctaLabel => _isStory ? 'Add Story' : 'Post Moment';
+
+  String get _contextLine => _isStory
+      ? 'Expires in 24 hours'
+      : 'Visible in Moments feed';
 
   Future<void> _submit() async {
     if (_uploading) return;
@@ -89,10 +94,8 @@ class _MomentsUploadReviewScreenState
 
     try {
       final caption = _captionController.text;
-      final isStory =
-          widget.contentType == MomentsUploadContentType.story;
 
-      if (isStory) {
+      if (_isStory) {
         await _coordinator.uploadStory(
           file: widget.file,
           kind: widget.mediaKind,
@@ -152,111 +155,192 @@ class _MomentsUploadReviewScreenState
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    final topPadding = MediaQuery.paddingOf(context).top;
 
     return Scaffold(
-      backgroundColor: AppBrandGradients.accountMenuPageBackground,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.close, color: Colors.white),
-          onPressed: _uploading ? null : () => Navigator.of(context).pop(),
-        ),
-      ),
-      body: Padding(
-        padding: EdgeInsets.fromLTRB(16, 0, 16, 16 + bottomInset),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(child: _buildPreview()),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _captionController,
-              enabled: !_uploading,
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                labelText: 'Caption (optional)',
-                labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
-                enabledBorder: OutlineInputBorder(
-                  borderSide: BorderSide(
-                    color: Colors.white.withValues(alpha: 0.3),
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderSide: const BorderSide(color: Colors.white54),
-                  borderRadius: BorderRadius.circular(12),
+      backgroundColor: AppBrandGradients.momentsPageBackground,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned.fill(child: _buildPreview()),
+          Positioned(
+            top: topPadding + 8,
+            left: 8,
+            child: IconButton(
+              icon: const Icon(Icons.close, color: Colors.white),
+              onPressed: _uploading ? null : () => Navigator.of(context).pop(),
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Container(
+              padding: EdgeInsets.fromLTRB(16, 20, 16, 16 + bottomInset),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    AppBrandGradients.momentsPageBackground.withValues(alpha: 0),
+                    AppBrandGradients.momentsPageBackground.withValues(alpha: 0.92),
+                    AppBrandGradients.momentsPageBackground,
+                  ],
                 ),
               ),
-              maxLines: 2,
-            ),
-            if (_uploading) ...[
-              const SizedBox(height: 16),
-              LinearProgressIndicator(value: _progress > 0 ? _progress : null),
-              if (_status.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text(
-                  _status,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.white70,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    _contextLine,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: AppBrandGradients.momentsSubtitleColor,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _captionController,
+                    enabled: !_uploading,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      hintText: 'Caption (optional)',
+                      hintStyle: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.45),
                       ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ],
-            const SizedBox(height: 16),
-            AddContentGradientButton(
-              label: _ctaLabel,
-              enabled: !_uploading,
-              onPressed: _uploading ? null : _submit,
+                      filled: true,
+                      fillColor: AppBrandGradients.momentsTrophyBackground,
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: Colors.white.withValues(alpha: 0.12),
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(
+                          color: AppBrandGradients.momentsTabActiveColor,
+                        ),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                    ),
+                    maxLines: 2,
+                  ),
+                  if (_uploading) ...[
+                    const SizedBox(height: 14),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: _progress > 0 ? _progress : null,
+                        minHeight: 4,
+                        backgroundColor: Colors.white.withValues(alpha: 0.12),
+                        color: AppBrandGradients.momentsTabActiveColor,
+                      ),
+                    ),
+                    if (_status.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _status,
+                        style: TextStyle(
+                          color: AppBrandGradients.momentsSubtitleColor,
+                          fontSize: 12,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ],
+                  const SizedBox(height: 14),
+                  AddContentGradientButton(
+                    label: _ctaLabel,
+                    enabled: !_uploading,
+                    onPressed: _uploading ? null : _submit,
+                  ),
+                ],
+              ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildPreview() {
     if (widget.mediaKind == MomentsMediaKind.photo) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Image.file(
-          File(widget.file.path),
-          fit: BoxFit.contain,
-          width: double.infinity,
-        ),
+      return Image.file(
+        File(widget.file.path),
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
       );
     }
 
     final controller = _videoController;
     if (controller != null && controller.value.isInitialized) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(16),
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          Center(
+            child: AspectRatio(
+              aspectRatio: controller.value.aspectRatio,
+              child: VideoPlayer(controller),
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: 160,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    AppBrandGradients.momentsPageBackground.withValues(alpha: 0.85),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (_videoInitFailed) {
+      return ColoredBox(
+        color: AppBrandGradients.momentsTrophyBackground,
         child: Center(
-          child: AspectRatio(
-            aspectRatio: controller.value.aspectRatio,
-            child: VideoPlayer(controller),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.videocam,
+                size: 64,
+                color: Colors.white.withValues(alpha: 0.5),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Video selected',
+                style: TextStyle(
+                  color: AppBrandGradients.momentsSubtitleColor,
+                ),
+              ),
+            ],
           ),
         ),
       );
     }
 
-    if (_videoInitFailed) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.videocam, size: 64, color: Colors.white.withValues(alpha: 0.5)),
-            const SizedBox(height: 8),
-            Text(
-              'Video selected',
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return const Center(child: CircularProgressIndicator());
+    return const Center(
+      child: CircularProgressIndicator(
+        color: AppBrandGradients.momentsTabActiveColor,
+      ),
+    );
   }
 }

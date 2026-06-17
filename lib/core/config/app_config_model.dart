@@ -27,19 +27,26 @@ class AppFeatures {
 }
 
 class AppPricingConfig {
+  final bool freeCallEnabled;
+  final int freeCallDurationSeconds;
   final int welcomeIntroCallCredits;
   final int minCoinsToCall;
 
   const AppPricingConfig({
-    this.welcomeIntroCallCredits = 60,
+    this.freeCallEnabled = true,
+    this.freeCallDurationSeconds = 30,
+    this.welcomeIntroCallCredits = 30,
     this.minCoinsToCall = 10,
   });
 
   factory AppPricingConfig.fromJson(Map<String, dynamic>? json) {
     if (json == null) return const AppPricingConfig();
     return AppPricingConfig(
+      freeCallEnabled: json['freeCallEnabled'] != false,
+      freeCallDurationSeconds:
+          (json['freeCallDurationSeconds'] as num?)?.toInt() ?? 30,
       welcomeIntroCallCredits:
-          (json['welcomeIntroCallCredits'] as num?)?.toInt() ?? 60,
+          (json['welcomeIntroCallCredits'] as num?)?.toInt() ?? 30,
       minCoinsToCall: (json['minCoinsToCall'] as num?)?.toInt() ?? 10,
     );
   }

@@ -9,6 +9,7 @@ import '../router/app_router.dart';
 import '../../core/services/meta_app_events_service.dart';
 import '../../core/services/sentry_service.dart';
 import '../../features/auth/providers/auth_provider.dart';
+import '../../features/account/providers/moments_premium_provider.dart';
 import '../../features/home/providers/availability_provider.dart';
 import '../../core/services/availability_socket_service.dart'
     as socket_availability;
@@ -525,6 +526,27 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       return;
     }
 
+    if (uri.host == 'moments-plan') {
+      final checkoutTxn = SentryService.startTransaction(
+        'moments_premium.checkout_return',
+        'navigation',
+      );
+      try {
+        await _handleMomentsPremiumPaymentDeepLink(uri);
+      } catch (e, stackTrace) {
+        unawaited(
+          SentryService.captureException(
+            e,
+            stackTrace: stackTrace,
+            tags: {'feature': 'moments_premium_checkout_return'},
+          ),
+        );
+      } finally {
+        unawaited(checkoutTxn.finish());
+      }
+      return;
+    }
+
     if (uri.host != 'wallet') return;
 
     final checkoutTxn =
@@ -573,6 +595,42 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       AppToast.showError(
         context,
         deepLinkMessage ?? 'VIP payment failed or was cancelled. Please try again.',
+      );
+    }
+  }
+
+  Future<void> _handleMomentsPremiumPaymentDeepLink(Uri uri) async {
+    final paymentStatus =
+        uri.queryParameters['status'] ?? uri.queryParameters['payment'];
+    if (paymentStatus == null || paymentStatus.isEmpty) return;
+
+    if (!await _shouldHandlePaymentDeepLink(uri, paymentStatus)) {
+      debugPrint('⏭️  [APP LINKS] Ignoring duplicate Moments Premium deep link: $uri');
+      return;
+    }
+
+    final deepLinkMessage = uri.queryParameters['message'];
+
+    if (paymentStatus == 'success') {
+      await ref.read(authProvider.notifier).refreshUser();
+      ref.invalidate(momentsPremiumPlansProvider);
+      ref.invalidate(momentsPremiumStatusProvider);
+      if (!mounted) return;
+      appRouter.go('/account/moments-plan');
+      AppToast.showSuccess(
+        context,
+        deepLinkMessage ?? 'Moments Premium activated!',
+      );
+      return;
+    }
+
+    if (paymentStatus == 'failed') {
+      if (!mounted) return;
+      appRouter.go('/account/moments-plan');
+      AppToast.showError(
+        context,
+        deepLinkMessage ??
+            'Moments Premium payment failed or was cancelled. Please try again.',
       );
     }
   }

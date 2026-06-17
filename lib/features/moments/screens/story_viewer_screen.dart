@@ -7,6 +7,7 @@ import '../../home/widgets/creator_profile_screen.dart';
 import '../models/moments_models.dart';
 import '../services/moments_api_service.dart';
 import '../utils/moment_owner_actions.dart';
+import 'story_viewers_screen.dart';
 import '../widgets/stream_hls_player.dart';
 
 class StoryViewerScreen extends ConsumerStatefulWidget {
@@ -30,12 +31,17 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
   Timer? _timer;
   bool _paused = false;
   final _storiesApi = StoriesApiService();
+  late Map<String, int> _viewCounts;
 
   static const _storyDuration = Duration(seconds: 5);
 
   @override
   void initState() {
     super.initState();
+    _viewCounts = {
+      for (final s in widget.group.stories)
+        s.id: s.viewsCount ?? 0,
+    };
     _pageController = PageController();
     _recordView(0);
     _scheduleAdvance();
@@ -59,7 +65,18 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
 
   Future<void> _recordView(int index) async {
     if (index >= widget.group.stories.length) return;
-    await _storiesApi.recordStoryView(widget.group.stories[index].id);
+    final storyId = widget.group.stories[index].id;
+    final count = await _storiesApi.recordStoryView(storyId);
+    if (!mounted) return;
+    setState(() => _viewCounts[storyId] = count);
+  }
+
+  void _openViewers(String storyId) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => StoryViewersScreen(storyId: storyId),
+      ),
+    );
   }
 
   @override
@@ -80,6 +97,9 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
   @override
   Widget build(BuildContext context) {
     final stories = widget.group.stories;
+    final currentStory = stories[_index];
+    final showOwnerViews = widget.allowOwnerDelete;
+    final viewCount = _viewCounts[currentStory.id] ?? currentStory.viewsCount ?? 0;
     return Scaffold(
       backgroundColor: Colors.black,
       body: GestureDetector(
@@ -247,6 +267,40 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
                           ),
                         ),
                         const Spacer(),
+                        if (showOwnerViews)
+                          GestureDetector(
+                            onTap: () => _openViewers(currentStory.id),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.45),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.visibility_outlined,
+                                    color: Colors.white,
+                                    size: 16,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '$viewCount',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        if (showOwnerViews) const SizedBox(width: 8),
                         IconButton(
                           icon: const Icon(Icons.close, color: Colors.white),
                           onPressed: () => Navigator.of(context).pop(),

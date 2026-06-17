@@ -48,7 +48,7 @@ Future<void> _startUploadFlow(
           final rewardText =
               rewardCoins > 0 ? ' · +$rewardCoins coins earned' : '';
           ScaffoldMessenger.of(ctx).showSnackBar(
-            SnackBar(content: Text('Moment uploaded$rewardText')),
+            SnackBar(content: Text('Moment posted$rewardText')),
           );
         },
       ),

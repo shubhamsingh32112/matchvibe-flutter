@@ -80,6 +80,12 @@ class MomentsApiService {
     });
   }
 
+  Future<int> recordMomentView(String momentId) async {
+    final response = await _api.post('/moments/$momentId/view');
+    final data = response.data['data'] as Map<String, dynamic>? ?? {};
+    return data['viewsCount'] as int? ?? 0;
+  }
+
   Future<({bool isFollowing, int followerCount})> followCreator(
     String creatorId,
   ) async {
@@ -199,8 +205,10 @@ class StoriesApiService {
         .toList();
   }
 
-  Future<void> recordStoryView(String storyId) async {
-    await _api.post('/stories/$storyId/view');
+  Future<int> recordStoryView(String storyId) async {
+    final response = await _api.post('/stories/$storyId/view');
+    final data = response.data['data'] as Map<String, dynamic>? ?? {};
+    return data['viewsCount'] as int? ?? 0;
   }
 
   Future<void> deleteStory(String storyId) async {
