@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/styles/app_brand_styles.dart';
-import '../providers/moments_providers.dart';
 import '../services/moments_api_service.dart';
+import '../utils/moments_follow_sync.dart';
 
 enum CreatorFollowButtonStyle { outlined, compact, profileCard, viewerGradient }
 
@@ -15,6 +15,7 @@ class FollowCreatorButton extends ConsumerStatefulWidget {
     this.compact = false,
     this.style,
     this.onFollowChanged,
+    this.enabled = true,
   });
 
   final String creatorId;
@@ -22,6 +23,7 @@ class FollowCreatorButton extends ConsumerStatefulWidget {
   final bool compact;
   final CreatorFollowButtonStyle? style;
   final void Function(bool isFollowing, int followerCount)? onFollowChanged;
+  final bool enabled;
 
   CreatorFollowButtonStyle get _resolvedStyle {
     if (style != null) return style!;
@@ -54,21 +56,26 @@ class _FollowCreatorButtonState extends ConsumerState<FollowCreatorButton> {
   }
 
   Future<void> _toggle() async {
+    if (!widget.enabled) return;
     setState(() => _busy = true);
     try {
       if (_following == true) {
         final result = await _api.unfollowCreator(widget.creatorId);
         setState(() => _following = result.isFollowing);
-        ref.invalidate(followingCreatorsProvider);
-        ref.invalidate(followingFeedProvider);
-        ref.invalidate(creatorSummaryProvider(widget.creatorId));
+        syncFollowState(
+          ref,
+          creatorId: widget.creatorId,
+          isFollowing: result.isFollowing,
+        );
         widget.onFollowChanged?.call(result.isFollowing, result.followerCount);
       } else {
         final result = await _api.followCreator(widget.creatorId);
         setState(() => _following = result.isFollowing);
-        ref.invalidate(followingCreatorsProvider);
-        ref.invalidate(followingFeedProvider);
-        ref.invalidate(creatorSummaryProvider(widget.creatorId));
+        syncFollowState(
+          ref,
+          creatorId: widget.creatorId,
+          isFollowing: result.isFollowing,
+        );
         widget.onFollowChanged?.call(result.isFollowing, result.followerCount);
       }
     } finally {
@@ -80,11 +87,12 @@ class _FollowCreatorButtonState extends ConsumerState<FollowCreatorButton> {
   Widget build(BuildContext context) {
     final following = _following ?? false;
     final label = following ? 'Following' : 'Follow';
+    final canTap = widget.enabled && !_busy;
 
     switch (widget._resolvedStyle) {
       case CreatorFollowButtonStyle.compact:
         return TextButton(
-          onPressed: _busy ? null : _toggle,
+          onPressed: canTap ? _toggle : null,
           child: Text(label),
         );
       case CreatorFollowButtonStyle.profileCard:
@@ -95,7 +103,7 @@ class _FollowCreatorButtonState extends ConsumerState<FollowCreatorButton> {
           shadowColor: Colors.black26,
           borderRadius: BorderRadius.circular(16),
           child: InkWell(
-            onTap: _busy ? null : _toggle,
+            onTap: canTap ? _toggle : null,
             borderRadius: BorderRadius.circular(16),
             child: Ink(
               decoration: BoxDecoration(
@@ -135,14 +143,14 @@ class _FollowCreatorButtonState extends ConsumerState<FollowCreatorButton> {
         );
       case CreatorFollowButtonStyle.outlined:
         return OutlinedButton(
-          onPressed: _busy ? null : _toggle,
+          onPressed: canTap ? _toggle : null,
           child: Text(label),
         );
       case CreatorFollowButtonStyle.viewerGradient:
         return Material(
           color: Colors.transparent,
           child: InkWell(
-            onTap: _busy ? null : _toggle,
+            onTap: canTap ? _toggle : null,
             borderRadius: BorderRadius.circular(14),
             child: Ink(
               decoration: BoxDecoration(

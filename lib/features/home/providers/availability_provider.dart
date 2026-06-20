@@ -417,6 +417,9 @@ final socketServiceProvider = Provider<SocketService>((ref) {
   service.onMomentPurchased = (data) {
     handleMomentsSocketIfEnabled('moment:purchased', data);
   };
+  service.onMomentPurchaseCount = (data) {
+    handleMomentsSocketIfEnabled('moment:purchase_count', data);
+  };
   service.onCreatorFollowed = (data) {
     handleMomentsSocketIfEnabled('creator:followed', data);
   };

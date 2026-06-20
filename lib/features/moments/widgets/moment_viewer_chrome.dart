@@ -216,6 +216,7 @@ class MomentViewerBottomBar extends ConsumerWidget {
     this.isOpeningChat = false,
     this.isCalling = false,
     this.onFollowChanged,
+    this.onCreatorTap,
   });
 
   final String creatorId;
@@ -227,6 +228,7 @@ class MomentViewerBottomBar extends ConsumerWidget {
   final bool isOpeningChat;
   final bool isCalling;
   final void Function(bool isFollowing, int followerCount)? onFollowChanged;
+  final VoidCallback? onCreatorTap;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -240,12 +242,16 @@ class MomentViewerBottomBar extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
-                child: Text(
-                  '$creatorName $countryFlag',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 20,
+                child: GestureDetector(
+                  onTap: onCreatorTap,
+                  behavior: HitTestBehavior.opaque,
+                  child: Text(
+                    '$creatorName $countryFlag',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 20,
+                    ),
                   ),
                 ),
               ),
@@ -311,17 +317,19 @@ class MomentViewerBottomBar extends ConsumerWidget {
 class MomentViewerPremiumBadge extends StatelessWidget {
   const MomentViewerPremiumBadge({
     super.key,
-    required this.priceCoins,
+    required this.unlockLabel,
     required this.onTap,
+    this.isLoading = false,
   });
 
-  final int priceCoins;
-  final VoidCallback onTap;
+  final String unlockLabel;
+  final VoidCallback? onTap;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: isLoading ? null : onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
@@ -356,16 +364,29 @@ class MomentViewerPremiumBadge extends StatelessWidget {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  'Unlock for $priceCoins',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
+                if (isLoading)
+                  const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                else ...[
+                  Text(
+                    unlockLabel,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 4),
-                const GemIcon(size: 16),
+                  if (!unlockLabel.toLowerCase().contains('vip free')) ...[
+                    const SizedBox(width: 4),
+                    const GemIcon(size: 16),
+                  ],
+                ],
               ],
             ),
           ],

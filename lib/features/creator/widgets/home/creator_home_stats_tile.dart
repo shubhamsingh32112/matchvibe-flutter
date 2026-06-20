@@ -3,7 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../constants/creator_stat_assets.dart';
+import '../../../moments/providers/moments_providers.dart';
 import '../../../wallet/constants/transaction_assets.dart';
+import '../../../../core/config/app_config_provider.dart';
+import '../../../../core/utils/compact_count_formatter.dart';
 import '../../../wallet/providers/wallet_pricing_provider.dart';
 import '../../../wallet/utils/transaction_ui_mapper.dart';
 import '../../../withdrawal/providers/withdrawal_provider.dart';
@@ -44,6 +47,11 @@ class _CreatorHomeStatsTileState extends ConsumerState<CreatorHomeStatsTile> {
   Widget build(BuildContext context) {
     final dashboardAsync = ref.watch(creatorDashboardProvider);
     final pricingAsync = ref.watch(walletPricingProvider);
+    final momentsEnabled = ref.watch(appFeaturesProvider).momentsEnabled;
+    final creatorId = dashboardAsync.valueOrNull?.creatorProfile.id;
+    final summaryAsync = creatorId != null && momentsEnabled
+        ? ref.watch(creatorSummaryProvider(creatorId))
+        : null;
 
     return dashboardAsync.when(
       data: (dashboard) {
@@ -114,6 +122,46 @@ class _CreatorHomeStatsTileState extends ConsumerState<CreatorHomeStatsTile> {
                   ],
                 ),
               ),
+              if (momentsEnabled && summaryAsync != null) ...[
+                const SizedBox(height: 12),
+                summaryAsync.when(
+                  data: (summary) => Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.people_outline,
+                        size: 20,
+                        color: CreatorHomeTokens.textPrimary.withValues(alpha: 0.85),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        '${formatCompactCount(summary.followerCount)} Followers',
+                        style: const TextStyle(
+                          color: CreatorHomeTokens.textPrimary,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                  loading: () => const Text(
+                    'Followers —',
+                    style: TextStyle(
+                      color: CreatorHomeTokens.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                  ),
+                  error: (_, __) => const Text(
+                    'Followers —',
+                    style: TextStyle(
+                      color: CreatorHomeTokens.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,

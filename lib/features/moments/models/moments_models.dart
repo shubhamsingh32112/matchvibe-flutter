@@ -43,6 +43,26 @@ class MediaPresentation {
 
   bool get isVideo => mediaType == 'video';
   bool get isReady => processingStatus == 'ready';
+
+  MediaPresentation copyWith({
+    bool? locked,
+    String? playbackUrl,
+    int? expiresAtMs,
+  }) {
+    return MediaPresentation(
+      mediaType: mediaType,
+      thumbnailUrl: thumbnailUrl,
+      playbackUrl: playbackUrl ?? this.playbackUrl,
+      expiresAtMs: expiresAtMs ?? this.expiresAtMs,
+      blurPlaceholder: blurPlaceholder,
+      locked: locked ?? this.locked,
+      unlockPriceCoins: unlockPriceCoins,
+      originalPriceCoins: originalPriceCoins,
+      vipFreeUnlockAvailable: vipFreeUnlockAvailable,
+      discountApplied: discountApplied,
+      processingStatus: processingStatus,
+    );
+  }
 }
 
 class MomentFeedItem {

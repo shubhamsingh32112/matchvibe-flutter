@@ -422,6 +422,7 @@ class _CreatorProfileScreenState extends ConsumerState<CreatorProfileScreen> {
                         creatorId: merged.id,
                         initiallyFollowing:
                             summaryAsync.valueOrNull?.isFollowing,
+                        enabled: summaryAsync.hasValue,
                         style: CreatorFollowButtonStyle.profileCard,
                       ),
                     ),

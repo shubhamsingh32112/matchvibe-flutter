@@ -116,6 +116,7 @@ class SocketService {
   void Function(Map<String, dynamic>)? onMomentUploaded;
   void Function(Map<String, dynamic>)? onStoryUploaded;
   void Function(Map<String, dynamic>)? onMomentPurchased;
+  void Function(Map<String, dynamic>)? onMomentPurchaseCount;
   void Function(Map<String, dynamic>)? onCreatorFollowed;
   void Function(Map<String, dynamic>)? onMediaReady;
 
@@ -426,6 +427,12 @@ class SocketService {
     _socket!.on('moment:purchased', (data) {
       if (data is Map) {
         onMomentPurchased?.call(Map<String, dynamic>.from(data));
+      }
+    });
+
+    _socket!.on('moment:purchase_count', (data) {
+      if (data is Map) {
+        onMomentPurchaseCount?.call(Map<String, dynamic>.from(data));
       }
     });
 

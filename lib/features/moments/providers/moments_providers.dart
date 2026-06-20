@@ -109,6 +109,20 @@ class FollowingFeedNotifier extends AsyncNotifier<List<MomentFeedItem>> {
     current[index] = item;
     state = AsyncData(current);
   }
+
+  void patchFollowStateForCreator(String creatorId, bool isFollowing) {
+    final current = state.value;
+    if (current == null) return;
+    state = AsyncData(
+      current
+          .map(
+            (item) => item.creatorId == creatorId
+                ? item.copyWith(isFollowing: isFollowing)
+                : item,
+          )
+          .toList(),
+    );
+  }
 }
 
 final followingFeedProvider =
@@ -146,6 +160,20 @@ class PopularFeedNotifier extends AsyncNotifier<List<MomentFeedItem>> {
     if (index < 0 || index >= current.length) return;
     current[index] = item;
     state = AsyncData(current);
+  }
+
+  void patchFollowStateForCreator(String creatorId, bool isFollowing) {
+    final current = state.value;
+    if (current == null) return;
+    state = AsyncData(
+      current
+          .map(
+            (item) => item.creatorId == creatorId
+                ? item.copyWith(isFollowing: isFollowing)
+                : item,
+          )
+          .toList(),
+    );
   }
 }
 

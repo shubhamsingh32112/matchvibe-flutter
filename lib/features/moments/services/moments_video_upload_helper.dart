@@ -12,6 +12,7 @@ class MomentsVideoUploadHelper {
     required String contentClass,
     required File file,
     void Function(double progress)? onProgress,
+    void Function(String status)? onStatus,
   }) async {
     final session = await _streamUpload.createDirectUpload(
       contentClass: contentClass,
@@ -23,6 +24,7 @@ class MomentsVideoUploadHelper {
         if (total > 0) onProgress?.call(sent / total);
       },
     );
+    onStatus?.call('Processing video…');
     await _streamUpload.pollUntilReady(session.sessionId);
     return session.sessionId;
   }

@@ -48,12 +48,21 @@ class MomentsApiService {
     );
   }
 
+  Future<MomentFeedItem> fetchMomentDetail(String momentId) async {
+    final response = await _api.get('/moments/$momentId');
+    return MomentFeedItem.fromJson(
+      Map<String, dynamic>.from(response.data['data'] as Map),
+    );
+  }
+
+  /// Coin unlock for a paid moment. Path: POST /moments/:momentId/purchase
+  /// (same /moments prefix as feed/follow; not under /payment).
   Future<MomentFeedItem> purchase(String momentId, {String? transactionId}) async {
     final response = await _api.post(
       '/moments/$momentId/purchase',
-      data: {
-        if (transactionId != null) 'transactionId': transactionId,
-      },
+      data: transactionId != null
+          ? {'transactionId': transactionId}
+          : <String, dynamic>{},
     );
     return MomentFeedItem.fromJson(
       Map<String, dynamic>.from(response.data['data'] as Map),

@@ -55,6 +55,11 @@ class _CreatorHomeScreenState extends ConsumerState<CreatorHomeScreen> {
     ref.invalidate(myStoriesProvider);
     ref.invalidate(storiesBarProvider);
     ref.invalidate(myMomentsProvider);
+    final creatorId =
+        ref.read(creatorDashboardProvider).valueOrNull?.creatorProfile.id;
+    if (creatorId != null) {
+      ref.invalidate(creatorSummaryProvider(creatorId));
+    }
     await Future.delayed(const Duration(milliseconds: 400));
   }
 

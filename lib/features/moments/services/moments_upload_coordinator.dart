@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:get_thumbnail_video/video_thumbnail.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/services/image_upload_service.dart';
 import '../models/moments_models.dart';
@@ -78,6 +80,7 @@ class MomentsUploadCoordinator {
         contentClass: 'story',
         file: File(file.path),
         onProgress: onProgress,
+        onStatus: onStatus,
       );
       onStreamSessionCreated?.call(sessionId);
       onStatus?.call('Creating story…');
@@ -106,6 +109,7 @@ class MomentsUploadCoordinator {
   Future<int> uploadMoment({
     required XFile file,
     required MomentsMediaKind kind,
+    String accessType = 'free',
     String? caption,
     void Function(String sessionId)? onStreamSessionCreated,
     UploadProgressCallback? onProgress,
@@ -121,13 +125,22 @@ class MomentsUploadCoordinator {
         contentClass: 'moment',
         file: File(file.path),
         onProgress: onProgress,
+        onStatus: onStatus,
       );
       onStreamSessionCreated?.call(sessionId);
+      String? thumbnailSessionId;
+      try {
+        onStatus?.call('Creating thumbnail…');
+        thumbnailSessionId = await _uploadVideoThumbnail(file.path);
+      } catch (_) {
+        // Stream signed thumbnail is fallback when custom poster fails.
+      }
       onStatus?.call('Creating moment…');
       return _momentsApi.createMoment(
         type: 'video',
-        accessType: 'free',
+        accessType: accessType,
         streamSessionId: sessionId,
+        thumbnailSessionId: thumbnailSessionId,
         caption: captionOrNull,
       );
     }
@@ -141,10 +154,25 @@ class MomentsUploadCoordinator {
     onStatus?.call('Creating moment…');
     return _momentsApi.createMoment(
       type: 'photo',
-      accessType: 'free',
+      accessType: accessType,
       imageSessionId: result.sessionId,
       caption: captionOrNull,
     );
+  }
+
+  Future<String?> _uploadVideoThumbnail(String videoPath) async {
+    final bytes = await VideoThumbnail.thumbnailData(
+      video: videoPath,
+      maxWidth: 720,
+      quality: 80,
+      timeMs: 1000,
+    );
+    if (bytes.isEmpty) return null;
+    final result = await ImageUploadService.uploadMomentThumbnail(
+      bytes: Uint8List.fromList(bytes),
+      fileName: 'moment-thumb.jpg',
+    );
+    return result.sessionId;
   }
 
   void invalidateFeeds(WidgetRef ref) {

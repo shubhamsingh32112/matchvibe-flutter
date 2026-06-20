@@ -75,7 +75,32 @@ class _CreatorMomentViewerScreenState
     final visibleStart = visible.indexWhere((item) => item.id == startItem.id);
     _currentIndex = visibleStart >= 0 ? visibleStart : 0;
     _controller = PageController(initialPage: _currentIndex);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _recordViewForCurrentItem());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _recordViewForCurrentItem();
+      _mergeFollowStateFromProvider();
+    });
+  }
+
+  Future<void> _mergeFollowStateFromProvider() async {
+    if (!mounted) return;
+    try {
+      final followingIds = await ref.read(followingCreatorsProvider.future);
+      if (!mounted) return;
+      setState(() {
+        _allItems = _allItems
+            .map(
+              (item) {
+                final isFollowing = followingIds.contains(item.creatorId);
+                return item.isFollowing == isFollowing
+                    ? item
+                    : item.copyWith(isFollowing: isFollowing);
+              },
+            )
+            .toList();
+      });
+    } catch (_) {
+      // Best-effort; feed items may already include isFollowing.
+    }
   }
 
   String? _ownCreatorId() {
@@ -354,6 +379,8 @@ class _CreatorMomentViewerScreenState
           isCalling: _isInitiatingCall,
           onFollowChanged: (isFollowing, _) =>
               _onFollowChanged(currentItem.creatorId, isFollowing),
+          onCreatorTap: () =>
+              openCreatorProfile(context, ref, currentItem.creatorId),
           onChatPressed: _isOpeningChat
               ? null
               : () => unawaited(_openCreatorChat(creator)),
@@ -370,6 +397,8 @@ class _CreatorMomentViewerScreenState
           isCalling: _isInitiatingCall,
           onFollowChanged: (isFollowing, _) =>
               _onFollowChanged(currentItem.creatorId, isFollowing),
+          onCreatorTap: () =>
+              openCreatorProfile(context, ref, currentItem.creatorId),
           onChatPressed: null,
           onVideoCallPressed: null,
         ),
@@ -382,6 +411,8 @@ class _CreatorMomentViewerScreenState
           isCalling: _isInitiatingCall,
           onFollowChanged: (isFollowing, _) =>
               _onFollowChanged(currentItem.creatorId, isFollowing),
+          onCreatorTap: () =>
+              openCreatorProfile(context, ref, currentItem.creatorId),
           onChatPressed: null,
           onVideoCallPressed: null,
         ),
