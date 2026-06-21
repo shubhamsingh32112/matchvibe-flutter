@@ -10,6 +10,8 @@ import '../services/call_ringtone_service.dart';
 import '../utils/call_remote_image_resolver.dart';
 import '../utils/remote_avatar_lookup.dart';
 import '../../home/providers/home_provider.dart';
+import '../../creator/providers/creator_availability_toggle_provider.dart';
+import '../../creator/providers/creator_status_provider.dart';
 import '../../../core/services/sentry_service.dart';
 import 'incoming_call_widget.dart';
 
@@ -124,7 +126,7 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
 
         debugPrint('✅ [INCOMING CALL] Call object retrieved: ${call.id}');
         unawaited(() async {
-          final suppressed = await _suppressIncomingIfBusy(
+          final suppressed = await _shouldSuppressIncoming(
             call,
             source: 'ring_event',
           );
@@ -148,7 +150,7 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
           '📞 [INCOMING CALL] Incoming call detected via state: ${call.id}',
         );
         unawaited(() async {
-          final suppressed = await _suppressIncomingIfBusy(
+          final suppressed = await _shouldSuppressIncoming(
             call,
             source: 'state_incoming',
           );
@@ -249,6 +251,69 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
     }
   }
 
+  Future<bool> _shouldSuppressIncoming(
+    Call call, {
+    required String source,
+  }) async {
+    if (!_isCreatorAvailableForIncoming()) {
+      return _rejectIncomingCall(
+        call,
+        source: source,
+        reason: 'toggle_off',
+        sentryMessage: 'incoming_auto_rejected_toggle_off',
+      );
+    }
+    return _suppressIncomingIfBusy(call, source: source);
+  }
+
+  bool _isCreatorAvailableForIncoming() {
+    final toggleOn = ref.read(creatorAvailabilityToggleProvider).toggleOn;
+    if (!toggleOn) return false;
+    final status = ref.read(creatorStatusProvider);
+    return status == CreatorStatus.online;
+  }
+
+  Future<bool> _rejectIncomingCall(
+    Call call, {
+    required String source,
+    required String reason,
+    required String sentryMessage,
+  }) async {
+    debugPrint(
+      '🛑 [INCOMING CALL] Auto-rejecting incoming ($reason) '
+      '(incoming=${call.id}, source=$source)',
+    );
+    SentryService.addBreadcrumb(
+      category: 'call',
+      message: sentryMessage,
+      data: {
+        'reason': reason,
+        'call_id': call.id,
+        'source': source,
+      },
+    );
+
+    _handledCallIds.add(call.id);
+    _incomingFallbackImageByCallId.remove(call.id);
+    _incomingFallbackSourceByCallId.remove(call.id);
+    _cancelRingTimeout();
+    CallRingtoneService.stop();
+    if (_incomingCall?.id == call.id && mounted) {
+      setState(() {
+        _incomingCall = null;
+      });
+    }
+
+    try {
+      await call.reject();
+    } catch (e) {
+      debugPrint(
+        '⚠️ [INCOMING CALL] Failed to auto-reject call ${call.id}: $e',
+      );
+    }
+    return true;
+  }
+
   Future<bool> _suppressIncomingIfBusy(
     Call call, {
     required String source,
@@ -274,38 +339,12 @@ class _IncomingCallListenerState extends ConsumerState<IncomingCallListener> {
         if (activeSdkCallId != null) 'active_sdk_call_id': activeSdkCallId,
       },
     );
-
-    _handledCallIds.add(call.id);
-    _incomingFallbackImageByCallId.remove(call.id);
-    _incomingFallbackSourceByCallId.remove(call.id);
-    _cancelRingTimeout();
-    CallRingtoneService.stop();
-    if (_incomingCall?.id == call.id && mounted) {
-      setState(() {
-        _incomingCall = null;
-      });
-    }
-
-    try {
-      await call.reject();
-      SentryService.addBreadcrumb(
-        category: 'call',
-        message: 'incoming_auto_rejected_local_busy',
-        data: {
-          'call_id': call.id,
-          'phase': controller.phase.name,
-          'source': source,
-        },
-      );
-      debugPrint(
-        '🛑 [INCOMING CALL] Auto-rejected suppressed incoming call: ${call.id}',
-      );
-    } catch (e) {
-      debugPrint(
-        '⚠️ [INCOMING CALL] Failed to auto-reject suppressed call ${call.id}: $e',
-      );
-    }
-    return true;
+    return _rejectIncomingCall(
+      call,
+      source: source,
+      reason: 'local_busy_in_active_call',
+      sentryMessage: 'incoming_auto_rejected_local_busy',
+    );
   }
 
   bool _isLocalParticipantBusyForIncoming(Call incomingCall) {

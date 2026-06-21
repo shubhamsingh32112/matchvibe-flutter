@@ -59,6 +59,35 @@ class CreatorHomeStoriesSection extends ConsumerWidget {
                     .where((g) => g.creatorId != myCreatorId)
                     .toList();
 
+                void openStoryViewer({
+                  int initialStoryIndex = 0,
+                  StoryGroup? tappedOtherGroup,
+                }) {
+                  final viewerGroups = buildStoryViewerGroups(
+                    feedGroups: feedGroups,
+                    myStories: myStories.isNotEmpty ? myStories : null,
+                    myCreatorId: myCreatorId,
+                  );
+                  if (viewerGroups.isEmpty) return;
+
+                  final groupIndex = tappedOtherGroup != null
+                      ? storyViewerGroupIndex(viewerGroups, tappedOtherGroup)
+                      : 0;
+                  if (groupIndex < 0) return;
+
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => StoryViewerScreen(
+                        groups: viewerGroups,
+                        initialGroupIndex: groupIndex,
+                        initialStoryIndex: tappedOtherGroup == null
+                            ? initialStoryIndex
+                            : 0,
+                      ),
+                    ),
+                  );
+                }
+
                 return ListView.separated(
                   scrollDirection: Axis.horizontal,
                   itemCount: 1 + myStories.length + otherGroups.length,
@@ -80,21 +109,9 @@ class CreatorHomeStoriesSection extends ConsumerWidget {
                           DateTime.tryParse(story.createdAt)?.toLocal(),
                         ),
                         hasRing: true,
-                        onTap: () {
-                          final group = StoryGroup(
-                            creatorId: story.creatorId,
-                            unseen: false,
-                            stories: [story],
-                          );
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => StoryViewerScreen(
-                                group: group,
-                                allowOwnerDelete: true,
-                              ),
-                            ),
-                          );
-                        },
+                        onTap: () => openStoryViewer(
+                          initialStoryIndex: index - 1,
+                        ),
                         onLongPress: () async {
                           await deleteStoryWithRefresh(ref, context, story.id);
                         },
@@ -116,14 +133,9 @@ class CreatorHomeStoriesSection extends ConsumerWidget {
                             )
                           : '',
                       hasRing: group.unseen,
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) =>
-                                StoryViewerScreen(group: group),
-                          ),
-                        );
-                      },
+                      onTap: () => openStoryViewer(
+                        tappedOtherGroup: group,
+                      ),
                     );
                   },
                 );

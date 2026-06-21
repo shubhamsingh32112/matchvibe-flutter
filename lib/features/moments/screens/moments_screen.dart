@@ -52,13 +52,24 @@ class MomentsScreen extends ConsumerWidget {
                     isCreator: canUploadMoments,
                     onAddStory: canUploadMoments ? openStoryUpload : null,
                     onGroupTap: (group) {
-                      final isOwnStory = myCreatorId != null &&
-                          group.creatorId == myCreatorId;
+                      final myStories = canUploadMoments
+                          ? ref.read(myStoriesProvider).valueOrNull
+                          : null;
+                      final viewerGroups = buildStoryViewerGroups(
+                        feedGroups: groups,
+                        myStories: myStories,
+                        myCreatorId: myCreatorId,
+                      );
+                      final groupIndex = storyViewerGroupIndex(
+                        viewerGroups,
+                        group,
+                      );
+                      if (groupIndex < 0) return;
                       Navigator.of(context).push(
                         MaterialPageRoute<void>(
                           builder: (_) => StoryViewerScreen(
-                            group: group,
-                            allowOwnerDelete: isOwnStory,
+                            groups: viewerGroups,
+                            initialGroupIndex: groupIndex,
                           ),
                         ),
                       );

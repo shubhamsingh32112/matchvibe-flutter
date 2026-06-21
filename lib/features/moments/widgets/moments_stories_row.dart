@@ -43,14 +43,18 @@ class MomentsStoriesRow extends ConsumerWidget {
         data: (myStories) => _buildList(
           context,
           ref,
+          feedGroups: groups,
           myStories: myStories,
           otherGroups: otherGroups,
+          myCreatorId: myCreatorId,
         ),
         loading: () => _buildList(
           context,
           ref,
+          feedGroups: groups,
           myStories: const [],
           otherGroups: otherGroups,
+          myCreatorId: myCreatorId,
         ),
         error: (_, __) => StoriesRow(groups: groups, onGroupTap: onGroupTap),
       ),
@@ -60,9 +64,34 @@ class MomentsStoriesRow extends ConsumerWidget {
   Widget _buildList(
     BuildContext context,
     WidgetRef ref, {
+    required List<StoryGroup> feedGroups,
     required List<StoryPresentation> myStories,
     required List<StoryGroup> otherGroups,
+    required String? myCreatorId,
   }) {
+    void openViewer({
+      required int initialGroupIndex,
+      int initialStoryIndex = 0,
+    }) {
+      final viewerGroups = buildStoryViewerGroups(
+        feedGroups: feedGroups,
+        myStories: myStories.isNotEmpty ? myStories : null,
+        myCreatorId: myCreatorId,
+      );
+      if (viewerGroups.isEmpty || initialGroupIndex >= viewerGroups.length) {
+        return;
+      }
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => StoryViewerScreen(
+            groups: viewerGroups,
+            initialGroupIndex: initialGroupIndex,
+            initialStoryIndex: initialStoryIndex,
+          ),
+        ),
+      );
+    }
+
     return ListView.separated(
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -75,27 +104,22 @@ class MomentsStoriesRow extends ConsumerWidget {
             onAddStory: onAddStory!,
             onViewStories: myStories.isEmpty
                 ? null
-                : () {
-                    final group = StoryGroup(
-                      creatorId: myStories.first.creatorId,
-                      unseen: false,
-                      stories: myStories,
-                    );
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => StoryViewerScreen(
-                          group: group,
-                          allowOwnerDelete: true,
-                        ),
-                      ),
-                    );
-                  },
+                : () => openViewer(initialGroupIndex: 0),
           );
         }
         final group = otherGroups[index - 1];
         return _FeedStoryCircle(
           group: group,
-          onTap: () => onGroupTap(group),
+          onTap: () {
+            final viewerGroups = buildStoryViewerGroups(
+              feedGroups: feedGroups,
+              myStories: myStories.isNotEmpty ? myStories : null,
+              myCreatorId: myCreatorId,
+            );
+            final groupIndex = storyViewerGroupIndex(viewerGroups, group);
+            if (groupIndex < 0) return;
+            openViewer(initialGroupIndex: groupIndex);
+          },
         );
       },
     );

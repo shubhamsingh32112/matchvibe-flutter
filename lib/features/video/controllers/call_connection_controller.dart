@@ -199,6 +199,32 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       return;
     }
 
+    final creatorAvailability =
+        _ref.read(creatorAvailabilityProvider)[creatorFirebaseUid] ??
+        CreatorAvailability.offline;
+    if (creatorAvailability != CreatorAvailability.online) {
+      debugPrint(
+        '⚠️ [CALL CTRL] startUserCall blocked — creator offline ($creatorFirebaseUid)',
+      );
+      SentryService.addBreadcrumb(
+        category: 'call',
+        message: 'call_start_blocked_creator_offline',
+        data: {
+          'flow': 'user_to_creator',
+          'creator_firebase_uid': creatorFirebaseUid,
+          'availability': creatorAvailability.name,
+        },
+      );
+      state = const CallConnectionState(
+        phase: CallConnectionPhase.failed,
+        error: 'Creator is unavailable',
+        failureReason: CallFailureReason.unknown,
+        isOutgoing: true,
+      );
+      CallNavigationService.navigateToCallScreen();
+      return;
+    }
+
     // ── Reset billing state from any previous call ─────────────────
     _ref.read(callBillingProvider.notifier).reset();
     _billingStartRequestedCallId = null;

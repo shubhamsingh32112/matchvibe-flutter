@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/config/app_config_provider.dart';
+import '../../../../core/utils/compact_count_formatter.dart';
 import '../../../../shared/widgets/app_avatar.dart';
 import '../../../auth/providers/auth_provider.dart';
+import '../../../moments/providers/moments_providers.dart';
+import '../../providers/creator_dashboard_provider.dart';
 import '../../providers/creator_status_provider.dart';
 import '../../theme/creator_home_tokens.dart';
 import 'creator_home_availability_switch.dart';
@@ -19,6 +23,13 @@ class CreatorHomeHeader extends ConsumerWidget {
         ?.trim();
     final name = displayName?.isNotEmpty == true ? displayName! : 'Creator';
     final status = ref.watch(creatorStatusProvider);
+    final momentsEnabled = ref.watch(appFeaturesProvider).momentsEnabled;
+    final creatorId = ref.watch(
+      creatorDashboardProvider.select((a) => a.valueOrNull?.creatorProfile.id),
+    );
+    final summaryAsync = creatorId != null && momentsEnabled
+        ? ref.watch(creatorSummaryProvider(creatorId))
+        : null;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: CreatorHomeTokens.sectionSpacing),
@@ -61,6 +72,37 @@ class CreatorHomeHeader extends ConsumerWidget {
                 ),
                 const SizedBox(height: 6),
                 _AvailabilityPill(status: status),
+                if (summaryAsync != null) ...[
+                  const SizedBox(height: 6),
+                  summaryAsync.when(
+                    data: (summary) => Text(
+                      '${formatCompactCount(summary.followerCount)} Followers',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: CreatorHomeTokens.textPrimary.withValues(
+                          alpha: 0.85,
+                        ),
+                      ),
+                    ),
+                    loading: () => Text(
+                      '— Followers',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: CreatorHomeTokens.labelGrey,
+                      ),
+                    ),
+                    error: (_, __) => Text(
+                      '— Followers',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: CreatorHomeTokens.labelGrey,
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/utils/compact_count_formatter.dart';
 import '../../../shared/widgets/brand_app_chrome.dart';
 import '../../../shared/widgets/gem_icon.dart';
 import '../../../shared/widgets/loading_indicator.dart';
@@ -103,7 +104,7 @@ class CreatorLeaderboardScreen extends ConsumerWidget {
                                 ),
                               ),
                               Text(
-                                '${row.talkMinutes.toStringAsFixed(0)} min · ${row.callCount} calls',
+                                '${row.talkMinutes.toStringAsFixed(0)} min · ${row.callCount} calls · ${formatCompactCount(row.followerCount)} followers',
                                 style: const TextStyle(
                                   fontSize: 12,
                                   color: CreatorHomeTokens.labelGrey,

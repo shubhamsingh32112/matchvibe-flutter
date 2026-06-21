@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../creator/providers/creator_dashboard_provider.dart';
 import '../../home/widgets/creator_profile_screen.dart';
 import '../models/moments_models.dart';
 import '../services/moments_api_service.dart';
@@ -10,23 +11,59 @@ import '../utils/moment_owner_actions.dart';
 import 'story_viewers_screen.dart';
 import '../widgets/stream_hls_player.dart';
 
+List<StoryGroup> buildStoryViewerGroups({
+  required List<StoryGroup> feedGroups,
+  List<StoryPresentation>? myStories,
+  String? myCreatorId,
+}) {
+  if (myCreatorId == null || myStories == null || myStories.isEmpty) {
+    return feedGroups;
+  }
+
+  final otherGroups =
+      feedGroups.where((g) => g.creatorId != myCreatorId).toList();
+  StoryGroup? ownFeedGroup;
+  for (final group in feedGroups) {
+    if (group.creatorId == myCreatorId) {
+      ownFeedGroup = group;
+      break;
+    }
+  }
+  final myGroup = StoryGroup(
+    creatorId: myStories.first.creatorId,
+    unseen: false,
+    stories: myStories,
+    creatorName: ownFeedGroup?.creatorName,
+    creatorAvatarUrl: ownFeedGroup?.creatorAvatarUrl,
+    creatorFirebaseUid: ownFeedGroup?.creatorFirebaseUid,
+  );
+  return [myGroup, ...otherGroups];
+}
+
+int storyViewerGroupIndex(List<StoryGroup> groups, StoryGroup target) {
+  return groups.indexWhere((g) => g.creatorId == target.creatorId);
+}
+
 class StoryViewerScreen extends ConsumerStatefulWidget {
   const StoryViewerScreen({
     super.key,
-    required this.group,
-    this.allowOwnerDelete = false,
-  });
+    required this.groups,
+    required this.initialGroupIndex,
+    this.initialStoryIndex = 0,
+  }) : assert(groups.length > 0);
 
-  final StoryGroup group;
-  final bool allowOwnerDelete;
+  final List<StoryGroup> groups;
+  final int initialGroupIndex;
+  final int initialStoryIndex;
 
   @override
   ConsumerState<StoryViewerScreen> createState() => _StoryViewerScreenState();
 }
 
 class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
-  late final PageController _pageController;
-  int _index = 0;
+  late PageController _pageController;
+  late int _groupIndex;
+  late int _index;
   int _currentPage = 0;
   Timer? _timer;
   bool _paused = false;
@@ -35,37 +72,100 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
 
   static const _storyDuration = Duration(seconds: 5);
 
+  StoryGroup get _group => widget.groups[_groupIndex];
+
+  List<StoryPresentation> get _stories => _group.stories;
+
+  bool get _isOwnGroup {
+    final ownCreatorId =
+        ref.read(creatorDashboardProvider).valueOrNull?.creatorProfile.id;
+    return ownCreatorId != null && ownCreatorId == _group.creatorId;
+  }
+
   @override
   void initState() {
     super.initState();
+    _groupIndex = widget.initialGroupIndex.clamp(0, widget.groups.length - 1);
+    final stories = widget.groups[_groupIndex].stories;
+    _index = widget.initialStoryIndex.clamp(
+      0,
+      stories.isEmpty ? 0 : stories.length - 1,
+    );
+    _currentPage = _index;
     _viewCounts = {
-      for (final s in widget.group.stories)
-        s.id: s.viewsCount ?? 0,
+      for (final group in widget.groups)
+        for (final story in group.stories)
+          story.id: story.viewsCount ?? 0,
     };
-    _pageController = PageController();
-    _recordView(0);
+    _pageController = PageController(initialPage: _index);
+    _recordView(_index);
     _scheduleAdvance();
   }
 
   void _scheduleAdvance() {
     _timer?.cancel();
-    if (_paused) return;
+    if (_paused || _stories.isEmpty) return;
     _timer = Timer(_storyDuration, () {
       if (!mounted) return;
-      if (_index < widget.group.stories.length - 1) {
-        _pageController.nextPage(
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOut,
-        );
-      } else {
-        Navigator.of(context).pop();
-      }
+      _goForward();
     });
   }
 
+  void _goForward() {
+    if (_index < _stories.length - 1) {
+      _pageController.nextPage(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+      return;
+    }
+    if (_groupIndex < widget.groups.length - 1) {
+      final nextGroup = widget.groups[_groupIndex + 1];
+      if (nextGroup.stories.isEmpty) {
+        Navigator.of(context).pop();
+        return;
+      }
+      _goToGroup(_groupIndex + 1, storyIndex: 0);
+      return;
+    }
+    Navigator.of(context).pop();
+  }
+
+  void _goBackward() {
+    if (_index > 0) {
+      _pageController.previousPage(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+      return;
+    }
+    if (_groupIndex > 0) {
+      final prevGroup = widget.groups[_groupIndex - 1];
+      if (prevGroup.stories.isEmpty) return;
+      _goToGroup(
+        _groupIndex - 1,
+        storyIndex: prevGroup.stories.length - 1,
+      );
+    }
+  }
+
+  void _goToGroup(int groupIndex, {required int storyIndex}) {
+    _timer?.cancel();
+    final oldController = _pageController;
+    setState(() {
+      _groupIndex = groupIndex;
+      _index = storyIndex;
+      _currentPage = storyIndex;
+      _pageController = PageController(initialPage: storyIndex);
+    });
+    oldController.dispose();
+    _recordView(storyIndex);
+    _scheduleAdvance();
+  }
+
   Future<void> _recordView(int index) async {
-    if (index >= widget.group.stories.length) return;
-    final storyId = widget.group.stories[index].id;
+    if (index >= _stories.length) return;
+    final storyId = _stories[index].id;
     final count = await _storiesApi.recordStoryView(storyId);
     if (!mounted) return;
     setState(() => _viewCounts[storyId] = count);
@@ -87,8 +187,8 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
   }
 
   Future<void> _deleteCurrentStory() async {
-    if (_index >= widget.group.stories.length) return;
-    final storyId = widget.group.stories[_index].id;
+    if (_index >= _stories.length) return;
+    final storyId = _stories[_index].id;
     final deleted = await deleteStoryWithRefresh(ref, context, storyId);
     if (!deleted || !mounted) return;
     Navigator.of(context).pop();
@@ -96,15 +196,28 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final stories = widget.group.stories;
-    final currentStory = stories[_index];
-    final showOwnerViews = widget.allowOwnerDelete;
-    final viewCount = _viewCounts[currentStory.id] ?? currentStory.viewsCount ?? 0;
+    if (_stories.isEmpty) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: IconButton(
+            icon: const Icon(Icons.close, color: Colors.white),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+        ),
+      );
+    }
+
+    final currentStory = _stories[_index];
+    final showOwnerViews = _isOwnGroup;
+    final viewCount =
+        _viewCounts[currentStory.id] ?? currentStory.viewsCount ?? 0;
     return Scaffold(
       backgroundColor: Colors.black,
       body: GestureDetector(
         onVerticalDragEnd: (details) {
-          if (details.primaryVelocity != null && details.primaryVelocity! > 300) {
+          if (details.primaryVelocity != null &&
+              details.primaryVelocity! > 300) {
             Navigator.of(context).pop();
           }
         },
@@ -120,8 +233,9 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
           fit: StackFit.expand,
           children: [
             PageView.builder(
+              key: ValueKey('$_groupIndex-${_group.creatorId}'),
               controller: _pageController,
-              itemCount: stories.length,
+              itemCount: _stories.length,
               onPageChanged: (i) {
                 setState(() {
                   _index = i;
@@ -131,7 +245,7 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
                 _scheduleAdvance();
               },
               itemBuilder: (context, index) {
-                final story = stories[index];
+                final story = _stories[index];
                 final media = story.media;
                 final distance = (index - _currentPage).abs();
                 if (distance > 1) {
@@ -145,7 +259,7 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
                   children: [
                     if (media.isVideo && media.playbackUrl != null)
                       StreamHlsPlayer(
-                        key: ValueKey(story.id),
+                        key: ValueKey('$_groupIndex-${story.id}'),
                         storyId: story.id,
                         playbackUrl: media.playbackUrl!,
                         expiresAtMs: media.expiresAtMs,
@@ -166,29 +280,13 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
                           Expanded(
                             child: GestureDetector(
                               behavior: HitTestBehavior.opaque,
-                              onTap: () {
-                                if (_index > 0) {
-                                  _pageController.previousPage(
-                                    duration: const Duration(milliseconds: 200),
-                                    curve: Curves.easeOut,
-                                  );
-                                }
-                              },
+                              onTap: _goBackward,
                             ),
                           ),
                           Expanded(
                             child: GestureDetector(
                               behavior: HitTestBehavior.opaque,
-                              onTap: () {
-                                if (_index < stories.length - 1) {
-                                  _pageController.nextPage(
-                                    duration: const Duration(milliseconds: 200),
-                                    curve: Curves.easeOut,
-                                  );
-                                } else {
-                                  Navigator.of(context).pop();
-                                }
-                              },
+                              onTap: _goForward,
                             ),
                           ),
                         ],
@@ -202,9 +300,12 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
               child: Column(
                 children: [
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 8,
+                    ),
                     child: Row(
-                      children: List.generate(stories.length, (i) {
+                      children: List.generate(_stories.length, (i) {
                         final active = i == _index;
                         return Expanded(
                           child: Container(
@@ -230,20 +331,19 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
                           onTap: () => openCreatorProfile(
                             context,
                             ref,
-                            widget.group.creatorId,
+                            _group.creatorId,
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               CircleAvatar(
                                 radius: 16,
-                                backgroundImage:
-                                    widget.group.creatorAvatarUrl != null
+                                backgroundImage: _group.creatorAvatarUrl != null
                                     ? NetworkImage(
-                                        widget.group.creatorAvatarUrl!,
+                                        _group.creatorAvatarUrl!,
                                       )
                                     : null,
-                                child: widget.group.creatorAvatarUrl == null
+                                child: _group.creatorAvatarUrl == null
                                     ? const Icon(Icons.person, size: 18)
                                     : null,
                               ),
@@ -254,7 +354,7 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
                                       MediaQuery.sizeOf(context).width * 0.45,
                                 ),
                                 child: Text(
-                                  widget.group.creatorName ?? 'Creator',
+                                  _group.creatorName ?? 'Creator',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
@@ -305,7 +405,7 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
                           icon: const Icon(Icons.close, color: Colors.white),
                           onPressed: () => Navigator.of(context).pop(),
                         ),
-                        if (widget.allowOwnerDelete)
+                        if (showOwnerViews)
                           IconButton(
                             tooltip: 'Delete story',
                             icon: const Icon(

@@ -42,6 +42,7 @@ class CreatorLeaderboardRow extends Equatable {
   final int callCount;
   final double talkMinutes;
   final int earningsCoins;
+  final int followerCount;
 
   const CreatorLeaderboardRow({
     required this.rank,
@@ -52,6 +53,7 @@ class CreatorLeaderboardRow extends Equatable {
     required this.callCount,
     required this.talkMinutes,
     required this.earningsCoins,
+    required this.followerCount,
   });
 
   factory CreatorLeaderboardRow.fromJson(Map<String, dynamic> json) {
@@ -64,12 +66,13 @@ class CreatorLeaderboardRow extends Equatable {
       callCount: (json['callCount'] as num?)?.toInt() ?? 0,
       talkMinutes: (json['talkMinutes'] as num?)?.toDouble() ?? 0,
       earningsCoins: (json['earningsCoins'] as num?)?.toInt() ?? 0,
+      followerCount: (json['followerCount'] as num?)?.toInt() ?? 0,
     );
   }
 
   @override
   List<Object?> get props =>
-      [rank, creatorId, hostUserId, hostName, avatarUrl, callCount, talkMinutes, earningsCoins];
+      [rank, creatorId, hostUserId, hostName, avatarUrl, callCount, talkMinutes, earningsCoins, followerCount];
 }
 
 class CreatorLeaderboardResponse extends Equatable {
