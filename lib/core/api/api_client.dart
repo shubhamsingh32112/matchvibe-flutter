@@ -546,6 +546,7 @@ class ApiClient {
     if (path.startsWith('/creator')) return 'creator_page';
     if (path.startsWith('/user/list')) return 'user_page';
     if (path.startsWith('/user/favorites/creators')) return 'favorites_page';
+    if (path.startsWith('/moments/following/creators')) return 'following_page';
     return 'other';
   }
 }

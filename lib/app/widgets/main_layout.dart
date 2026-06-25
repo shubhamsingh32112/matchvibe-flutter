@@ -117,7 +117,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                   actions: [
                     if (isHomePage && isRegularUser)
                       IconButton(
-                        tooltip: 'Favorite creators',
+                        tooltip: 'Creators you follow',
                         icon: const Icon(Icons.favorite_border),
                         onPressed: () => context.push('/home/favorites'),
                       ),

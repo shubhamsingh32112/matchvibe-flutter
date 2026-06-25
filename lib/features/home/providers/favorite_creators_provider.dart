@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/config/app_config_provider.dart';
 import '../../../shared/models/creator_model.dart';
 import 'availability_provider.dart';
 import 'home_provider.dart';
@@ -18,6 +19,9 @@ class FavoriteCreatorsNotifier extends AsyncNotifier<List<CreatorModel>> {
 
   @override
   Future<List<CreatorModel>> build() async {
+    if (!ref.watch(appFeaturesProvider).momentsEnabled) {
+      return const [];
+    }
     return _loadInitial();
   }
 
@@ -35,7 +39,7 @@ class FavoriteCreatorsNotifier extends AsyncNotifier<List<CreatorModel>> {
       _hasMore = page.hasMore;
       state = AsyncData(_items);
     } catch (e, st) {
-      debugPrint('❌ [FAVORITES] Failed to load more favorites: $e');
+      debugPrint('❌ [FOLLOWING] Failed to load more followed creators: $e');
       state = AsyncError(e, st);
     } finally {
       _isLoadingMore = false;
@@ -65,11 +69,11 @@ class FavoriteCreatorsNotifier extends AsyncNotifier<List<CreatorModel>> {
 
   Future<_FavoriteCreatorPage> _fetchPage(int page) async {
     final response = await ref.read(homeApiGetProvider)(
-      '/user/favorites/creators?page=$page&limit=$homeFeedPageSize',
+      '/moments/following/creators?page=$page&limit=$homeFeedPageSize',
     );
     if (response.statusCode != 200) {
       throw Exception(
-        'Failed to fetch favorite creators: status ${response.statusCode}',
+        'Failed to fetch followed creators: status ${response.statusCode}',
       );
     }
 

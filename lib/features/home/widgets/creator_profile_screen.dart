@@ -268,7 +268,7 @@ class _CreatorProfileScreenState extends ConsumerState<CreatorProfileScreen> {
     if (isRegularUser) {
       actions.addAll([
         IconButton(
-          tooltip: 'Favorite creators',
+          tooltip: 'Creators you follow',
           icon: const Icon(Icons.favorite_border),
           onPressed: () => context.push('/home/favorites'),
         ),

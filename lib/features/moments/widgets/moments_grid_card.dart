@@ -32,9 +32,8 @@ class MomentsGridCard extends ConsumerWidget {
     return GestureDetector(
       onTap: () {
         if (item.locked) {
-          showMomentsPremiumSheet(
+          openMomentsPremiumPage(
             context,
-            ref,
             source: 'grid_card',
             momentId: item.id,
           );

@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../home/providers/favorite_creators_provider.dart';
 import '../providers/moments_providers.dart';
 
 void syncFollowState(
@@ -19,4 +20,5 @@ void syncFollowState(
   ref.invalidate(creatorMomentsProvider(creatorId));
   ref.invalidate(followingCreatorsProvider);
   ref.invalidate(followingFeedProvider);
+  ref.invalidate(favoriteCreatorsProvider);
 }

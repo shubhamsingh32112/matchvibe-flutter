@@ -69,7 +69,7 @@ class _FavoriteCreatorsScreenState extends ConsumerState<FavoriteCreatorsScreen>
     final meta = ref.watch(favoriteCreatorsFeedMetaProvider);
 
     return AppScaffold(
-      appBar: buildBrandAppBar(context, title: 'Favorite Creators'),
+      appBar: buildBrandAppBar(context, title: 'Following'),
       child: creatorsAsync.when(
         loading: () => LayoutBuilder(
           builder: (context, constraints) => GridView.builder(
@@ -80,10 +80,10 @@ class _FavoriteCreatorsScreenState extends ConsumerState<FavoriteCreatorsScreen>
           ),
         ),
         error: (error, stack) => ErrorState(
-          title: 'Unable to load favorites',
+          title: 'Unable to load following',
           message: UserMessageMapper.userMessageFor(
             error,
-            fallback: 'Couldn\'t load favorites. Please try again.',
+            fallback: 'Couldn\'t load creators you follow. Please try again.',
           ),
           actionLabel: 'Retry',
           onAction: () => ref.read(favoriteCreatorsProvider.notifier).refreshFeed(),
@@ -92,8 +92,9 @@ class _FavoriteCreatorsScreenState extends ConsumerState<FavoriteCreatorsScreen>
           if (creators.isEmpty) {
             return EmptyState(
               icon: Icons.favorite_border,
-              title: 'No favorites yet',
-              message: 'Tap the heart on creators to add them here.',
+              title: 'Not following anyone yet',
+              message:
+                  'Follow creators from Moments to see them here and catch their latest posts.',
               actionLabel: 'Refresh',
               onAction: () =>
                   ref.read(favoriteCreatorsProvider.notifier).refreshFeed(),

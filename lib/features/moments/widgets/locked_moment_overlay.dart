@@ -22,80 +22,84 @@ class LockedMomentOverlay extends ConsumerWidget {
   final bool viewerLayout;
   final double bottomOverlayInset;
 
+  void _openPremiumPage(BuildContext context) {
+    openMomentsPremiumPage(
+      context,
+      source: viewerLayout ? 'viewer_locked_tap' : 'viewer_overlay',
+      momentId: item.id,
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (viewerLayout) {
-      return Stack(
+      return GestureDetector(
+        onTap: () => _openPremiumPage(context),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.network(
+              item.media.thumbnailUrl,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Container(color: Colors.black26),
+            ),
+            BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+              child: Container(color: Colors.black.withValues(alpha: 0.35)),
+            ),
+            Positioned(
+              left: 16,
+              bottom: bottomOverlayInset > 0 ? bottomOverlayInset + 12 : 180,
+              child: MomentViewerPremiumBadge(
+                unlockLabel: 'Unlock Moments Premium',
+                onTap: () => _openPremiumPage(context),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return GestureDetector(
+      onTap: () => _openPremiumPage(context),
+      child: Stack(
         fit: StackFit.expand,
         children: [
           Image.network(
             item.media.thumbnailUrl,
             fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => Container(color: Colors.black26),
           ),
           BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
             child: Container(color: Colors.black.withValues(alpha: 0.35)),
           ),
-          Positioned(
-            left: 16,
-            bottom: bottomOverlayInset > 0 ? bottomOverlayInset + 12 : 180,
-            child: MomentViewerPremiumBadge(
-              unlockLabel: 'Unlock Moments Premium',
-              onTap: () => showMomentsPremiumSheet(
-                context,
-                ref,
-                source: 'viewer_badge',
-                momentId: item.id,
-              ),
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.lock_outline, color: Colors.white, size: 40),
+                const SizedBox(height: 12),
+                const Text(
+                  'Premium content',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: () => _openPremiumPage(context),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: MomentsPremiumPageTokens.accentPink,
+                  ),
+                  child: const Text('Unlock Moments'),
+                ),
+              ],
             ),
           ),
         ],
-      );
-    }
-
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Image.network(
-          item.media.thumbnailUrl,
-          fit: BoxFit.cover,
-        ),
-        BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-          child: Container(color: Colors.black.withValues(alpha: 0.35)),
-        ),
-        Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.lock_outline, color: Colors.white, size: 40),
-              const SizedBox(height: 12),
-              const Text(
-                'Premium content',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 16,
-                ),
-              ),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: () => showMomentsPremiumSheet(
-                  context,
-                  ref,
-                  source: 'viewer_overlay',
-                  momentId: item.id,
-                ),
-                style: FilledButton.styleFrom(
-                  backgroundColor: MomentsPremiumPageTokens.accentPink,
-                ),
-                child: const Text('Unlock Moments'),
-              ),
-            ],
-          ),
-        ),
-      ],
+      ),
     );
   }
 }

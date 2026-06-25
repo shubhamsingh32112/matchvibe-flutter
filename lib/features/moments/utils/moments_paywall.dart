@@ -2,11 +2,32 @@ import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../services/moments_api_service.dart';
 import '../widgets/moments_premium_bottom_sheet.dart';
 
 Future<void>? _activeSheet;
+
+Future<void> _recordPaywallShown({
+  required String source,
+  String? momentId,
+}) {
+  return MomentsApiService().recordPaywallShown(
+    source: source,
+    momentId: momentId,
+  );
+}
+
+/// Full-screen Moments Premium plan page (`/account/moments-plan`).
+Future<void> openMomentsPremiumPage(
+  BuildContext context, {
+  String source = 'unknown',
+  String? momentId,
+}) async {
+  unawaited(_recordPaywallShown(source: source, momentId: momentId));
+  await context.push('/account/moments-plan');
+}
 
 /// Single entry point for the Moments Premium paywall bottom sheet.
 Future<void> showMomentsPremiumSheet(
@@ -33,7 +54,7 @@ Future<void> _openSheet(
   String? momentId,
 }) async {
   unawaited(
-    MomentsApiService().recordPaywallShown(source: source, momentId: momentId),
+    _recordPaywallShown(source: source, momentId: momentId),
   );
   await showModalBottomSheet<void>(
     context: context,
