@@ -1,12 +1,14 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/styles/app_brand_styles.dart';
 import '../models/moments_models.dart';
+import '../utils/moments_paywall.dart';
 import '../utils/moment_caption_utils.dart';
 
-class MomentsGridCard extends StatelessWidget {
+class MomentsGridCard extends ConsumerWidget {
   const MomentsGridCard({
     super.key,
     required this.item,
@@ -21,14 +23,25 @@ class MomentsGridCard extends StatelessWidget {
   final VoidCallback? onReport;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final caption = captionWithoutHashtags(item.caption);
     final hashtag = extractFirstHashtag(item.caption);
     final isVideo = item.media.isVideo;
 
     return GestureDetector(
-      onTap: onTap,
+      onTap: () {
+        if (item.locked) {
+          showMomentsPremiumSheet(
+            context,
+            ref,
+            source: 'grid_card',
+            momentId: item.id,
+          );
+          return;
+        }
+        onTap?.call();
+      },
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(AppBrandGradients.momentsCardRadius),
@@ -57,7 +70,29 @@ class MomentsGridCard extends StatelessWidget {
                 ),
                 Container(color: Colors.black.withValues(alpha: 0.35)),
                 const Center(
-                  child: Icon(Icons.lock_outline, color: Colors.white, size: 28),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.lock_outline, color: Colors.white, size: 28),
+                      SizedBox(height: 8),
+                      Text(
+                        'Premium content',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'Unlock to view',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
               Positioned.fill(

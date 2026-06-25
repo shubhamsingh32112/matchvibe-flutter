@@ -1,3 +1,32 @@
+class MomentsFeedSections {
+  const MomentsFeedSections({this.previewEndIndex = 0});
+
+  final int previewEndIndex;
+
+  factory MomentsFeedSections.fromJson(Map<String, dynamic>? json) {
+    if (json == null) return const MomentsFeedSections();
+    return MomentsFeedSections(
+      previewEndIndex: (json['previewEndIndex'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+class MomentsFeedPage {
+  const MomentsFeedPage({
+    required this.items,
+    this.sections = const MomentsFeedSections(),
+    this.nextCursor,
+    this.hasMore = false,
+    this.nextOffset = 0,
+  });
+
+  final List<MomentFeedItem> items;
+  final MomentsFeedSections sections;
+  final String? nextCursor;
+  final bool hasMore;
+  final int nextOffset;
+}
+
 class MediaPresentation {
   const MediaPresentation({
     required this.mediaType,
@@ -75,14 +104,11 @@ class MomentFeedItem {
     this.caption,
     required this.createdAt,
     required this.locked,
-    this.unlockPriceCoins,
-    this.originalPriceCoins,
-    this.vipFreeUnlockAvailable,
-    this.discountApplied,
+    this.isPreview = false,
+    this.accessReason,
     this.isFollowing = false,
     this.viewsCount,
     this.purchaseCount,
-    this.accessType,
     this.moderationStatus,
     this.processingStatus,
   });
@@ -95,14 +121,11 @@ class MomentFeedItem {
   final String? caption;
   final String createdAt;
   final bool locked;
-  final int? unlockPriceCoins;
-  final int? originalPriceCoins;
-  final bool? vipFreeUnlockAvailable;
-  final bool? discountApplied;
+  final bool isPreview;
+  final String? accessReason;
   final bool isFollowing;
   final int? viewsCount;
   final int? purchaseCount;
-  final String? accessType;
   final String? moderationStatus;
   final String? processingStatus;
 
@@ -118,14 +141,11 @@ class MomentFeedItem {
       caption: json['caption'] as String?,
       createdAt: json['createdAt'] as String? ?? '',
       locked: json['locked'] as bool? ?? false,
-      unlockPriceCoins: json['unlockPriceCoins'] as int?,
-      originalPriceCoins: json['originalPriceCoins'] as int?,
-      vipFreeUnlockAvailable: json['vipFreeUnlockAvailable'] as bool?,
-      discountApplied: json['discountApplied'] as bool?,
+      isPreview: json['isPreview'] as bool? ?? false,
+      accessReason: json['accessReason'] as String?,
       isFollowing: json['isFollowing'] as bool? ?? false,
       viewsCount: json['viewsCount'] as int?,
       purchaseCount: json['purchaseCount'] as int?,
-      accessType: json['accessType'] as String?,
       moderationStatus: json['moderationStatus'] as String?,
       processingStatus: json['processingStatus'] as String?,
     );
@@ -135,7 +155,8 @@ class MomentFeedItem {
     bool? locked,
     MediaPresentation? media,
     bool? isFollowing,
-    int? unlockPriceCoins,
+    bool? isPreview,
+    String? accessReason,
   }) {
     return MomentFeedItem(
       id: id,
@@ -146,12 +167,13 @@ class MomentFeedItem {
       caption: caption,
       createdAt: createdAt,
       locked: locked ?? this.locked,
-      unlockPriceCoins: unlockPriceCoins ?? this.unlockPriceCoins,
+      isPreview: isPreview ?? this.isPreview,
+      accessReason: accessReason ?? this.accessReason,
       isFollowing: isFollowing ?? this.isFollowing,
       viewsCount: viewsCount,
       purchaseCount: purchaseCount,
-      accessType: accessType,
       moderationStatus: moderationStatus,
+      processingStatus: processingStatus,
     );
   }
 }

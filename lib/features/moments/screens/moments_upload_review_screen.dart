@@ -38,10 +38,6 @@ class _MomentsUploadReviewScreenState
   bool _uploading = false;
   double _progress = 0;
   String _status = '';
-  String _accessType = 'free';
-
-  static const int _paidPhotoPriceCoins = 10;
-  static const int _paidVideoPriceCoins = 30;
 
   VideoPlayerController? _videoController;
   bool _videoInitFailed = false;
@@ -124,7 +120,6 @@ class _MomentsUploadReviewScreenState
       final rewardCoins = await _coordinator.uploadMoment(
         file: widget.file,
         kind: widget.mediaKind,
-        accessType: _accessType,
         caption: caption,
         onProgress: (p) {
           if (mounted) setState(() => _progress = p);
@@ -206,43 +201,6 @@ class _MomentsUploadReviewScreenState
                     ),
                   ),
                   const SizedBox(height: 12),
-                  if (!_isStory) ...[
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _AccessTypeChip(
-                            label: 'Free',
-                            selected: _accessType == 'free',
-                            enabled: !_uploading,
-                            onTap: () => setState(() => _accessType = 'free'),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _AccessTypeChip(
-                            label: 'Paid',
-                            selected: _accessType == 'paid',
-                            enabled: !_uploading,
-                            onTap: () => setState(() => _accessType = 'paid'),
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (_accessType == 'paid') ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        widget.mediaKind == MomentsMediaKind.video
-                            ? 'Unlock price: $_paidVideoPriceCoins coins'
-                            : 'Unlock price: $_paidPhotoPriceCoins coins',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: AppBrandGradients.momentsSubtitleColor,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 12),
-                  ],
                   TextField(
                     controller: _captionController,
                     enabled: !_uploading,
@@ -382,53 +340,6 @@ class _MomentsUploadReviewScreenState
     return const Center(
       child: CircularProgressIndicator(
         color: AppBrandGradients.momentsTabActiveColor,
-      ),
-    );
-  }
-}
-
-class _AccessTypeChip extends StatelessWidget {
-  const _AccessTypeChip({
-    required this.label,
-    required this.selected,
-    required this.enabled,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final bool enabled;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: selected
-          ? AppBrandGradients.momentsTabActiveColor.withValues(alpha: 0.25)
-          : AppBrandGradients.momentsTrophyBackground,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: enabled ? onTap : null,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: selected
-                  ? AppBrandGradients.momentsTabActiveColor
-                  : Colors.white.withValues(alpha: 0.12),
-            ),
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            label,
-            style: TextStyle(
-              color: selected ? Colors.white : AppBrandGradients.momentsSubtitleColor,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
       ),
     );
   }

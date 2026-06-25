@@ -7,7 +7,7 @@ import '../models/playback_refresh_models.dart';
 class MomentsApiService {
   final ApiClient _api = ApiClient();
 
-  Future<({List<MomentFeedItem> items, String? nextCursor})> fetchFeed({
+  Future<MomentsFeedPage> fetchFeed({
     String? cursor,
     int limit = 20,
   }) async {
@@ -20,16 +20,18 @@ class MomentsApiService {
     );
     final data = response.data['data'] as Map<String, dynamic>? ?? {};
     final raw = data['items'] as List? ?? const [];
-    return (
+    return MomentsFeedPage(
       items: raw
           .map((e) => MomentFeedItem.fromJson(Map<String, dynamic>.from(e as Map)))
           .toList(),
+      sections: MomentsFeedSections.fromJson(
+        data['sections'] as Map<String, dynamic>?,
+      ),
       nextCursor: data['nextCursor'] as String?,
     );
   }
 
-  Future<({List<MomentFeedItem> items, bool hasMore, int nextOffset})>
-      fetchFollowingFeed({
+  Future<MomentsFeedPage> fetchFollowingFeed({
     int limit = 20,
     int offset = 0,
   }) async {
@@ -39,10 +41,13 @@ class MomentsApiService {
     );
     final data = response.data['data'] as Map<String, dynamic>? ?? {};
     final raw = data['items'] as List? ?? const [];
-    return (
+    return MomentsFeedPage(
       items: raw
           .map((e) => MomentFeedItem.fromJson(Map<String, dynamic>.from(e as Map)))
           .toList(),
+      sections: MomentsFeedSections.fromJson(
+        data['sections'] as Map<String, dynamic>?,
+      ),
       hasMore: data['hasMore'] as bool? ?? false,
       nextOffset: data['nextOffset'] as int? ?? offset,
     );
@@ -55,8 +60,24 @@ class MomentsApiService {
     );
   }
 
-  /// Coin unlock for a paid moment. Path: POST /moments/:momentId/purchase
-  /// (same /moments prefix as feed/follow; not under /payment).
+  Future<void> recordPaywallShown({
+    required String source,
+    String? momentId,
+  }) async {
+    try {
+      await _api.post(
+        '/moments/analytics/paywall-shown',
+        data: {
+          'source': source,
+          if (momentId != null) 'momentId': momentId,
+        },
+      );
+    } catch (_) {
+      // Non-blocking analytics
+    }
+  }
+
+  /// @deprecated Coin unlock removed — server returns 403 MOMENTS_PREMIUM_REQUIRED.
   Future<MomentFeedItem> purchase(String momentId, {String? transactionId}) async {
     final response = await _api.post(
       '/moments/$momentId/purchase',
@@ -174,7 +195,6 @@ class MomentsApiService {
 
   Future<int> createMoment({
     required String type,
-    required String accessType,
     String? imageSessionId,
     String? streamSessionId,
     String? thumbnailSessionId,
@@ -182,7 +202,6 @@ class MomentsApiService {
   }) async {
     final response = await _api.post('/moments', data: {
       'type': type,
-      'accessType': accessType,
       if (imageSessionId != null) 'imageSessionId': imageSessionId,
       if (streamSessionId != null) 'streamSessionId': streamSessionId,
       if (thumbnailSessionId != null) 'thumbnailSessionId': thumbnailSessionId,

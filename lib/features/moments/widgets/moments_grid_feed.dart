@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../account/theme/moments_premium_page_tokens.dart';
 import '../providers/moments_providers.dart';
 import '../models/moments_models.dart';
+import '../utils/moments_paywall.dart';
 import 'moments_add_center_button.dart';
 import 'moments_grid_card.dart';
 import '../screens/creator_moment_viewer_screen.dart';
 
-class MomentsGridFeed extends StatefulWidget {
+class MomentsGridFeed extends ConsumerStatefulWidget {
   const MomentsGridFeed({
     super.key,
     required this.items,
@@ -33,10 +36,10 @@ class MomentsGridFeed extends StatefulWidget {
   final String emptyMessage;
 
   @override
-  State<MomentsGridFeed> createState() => _MomentsGridFeedState();
+  ConsumerState<MomentsGridFeed> createState() => _MomentsGridFeedState();
 }
 
-class _MomentsGridFeedState extends State<MomentsGridFeed> {
+class _MomentsGridFeedState extends ConsumerState<MomentsGridFeed> {
   final ScrollController _scrollController = ScrollController();
 
   @override
@@ -86,34 +89,86 @@ class _MomentsGridFeedState extends State<MomentsGridFeed> {
       );
     }
 
+    final capabilities = ref.watch(momentsCapabilitiesProvider);
+    final showFloatingCta =
+        capabilities.showFloatingCta && widget.items.any((i) => i.locked);
+
     final fabClearance = widget.reserveFabSpace
         ? MomentsPostReelFab.size + 24.0
         : 16.0;
+    final ctaClearance = showFloatingCta ? 56.0 : 0.0;
 
-    return GridView.builder(
-      controller: _scrollController,
-      padding: EdgeInsets.fromLTRB(16, 8, 16, fabClearance),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-        childAspectRatio: 0.62,
-      ),
-      itemCount: widget.items.length,
-      itemBuilder: (context, index) {
-        final item = widget.items[index];
-        return MomentsGridCard(
-          key: ValueKey(item.id),
-          item: item,
-          onTap: () => _openViewer(index),
-          onViewCreator: widget.onCreatorTap == null
-              ? null
-              : () => widget.onCreatorTap!(item.creatorId),
-          onReport: widget.onReport == null
-              ? null
-              : () => widget.onReport!(item),
-        );
-      },
+    return Stack(
+      children: [
+        GridView.builder(
+          controller: _scrollController,
+          padding: EdgeInsets.fromLTRB(16, 8, 16, fabClearance + ctaClearance),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            childAspectRatio: 0.62,
+          ),
+          itemCount: widget.items.length,
+          itemBuilder: (context, index) {
+            final item = widget.items[index];
+            return MomentsGridCard(
+              key: ValueKey(item.id),
+              item: item,
+              onTap: () => _openViewer(index),
+              onViewCreator: widget.onCreatorTap == null
+                  ? null
+                  : () => widget.onCreatorTap!(item.creatorId),
+              onReport: widget.onReport == null
+                  ? null
+                  : () => widget.onReport!(item),
+            );
+          },
+        ),
+        if (showFloatingCta)
+          Positioned(
+            left: 24,
+            right: 24,
+            bottom: fabClearance + 8,
+            child: Center(
+              child: Material(
+                elevation: 8,
+                borderRadius: BorderRadius.circular(28),
+                child: InkWell(
+                  onTap: () => showMomentsPremiumSheet(context, ref, source: 'floating_cta'),
+                  borderRadius: BorderRadius.circular(28),
+                  child: Ink(
+                    decoration: BoxDecoration(
+                      gradient: MomentsPremiumPageTokens.ctaGradient,
+                      borderRadius: BorderRadius.circular(28),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 22,
+                      vertical: 12,
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('✨', style: TextStyle(fontSize: 16)),
+                        SizedBox(width: 8),
+                        Text(
+                          'Unlock Moments',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                          ),
+                        ),
+                        SizedBox(width: 6),
+                        Icon(Icons.lock_open, color: Colors.white, size: 18),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

@@ -1,10 +1,47 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/app_config_provider.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../models/moments_models.dart';
 import '../services/moments_api_service.dart';
 
 bool _momentsEnabled(Ref ref) => ref.watch(appFeaturesProvider).momentsEnabled;
+
+class MomentsCapabilities {
+  const MomentsCapabilities({
+    required this.isPremium,
+    required this.canUpload,
+    required this.canManageOwn,
+    required this.showPremiumButton,
+    required this.showFloatingCta,
+  });
+
+  final bool isPremium;
+  final bool canUpload;
+  final bool canManageOwn;
+  final bool showPremiumButton;
+  final bool showFloatingCta;
+}
+
+final momentsCapabilitiesProvider = Provider<MomentsCapabilities>((ref) {
+  final user = ref.watch(authProvider.select((s) => s.user));
+  final isPremium = user?.isMomentsPremiumActive ?? false;
+  final role = user?.role;
+  final tab = ref.watch(momentsFeedTabProvider);
+  final feedAsync = tab == MomentsFeedTab.popular
+      ? ref.watch(popularFeedProvider)
+      : ref.watch(followingFeedProvider);
+  final feedHasLocked =
+      feedAsync.valueOrNull?.any((item) => item.locked) ?? false;
+
+  return MomentsCapabilities(
+    isPremium: isPremium,
+    canUpload: role == 'creator' || role == 'admin',
+    canManageOwn: role == 'creator' || role == 'admin',
+    showPremiumButton: !isPremium && role != 'creator' && role != 'admin',
+    showFloatingCta: !isPremium && feedHasLocked,
+  );
+});
 
 enum MomentsFeedTab { popular, following }
 
@@ -199,4 +236,6 @@ void invalidateMomentsFeeds(Ref ref) {
   ref.invalidate(myStoriesProvider);
   ref.invalidate(myMomentsProvider);
   ref.invalidate(creatorMomentsAnalyticsProvider);
+  // Creator profile grids fetch /moments/creator/:id directly (no server cache).
+  ref.invalidate(creatorMomentsProvider);
 }

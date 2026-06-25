@@ -109,7 +109,6 @@ class MomentsUploadCoordinator {
   Future<int> uploadMoment({
     required XFile file,
     required MomentsMediaKind kind,
-    String accessType = 'free',
     String? caption,
     void Function(String sessionId)? onStreamSessionCreated,
     UploadProgressCallback? onProgress,
@@ -138,7 +137,6 @@ class MomentsUploadCoordinator {
       onStatus?.call('Creating moment…');
       return _momentsApi.createMoment(
         type: 'video',
-        accessType: accessType,
         streamSessionId: sessionId,
         thumbnailSessionId: thumbnailSessionId,
         caption: captionOrNull,
@@ -154,7 +152,6 @@ class MomentsUploadCoordinator {
     onStatus?.call('Creating moment…');
     return _momentsApi.createMoment(
       type: 'photo',
-      accessType: accessType,
       imageSessionId: result.sessionId,
       caption: captionOrNull,
     );

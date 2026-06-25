@@ -183,7 +183,6 @@ class _MyPostsTab extends ConsumerWidget {
           separatorBuilder: (_, __) => const SizedBox(height: 10),
           itemBuilder: (context, index) {
             final moment = moments[index];
-            final paid = moment.accessType == 'paid';
             return Container(
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -213,8 +212,7 @@ class _MyPostsTab extends ConsumerWidget {
                   ],
                 ),
                 subtitle: Text(
-                  '${paid ? 'Paid' : 'Free'} · Unique views: ${moment.viewsCount ?? 0} · '
-                  'Purchases: ${moment.purchaseCount ?? 0}',
+                  'Unique views: ${moment.viewsCount ?? 0}',
                 ),
                 trailing: IconButton(
                   icon: const Icon(Icons.delete_outline),
@@ -258,7 +256,6 @@ class _AnalyticsTab extends ConsumerWidget {
                 title: const Text('Moments earnings'),
                 subtitle: Text(
                   '${data['momentsEarnings'] ?? 0} coins · '
-                  '${data['purchaseCount'] ?? 0} purchases · '
                   '${data['totalViews'] ?? 0} unique views · '
                   '${data['postCount'] ?? 0} posts',
                 ),
@@ -291,7 +288,7 @@ class _AnalyticsTab extends ConsumerWidget {
                                 ? m.caption!
                                 : (m.media.isVideo ? 'Video' : 'Photo')),
                             subtitle: Text(
-                              'Unique views: ${m.viewsCount ?? 0} · Purchases: ${m.purchaseCount ?? 0}',
+                              'Unique views: ${m.viewsCount ?? 0}',
                             ),
                           ),
                         ),

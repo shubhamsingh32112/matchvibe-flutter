@@ -3,12 +3,12 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/theme/app_theme.dart';
+import '../../account/theme/moments_premium_page_tokens.dart';
+import '../utils/moments_paywall.dart';
 import '../models/moments_models.dart';
-import '../utils/moments_purchase_helper.dart';
 import 'moment_viewer_chrome.dart';
 
-class LockedMomentOverlay extends ConsumerStatefulWidget {
+class LockedMomentOverlay extends ConsumerWidget {
   const LockedMomentOverlay({
     super.key,
     required this.item,
@@ -23,40 +23,13 @@ class LockedMomentOverlay extends ConsumerStatefulWidget {
   final double bottomOverlayInset;
 
   @override
-  ConsumerState<LockedMomentOverlay> createState() =>
-      _LockedMomentOverlayState();
-}
-
-class _LockedMomentOverlayState extends ConsumerState<LockedMomentOverlay> {
-  bool _purchasing = false;
-
-  Future<void> _purchase() async {
-    if (_purchasing) return;
-    setState(() => _purchasing = true);
-    try {
-      final unlocked = await purchaseMomentWithFeedback(
-        context,
-        ref,
-        widget.item,
-      );
-      if (unlocked != null) {
-        widget.onUnlocked(unlocked);
-      }
-    } finally {
-      if (mounted) setState(() => _purchasing = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final unlockLabel = momentUnlockLabel(widget.item);
-
-    if (widget.viewerLayout) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (viewerLayout) {
       return Stack(
         fit: StackFit.expand,
         children: [
           Image.network(
-            widget.item.media.thumbnailUrl,
+            item.media.thumbnailUrl,
             fit: BoxFit.cover,
             errorBuilder: (_, __, ___) => Container(color: Colors.black26),
           ),
@@ -66,13 +39,15 @@ class _LockedMomentOverlayState extends ConsumerState<LockedMomentOverlay> {
           ),
           Positioned(
             left: 16,
-            bottom: widget.bottomOverlayInset > 0
-                ? widget.bottomOverlayInset + 12
-                : 180,
+            bottom: bottomOverlayInset > 0 ? bottomOverlayInset + 12 : 180,
             child: MomentViewerPremiumBadge(
-              unlockLabel: unlockLabel,
-              onTap: _purchasing ? null : _purchase,
-              isLoading: _purchasing,
+              unlockLabel: 'Unlock Moments Premium',
+              onTap: () => showMomentsPremiumSheet(
+                context,
+                ref,
+                source: 'viewer_badge',
+                momentId: item.id,
+              ),
             ),
           ),
         ],
@@ -83,9 +58,8 @@ class _LockedMomentOverlayState extends ConsumerState<LockedMomentOverlay> {
       fit: StackFit.expand,
       children: [
         Image.network(
-          widget.item.media.thumbnailUrl,
+          item.media.thumbnailUrl,
           fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => Container(color: Colors.black26),
         ),
         BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
@@ -95,27 +69,28 @@ class _LockedMomentOverlayState extends ConsumerState<LockedMomentOverlay> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.lock, color: AppPalette.onSurface, size: 40),
+              const Icon(Icons.lock_outline, color: Colors.white, size: 40),
               const SizedBox(height: 12),
-              Text(
-                unlockLabel,
-                style: const TextStyle(
-                  color: AppPalette.onSurface,
+              const Text(
+                'Premium content',
+                style: TextStyle(
+                  color: Colors.white,
                   fontWeight: FontWeight.w700,
                   fontSize: 16,
                 ),
-                textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
               FilledButton(
-                onPressed: _purchasing ? null : _purchase,
-                child: _purchasing
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Unlock'),
+                onPressed: () => showMomentsPremiumSheet(
+                  context,
+                  ref,
+                  source: 'viewer_overlay',
+                  momentId: item.id,
+                ),
+                style: FilledButton.styleFrom(
+                  backgroundColor: MomentsPremiumPageTokens.accentPink,
+                ),
+                child: const Text('Unlock Moments'),
               ),
             ],
           ),

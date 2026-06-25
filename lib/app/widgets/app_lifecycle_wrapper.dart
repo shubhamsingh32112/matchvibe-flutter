@@ -10,6 +10,7 @@ import '../../core/services/meta_app_events_service.dart';
 import '../../core/services/sentry_service.dart';
 import '../../features/auth/providers/auth_provider.dart';
 import '../../features/account/providers/moments_premium_provider.dart';
+import '../../features/moments/providers/moments_providers.dart';
 import '../../features/home/providers/availability_provider.dart';
 import '../../core/services/availability_socket_service.dart'
     as socket_availability;
@@ -615,6 +616,8 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
       await ref.read(authProvider.notifier).refreshUser();
       ref.invalidate(momentsPremiumPlansProvider);
       ref.invalidate(momentsPremiumStatusProvider);
+      ref.invalidate(popularFeedProvider);
+      ref.invalidate(followingFeedProvider);
       if (!mounted) return;
       appRouter.go('/account/moments-plan');
       AppToast.showSuccess(
