@@ -45,7 +45,7 @@ void handleMomentsSocketEvent(Ref ref, String event, Map<String, dynamic> data) 
         if (pending.contains(sessionId)) {
           ref.read(pendingMediaSessionsProvider.notifier).state =
               pending.where((id) => id != sessionId).toSet();
-          invalidateMomentsFeeds(ref);
+          invalidateMomentsFeeds(ref.container);
         }
       }
       debugPrint('✅ [MOMENTS] media:ready $sessionId');

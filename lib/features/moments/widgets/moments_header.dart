@@ -10,13 +10,13 @@ class MomentsHeader {
   MomentsHeader._();
 
   static AppBar appBar(BuildContext context, WidgetRef ref) {
-    final capabilities = ref.watch(momentsCapabilitiesProvider);
+    final access = ref.watch(momentsAccessStateProvider);
 
     return buildBrandAppBar(
       context,
       title: 'Moments ✨',
       actions: [
-        if (capabilities.showPremiumButton)
+        if (access.showPremiumUi)
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: TextButton(

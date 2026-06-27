@@ -220,6 +220,9 @@ final appRouter = GoRouter(
             path: '/account/moments-plan',
             redirect: (context, state) {
               if (!appConfigSnapshot.features.momentsEnabled) return '/home';
+              if (appConfigSnapshot.features.isMomentsFreeAccessMode) {
+                return '/account';
+              }
               return null;
             },
             builder: (context, state) => const MomentsPlanScreen(),

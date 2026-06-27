@@ -1,27 +1,37 @@
 class AppFeatures {
   final bool vipEnabled;
   final bool momentsEnabled;
+  /// Consumed only by [momentsAccessStateProvider] — not for direct widget use.
+  final String momentsAccessMode;
 
   const AppFeatures({
     this.vipEnabled = false,
     this.momentsEnabled = false,
+    this.momentsAccessMode = 'paid',
   });
+
+  bool get isMomentsFreeAccessMode => momentsAccessMode == 'free';
+  bool get isMomentsPaidAccessMode => momentsAccessMode != 'free';
 
   factory AppFeatures.fromJson(Map<String, dynamic>? json) {
     if (json == null) return const AppFeatures();
+    final rawMode = json['momentsAccessMode'] as String? ?? 'paid';
     return AppFeatures(
       vipEnabled: json['vipEnabled'] == true,
       momentsEnabled: json['momentsEnabled'] == true,
+      momentsAccessMode: rawMode == 'free' ? 'free' : 'paid',
     );
   }
 
   AppFeatures copyWith({
     bool? vipEnabled,
     bool? momentsEnabled,
+    String? momentsAccessMode,
   }) {
     return AppFeatures(
       vipEnabled: vipEnabled ?? this.vipEnabled,
       momentsEnabled: momentsEnabled ?? this.momentsEnabled,
+      momentsAccessMode: momentsAccessMode ?? this.momentsAccessMode,
     );
   }
 }

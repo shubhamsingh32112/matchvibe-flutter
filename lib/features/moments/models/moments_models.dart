@@ -35,10 +35,6 @@ class MediaPresentation {
     this.expiresAtMs,
     this.blurPlaceholder,
     required this.locked,
-    this.unlockPriceCoins,
-    this.originalPriceCoins,
-    this.vipFreeUnlockAvailable,
-    this.discountApplied,
     required this.processingStatus,
   });
 
@@ -48,10 +44,6 @@ class MediaPresentation {
   final int? expiresAtMs;
   final String? blurPlaceholder;
   final bool locked;
-  final int? unlockPriceCoins;
-  final int? originalPriceCoins;
-  final bool? vipFreeUnlockAvailable;
-  final bool? discountApplied;
   final String processingStatus;
 
   factory MediaPresentation.fromJson(Map<String, dynamic> json) {
@@ -62,10 +54,6 @@ class MediaPresentation {
       expiresAtMs: (json['expiresAtMs'] as num?)?.toInt(),
       blurPlaceholder: json['blurPlaceholder'] as String?,
       locked: json['locked'] as bool? ?? false,
-      unlockPriceCoins: json['unlockPriceCoins'] as int?,
-      originalPriceCoins: json['originalPriceCoins'] as int?,
-      vipFreeUnlockAvailable: json['vipFreeUnlockAvailable'] as bool?,
-      discountApplied: json['discountApplied'] as bool?,
       processingStatus: json['processingStatus'] as String? ?? 'ready',
     );
   }
@@ -85,10 +73,6 @@ class MediaPresentation {
       expiresAtMs: expiresAtMs ?? this.expiresAtMs,
       blurPlaceholder: blurPlaceholder,
       locked: locked ?? this.locked,
-      unlockPriceCoins: unlockPriceCoins,
-      originalPriceCoins: originalPriceCoins,
-      vipFreeUnlockAvailable: vipFreeUnlockAvailable,
-      discountApplied: discountApplied,
       processingStatus: processingStatus,
     );
   }

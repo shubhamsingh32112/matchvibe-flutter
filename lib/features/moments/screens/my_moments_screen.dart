@@ -255,7 +255,6 @@ class _AnalyticsTab extends ConsumerWidget {
               child: ListTile(
                 title: const Text('Moments earnings'),
                 subtitle: Text(
-                  '${data['momentsEarnings'] ?? 0} coins · '
                   '${data['totalViews'] ?? 0} unique views · '
                   '${data['postCount'] ?? 0} posts',
                 ),

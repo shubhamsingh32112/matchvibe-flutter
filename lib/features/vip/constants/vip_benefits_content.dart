@@ -46,16 +46,6 @@ List<VipBenefitSection> buildVipBenefitSections(VipPlansPerks perks) {
       fallbackIcon: Icons.event_available_rounded,
     ),
     VipBenefitSection(
-      id: 'unlimited_moments',
-      shortTitle: 'Free Moments',
-      title: 'Unlimited Moments free',
-      shortDescription: 'Watch without limits',
-      description:
-          'Unlock premium moments for free and enjoy exclusive creator content every day.',
-      iconAsset: VipPageAssets.benefitFreeMoments,
-      fallbackIcon: Icons.favorite_rounded,
-    ),
-    VipBenefitSection(
       id: 'unlimited_chats',
       shortTitle: 'Free Chats',
       title: 'Unlimited chats free',

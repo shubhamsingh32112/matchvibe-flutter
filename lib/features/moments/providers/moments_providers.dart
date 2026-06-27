@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/app_config_provider.dart';
@@ -7,41 +9,68 @@ import '../services/moments_api_service.dart';
 
 bool _momentsEnabled(Ref ref) => ref.watch(appFeaturesProvider).momentsEnabled;
 
-class MomentsCapabilities {
-  const MomentsCapabilities({
-    required this.isPremium,
-    required this.canUpload,
-    required this.canManageOwn,
-    required this.showPremiumButton,
-    required this.showFloatingCta,
+class MomentsAccessState {
+  const MomentsAccessState({
+    required this.hasFullAccess,
+    required this.showPaywall,
+    required this.showPremiumUi,
+    this.premiumExpiresAt,
   });
 
-  final bool isPremium;
-  final bool canUpload;
-  final bool canManageOwn;
-  final bool showPremiumButton;
-  final bool showFloatingCta;
+  final bool hasFullAccess;
+  final bool showPaywall;
+  final bool showPremiumUi;
+  final DateTime? premiumExpiresAt;
 }
 
-final momentsCapabilitiesProvider = Provider<MomentsCapabilities>((ref) {
+final momentsAccessStateProvider = Provider<MomentsAccessState>((ref) {
+  final features = ref.watch(appFeaturesProvider);
   final user = ref.watch(authProvider.select((s) => s.user));
-  final isPremium = user?.isMomentsPremiumActive ?? false;
   final role = user?.role;
-  final tab = ref.watch(momentsFeedTabProvider);
-  final feedAsync = tab == MomentsFeedTab.popular
-      ? ref.watch(popularFeedProvider)
-      : ref.watch(followingFeedProvider);
-  final feedHasLocked =
-      feedAsync.valueOrNull?.any((item) => item.locked) ?? false;
+  final isCreatorOrAdmin = role == 'creator' || role == 'admin';
+  final isFreeMode = features.isMomentsFreeAccessMode;
+  final isPremiumActive = user?.isMomentsPremiumActive ?? false;
+  final premiumExpiresAt = user?.momentsPremiumStatus.expiresAt;
 
-  return MomentsCapabilities(
-    isPremium: isPremium,
-    canUpload: role == 'creator' || role == 'admin',
-    canManageOwn: role == 'creator' || role == 'admin',
-    showPremiumButton: !isPremium && role != 'creator' && role != 'admin',
-    showFloatingCta: !isPremium && feedHasLocked,
+  final hasFullAccess =
+      isFreeMode || isPremiumActive || isCreatorOrAdmin;
+  final showPremiumUi = features.isMomentsPaidAccessMode && !isCreatorOrAdmin;
+  final showPaywall = showPremiumUi && !hasFullAccess;
+
+  return MomentsAccessState(
+    hasFullAccess: hasFullAccess,
+    showPaywall: showPaywall,
+    showPremiumUi: showPremiumUi,
+    premiumExpiresAt: premiumExpiresAt,
   );
 });
+
+/// Schedules feed refresh when Moments Premium expires.
+final momentsPremiumExpiryWatcherProvider = Provider<void>((ref) {
+  final expiresAt = ref.watch(
+    momentsAccessStateProvider.select((s) => s.premiumExpiresAt),
+  );
+  if (expiresAt == null) return;
+
+  final timer = Timer(
+    expiresAt.difference(DateTime.now()),
+    () {
+      unawaited(ref.read(authProvider.notifier).refreshUser());
+      invalidateMomentsFeeds(ref.container);
+    },
+  );
+  ref.onDispose(timer.cancel);
+});
+
+class MomentsFeedState {
+  const MomentsFeedState({
+    this.items = const [],
+    this.previewEndIndex = 0,
+  });
+
+  final List<MomentFeedItem> items;
+  final int previewEndIndex;
+}
 
 enum MomentsFeedTab { popular, following }
 
@@ -67,6 +96,16 @@ List<MomentFeedItem> applyMediaFilter(
     case MomentsMediaFilter.all:
       return items;
   }
+}
+
+int filteredPreviewEndIndex(
+  List<MomentFeedItem> allItems,
+  MomentsMediaFilter filter,
+  int previewEndIndex,
+) {
+  if (previewEndIndex <= 0) return 0;
+  final previewSlice = allItems.take(previewEndIndex).toList();
+  return applyMediaFilter(previewSlice, filter).length;
 }
 
 final storiesBarProvider = FutureProvider<List<StoryGroup>>((ref) async {
@@ -110,18 +149,23 @@ final myMomentsProvider = FutureProvider<List<MomentFeedItem>>((ref) async {
   return MomentsApiService().fetchMyMoments();
 });
 
-class FollowingFeedNotifier extends AsyncNotifier<List<MomentFeedItem>> {
+class FollowingFeedNotifier extends AsyncNotifier<MomentsFeedState> {
   int _nextOffset = 0;
   bool _hasMore = true;
   bool _loadingMore = false;
 
   @override
-  Future<List<MomentFeedItem>> build() async {
-    if (!ref.watch(appFeaturesProvider).momentsEnabled) return [];
+  Future<MomentsFeedState> build() async {
+    if (!ref.watch(appFeaturesProvider).momentsEnabled) {
+      return const MomentsFeedState();
+    }
     final result = await MomentsApiService().fetchFollowingFeed();
     _nextOffset = result.nextOffset;
     _hasMore = result.hasMore;
-    return result.items;
+    return MomentsFeedState(
+      items: result.items,
+      previewEndIndex: result.sections.previewEndIndex,
+    );
   }
 
   Future<void> loadMore() async {
@@ -133,50 +177,69 @@ class FollowingFeedNotifier extends AsyncNotifier<List<MomentFeedItem>> {
       );
       _nextOffset = result.nextOffset;
       _hasMore = result.hasMore;
-      final current = state.value ?? [];
-      state = AsyncData([...current, ...result.items]);
+      final current = state.value ?? const MomentsFeedState();
+      state = AsyncData(
+        MomentsFeedState(
+          items: [...current.items, ...result.items],
+          previewEndIndex: current.previewEndIndex,
+        ),
+      );
     } finally {
       _loadingMore = false;
     }
   }
 
   void updateItem(int index, MomentFeedItem item) {
-    final current = [...?state.value];
-    if (index < 0 || index >= current.length) return;
-    current[index] = item;
-    state = AsyncData(current);
+    final current = state.value ?? const MomentsFeedState();
+    final items = [...current.items];
+    if (index < 0 || index >= items.length) return;
+    items[index] = item;
+    state = AsyncData(
+      MomentsFeedState(
+        items: items,
+        previewEndIndex: current.previewEndIndex,
+      ),
+    );
   }
 
   void patchFollowStateForCreator(String creatorId, bool isFollowing) {
     final current = state.value;
     if (current == null) return;
     state = AsyncData(
-      current
-          .map(
-            (item) => item.creatorId == creatorId
-                ? item.copyWith(isFollowing: isFollowing)
-                : item,
-          )
-          .toList(),
+      MomentsFeedState(
+        previewEndIndex: current.previewEndIndex,
+        items: current.items
+            .map(
+              (item) => item.creatorId == creatorId
+                  ? item.copyWith(isFollowing: isFollowing)
+                  : item,
+            )
+            .toList(),
+      ),
     );
   }
 }
 
 final followingFeedProvider =
-    AsyncNotifierProvider<FollowingFeedNotifier, List<MomentFeedItem>>(
+    AsyncNotifierProvider<FollowingFeedNotifier, MomentsFeedState>(
   FollowingFeedNotifier.new,
 );
 
-class PopularFeedNotifier extends AsyncNotifier<List<MomentFeedItem>> {
+class PopularFeedNotifier extends AsyncNotifier<MomentsFeedState> {
   String? _nextCursor;
   bool _loadingMore = false;
 
   @override
-  Future<List<MomentFeedItem>> build() async {
-    if (!ref.watch(appFeaturesProvider).momentsEnabled) return [];
+  Future<MomentsFeedState> build() async {
+    if (!ref.watch(appFeaturesProvider).momentsEnabled) {
+      return const MomentsFeedState();
+    }
     final result = await MomentsApiService().fetchFeed();
     _nextCursor = result.nextCursor;
-    return result.items;
+    return MomentsFeedState(
+      items: result.items,
+      previewEndIndex: result.sections.previewEndIndex,
+    );
   }
 
   Future<void> loadMore() async {
@@ -185,37 +248,51 @@ class PopularFeedNotifier extends AsyncNotifier<List<MomentFeedItem>> {
     try {
       final result = await MomentsApiService().fetchFeed(cursor: _nextCursor);
       _nextCursor = result.nextCursor;
-      final current = state.value ?? [];
-      state = AsyncData([...current, ...result.items]);
+      final current = state.value ?? const MomentsFeedState();
+      state = AsyncData(
+        MomentsFeedState(
+          items: [...current.items, ...result.items],
+          previewEndIndex: current.previewEndIndex,
+        ),
+      );
     } finally {
       _loadingMore = false;
     }
   }
 
   void updateItem(int index, MomentFeedItem item) {
-    final current = [...?state.value];
-    if (index < 0 || index >= current.length) return;
-    current[index] = item;
-    state = AsyncData(current);
+    final current = state.value ?? const MomentsFeedState();
+    final items = [...current.items];
+    if (index < 0 || index >= items.length) return;
+    items[index] = item;
+    state = AsyncData(
+      MomentsFeedState(
+        items: items,
+        previewEndIndex: current.previewEndIndex,
+      ),
+    );
   }
 
   void patchFollowStateForCreator(String creatorId, bool isFollowing) {
     final current = state.value;
     if (current == null) return;
     state = AsyncData(
-      current
-          .map(
-            (item) => item.creatorId == creatorId
-                ? item.copyWith(isFollowing: isFollowing)
-                : item,
-          )
-          .toList(),
+      MomentsFeedState(
+        previewEndIndex: current.previewEndIndex,
+        items: current.items
+            .map(
+              (item) => item.creatorId == creatorId
+                  ? item.copyWith(isFollowing: isFollowing)
+                  : item,
+            )
+            .toList(),
+      ),
     );
   }
 }
 
 final popularFeedProvider =
-    AsyncNotifierProvider<PopularFeedNotifier, List<MomentFeedItem>>(
+    AsyncNotifierProvider<PopularFeedNotifier, MomentsFeedState>(
   PopularFeedNotifier.new,
 );
 
@@ -229,13 +306,12 @@ final creatorMomentsAnalyticsProvider =
 final pendingMediaSessionsProvider =
     StateProvider<Set<String>>((ref) => {});
 
-void invalidateMomentsFeeds(Ref ref) {
-  ref.invalidate(storiesBarProvider);
-  ref.invalidate(followingFeedProvider);
-  ref.invalidate(popularFeedProvider);
-  ref.invalidate(myStoriesProvider);
-  ref.invalidate(myMomentsProvider);
-  ref.invalidate(creatorMomentsAnalyticsProvider);
-  // Creator profile grids fetch /moments/creator/:id directly (no server cache).
-  ref.invalidate(creatorMomentsProvider);
+void invalidateMomentsFeeds(ProviderContainer container) {
+  container.invalidate(storiesBarProvider);
+  container.invalidate(followingFeedProvider);
+  container.invalidate(popularFeedProvider);
+  container.invalidate(myStoriesProvider);
+  container.invalidate(myMomentsProvider);
+  container.invalidate(creatorMomentsAnalyticsProvider);
+  container.invalidate(creatorMomentsProvider);
 }

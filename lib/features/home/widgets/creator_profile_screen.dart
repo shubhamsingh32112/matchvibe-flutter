@@ -1,4 +1,5 @@
 import 'dart:async' show unawaited;
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -27,6 +28,7 @@ import '../../auth/providers/auth_provider.dart';
 import '../../chat/services/chat_service.dart';
 import '../../moments/models/moments_models.dart';
 import '../../moments/providers/moments_providers.dart';
+import '../../moments/utils/moments_paywall.dart';
 import '../../creator/constants/creator_home_assets.dart';
 import '../../creator/providers/creator_dashboard_provider.dart';
 import '../constants/creator_profile_assets.dart';
@@ -581,10 +583,19 @@ class _CreatorProfileScreenState extends ConsumerState<CreatorProfileScreen> {
           itemCount: posts.length,
           itemBuilder: (context, index) {
             final post = posts[index];
+            final isLocked = post.locked;
             return Material(
               color: Colors.transparent,
               child: InkWell(
                 onTap: () {
+                  if (isLocked && !isOwnProfile) {
+                    openMomentsPremiumPage(
+                      context,
+                      source: 'creator_profile_grid',
+                      momentId: post.id,
+                    );
+                    return;
+                  }
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => CreatorMomentViewerScreen(
@@ -615,16 +626,31 @@ class _CreatorProfileScreenState extends ConsumerState<CreatorProfileScreen> {
                       fit: BoxFit.cover,
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    if (post.locked)
-                      const Positioned(
-                        top: 6,
-                        right: 6,
-                        child: Icon(
-                          Icons.lock,
-                          color: Colors.white,
-                          shadows: [Shadow(color: Colors.black54)],
+                    if (isLocked) ...[
+                      ImageFiltered(
+                        imageFilter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
+                        child: AppNetworkImage(
+                          imageUrl: post.media.thumbnailUrl,
+                          width: 140,
+                          height: 180,
+                          fit: BoxFit.cover,
+                          borderRadius: BorderRadius.circular(14),
                         ),
                       ),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.35),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      const Center(
+                        child: Icon(
+                          Icons.lock_outline,
+                          color: Colors.white,
+                          size: 22,
+                        ),
+                      ),
+                    ],
                     if (post.media.isVideo)
                       const Positioned(
                         bottom: 6,

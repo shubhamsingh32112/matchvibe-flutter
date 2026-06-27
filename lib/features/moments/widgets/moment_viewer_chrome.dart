@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/styles/app_brand_styles.dart';
 import '../../../shared/widgets/brand_app_chrome.dart';
-import '../../../shared/widgets/gem_icon.dart';
 import '../providers/moments_providers.dart';
 import 'follow_creator_button.dart';
 
@@ -373,7 +372,7 @@ class MomentViewerPremiumBadge extends StatelessWidget {
                       color: Colors.white,
                     ),
                   )
-                else ...[
+                else
                   Text(
                     unlockLabel,
                     style: const TextStyle(
@@ -382,11 +381,6 @@ class MomentViewerPremiumBadge extends StatelessWidget {
                       fontSize: 13,
                     ),
                   ),
-                  if (!unlockLabel.toLowerCase().contains('vip free')) ...[
-                    const SizedBox(width: 4),
-                    const GemIcon(size: 16),
-                  ],
-                ],
               ],
             ),
           ],

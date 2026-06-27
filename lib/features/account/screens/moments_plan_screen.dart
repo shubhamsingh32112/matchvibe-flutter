@@ -16,6 +16,7 @@ import '../../auth/providers/auth_provider.dart';
 import '../../vip/constants/vip_page_assets.dart';
 import '../models/moments_premium_models.dart';
 import '../providers/moments_premium_provider.dart';
+import '../../moments/providers/moments_providers.dart';
 import '../theme/moments_premium_page_tokens.dart';
 
 const _planFeatures = <String>[
@@ -36,9 +37,11 @@ class _MomentsPlanScreenState extends ConsumerState<MomentsPlanScreen> {
   bool _isCheckingOut = false;
 
   Future<void> _refresh() async {
+    final container = ProviderScope.containerOf(context, listen: false);
     ref.invalidate(momentsPremiumPlansProvider);
     ref.invalidate(momentsPremiumStatusProvider);
     await ref.read(authProvider.notifier).refreshUser();
+    invalidateMomentsFeeds(container);
   }
 
   void _ensureDefaultSelection(MomentsPremiumPlansResponse response) {

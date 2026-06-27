@@ -128,8 +128,9 @@ class _FollowingFeedBody extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final feedAsync = ref.watch(followingFeedProvider);
     return feedAsync.when(
-      data: (items) => _FilteredGridFeed(
-        items: items,
+      data: (feed) => _FilteredGridFeed(
+        items: feed.items,
+        previewEndIndex: feed.previewEndIndex,
         filter: filter,
         onLoadMore: () => ref.read(followingFeedProvider.notifier).loadMore(),
         onItemUpdated: (index, item) =>
@@ -160,8 +161,9 @@ class _PopularFeedBody extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final feedAsync = ref.watch(popularFeedProvider);
     return feedAsync.when(
-      data: (items) => _FilteredGridFeed(
-        items: items,
+      data: (feed) => _FilteredGridFeed(
+        items: feed.items,
+        previewEndIndex: feed.previewEndIndex,
         filter: filter,
         onLoadMore: () => ref.read(popularFeedProvider.notifier).loadMore(),
         onItemUpdated: (index, item) =>
@@ -198,6 +200,7 @@ class _FeedErrorMessage extends StatelessWidget {
 class _FilteredGridFeed extends StatelessWidget {
   const _FilteredGridFeed({
     required this.items,
+    required this.previewEndIndex,
     required this.filter,
     this.onLoadMore,
     required this.onItemUpdated,
@@ -208,6 +211,7 @@ class _FilteredGridFeed extends StatelessWidget {
   });
 
   final List<MomentFeedItem> items;
+  final int previewEndIndex;
   final MomentsMediaFilter filter;
   final VoidCallback? onLoadMore;
   final void Function(int index, MomentFeedItem item) onItemUpdated;
@@ -233,6 +237,7 @@ class _FilteredGridFeed extends StatelessWidget {
     return MomentsGridFeed(
       items: filtered,
       viewerItems: items,
+      previewEndIndex: filteredPreviewEndIndex(items, filter, previewEndIndex),
       mediaFilter: filter,
       onLoadMore: onLoadMore,
       onItemUpdated: (index, item) {

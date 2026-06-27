@@ -23,6 +23,7 @@ import '../../vip/widgets/vip_badge.dart';
 import '../../referral/utils/host_onboarding_routes.dart';
 import '../../video/providers/call_billing_provider.dart';
 import '../../video/providers/call_billing_selectors.dart';
+import '../../moments/providers/moments_providers.dart';
 import '../../wallet/widgets/transactions_icon.dart';
 import '../widgets/account_menu_icons.dart';
 import '../widgets/become_creator_icon.dart';
@@ -250,6 +251,9 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                                 momentsEnabled: ref
                                     .watch(appFeaturesProvider)
                                     .momentsEnabled,
+                                showMomentsPremiumUi: ref
+                                    .watch(momentsAccessStateProvider)
+                                    .showPremiumUi,
                               ),
                             ),
                           );
@@ -549,6 +553,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     required bool isPlainUser,
     required int coins,
     required bool momentsEnabled,
+    required bool showMomentsPremiumUi,
   }) {
     final transactionsTile = _exploreTile(
       context: context,
@@ -578,7 +583,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
 
     if (isPlainUser) {
       return [
-        if (momentsEnabled)
+        if (showMomentsPremiumUi)
           _exploreTile(
             context: context,
             icon: Icons.play_circle_outline,

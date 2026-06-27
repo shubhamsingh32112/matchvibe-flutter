@@ -9,8 +9,7 @@ import '../router/app_router.dart';
 import '../../core/services/meta_app_events_service.dart';
 import '../../core/services/sentry_service.dart';
 import '../../features/auth/providers/auth_provider.dart';
-import '../../features/account/providers/moments_premium_provider.dart';
-import '../../features/moments/providers/moments_providers.dart';
+import '../../features/moments/utils/moments_premium_sync.dart';
 import '../../features/home/providers/availability_provider.dart';
 import '../../core/services/availability_socket_service.dart'
     as socket_availability;
@@ -21,8 +20,6 @@ import '../../features/creator/providers/creator_presence_orchestrator_provider.
 import '../../features/video/controllers/call_connection_controller.dart';
 import '../../features/video/providers/call_billing_provider.dart';
 import '../../features/video/providers/call_billing_selectors.dart';
-import '../../features/home/providers/availability_provider.dart'
-    show socketServiceProvider;
 import '../../features/video/services/call_ringtone_service.dart';
 import '../../features/home/providers/home_provider.dart';
 import '../../shared/widgets/app_modal_dialog.dart';
@@ -605,6 +602,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
         uri.queryParameters['status'] ?? uri.queryParameters['payment'];
     if (paymentStatus == null || paymentStatus.isEmpty) return;
 
+    final container = ProviderScope.containerOf(context, listen: false);
     if (!await _shouldHandlePaymentDeepLink(uri, paymentStatus)) {
       debugPrint('⏭️  [APP LINKS] Ignoring duplicate Moments Premium deep link: $uri');
       return;
@@ -613,11 +611,7 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     final deepLinkMessage = uri.queryParameters['message'];
 
     if (paymentStatus == 'success') {
-      await ref.read(authProvider.notifier).refreshUser();
-      ref.invalidate(momentsPremiumPlansProvider);
-      ref.invalidate(momentsPremiumStatusProvider);
-      ref.invalidate(popularFeedProvider);
-      ref.invalidate(followingFeedProvider);
+      await syncMomentsPremiumAfterPurchase(container);
       if (!mounted) return;
       appRouter.go('/account/moments-plan');
       AppToast.showSuccess(
@@ -1079,6 +1073,9 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
             await ref.read(socketServiceProvider).ensureConnected(token);
           }
           await ref.read(authProvider.notifier).refreshUser();
+          if (!mounted) return;
+          final container = ProviderScope.containerOf(context, listen: false);
+          await syncMomentsPremiumIfExpired(container);
           if (!mounted) return;
           _maybeNavigateHostOnboarding(ref.read(authProvider).user);
         }());

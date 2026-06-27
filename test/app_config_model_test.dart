@@ -18,10 +18,20 @@ void main() {
 
     expect(config.features.vipEnabled, isTrue);
     expect(config.features.momentsEnabled, isFalse);
+    expect(config.features.momentsAccessMode, 'paid');
     expect(config.pricing.freeCallEnabled, isTrue);
     expect(config.pricing.freeCallDurationSeconds, 45);
     expect(config.pricing.welcomeIntroCallCredits, 45);
     expect(config.pricing.minCoinsToCall, 10);
+  });
+
+  test('AppFeatures parses momentsAccessMode free', () {
+    final features = AppFeatures.fromJson({
+      'momentsEnabled': true,
+      'momentsAccessMode': 'free',
+    });
+    expect(features.isMomentsFreeAccessMode, isTrue);
+    expect(features.isMomentsPaidAccessMode, isFalse);
   });
 
   test('AppConfig.safeDefaults locks features off', () {
