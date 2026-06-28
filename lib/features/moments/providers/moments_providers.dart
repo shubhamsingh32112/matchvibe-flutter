@@ -15,12 +15,14 @@ class MomentsAccessState {
     required this.showPaywall,
     required this.showPremiumUi,
     this.premiumExpiresAt,
+    this.vipExpiresAt,
   });
 
   final bool hasFullAccess;
   final bool showPaywall;
   final bool showPremiumUi;
   final DateTime? premiumExpiresAt;
+  final DateTime? vipExpiresAt;
 }
 
 final momentsAccessStateProvider = Provider<MomentsAccessState>((ref) {
@@ -30,10 +32,12 @@ final momentsAccessStateProvider = Provider<MomentsAccessState>((ref) {
   final isCreatorOrAdmin = role == 'creator' || role == 'admin';
   final isFreeMode = features.isMomentsFreeAccessMode;
   final isPremiumActive = user?.isMomentsPremiumActive ?? false;
+  final isVipActive = user?.isVipActive ?? false;
+  final vipExpiresAt = user?.vipStatus.expiresAt;
   final premiumExpiresAt = user?.momentsPremiumStatus.expiresAt;
 
   final hasFullAccess =
-      isFreeMode || isPremiumActive || isCreatorOrAdmin;
+      isFreeMode || isPremiumActive || isCreatorOrAdmin || isVipActive;
   final showPremiumUi = features.isMomentsPaidAccessMode && !isCreatorOrAdmin;
   final showPaywall = showPremiumUi && !hasFullAccess;
 
@@ -42,7 +46,28 @@ final momentsAccessStateProvider = Provider<MomentsAccessState>((ref) {
     showPaywall: showPaywall,
     showPremiumUi: showPremiumUi,
     premiumExpiresAt: premiumExpiresAt,
+    vipExpiresAt: vipExpiresAt,
   );
+});
+
+/// Schedules feed refresh when VIP membership expires.
+final vipExpiryWatcherProvider = Provider<void>((ref) {
+  final expiresAt = ref.watch(
+    momentsAccessStateProvider.select((s) => s.vipExpiresAt),
+  );
+  if (expiresAt == null) return;
+
+  final delay = expiresAt.difference(DateTime.now());
+  if (delay.isNegative) return;
+
+  final timer = Timer(
+    delay,
+    () {
+      unawaited(ref.read(authProvider.notifier).refreshUser());
+      invalidateMomentsFeeds(ref.container);
+    },
+  );
+  ref.onDispose(timer.cancel);
 });
 
 /// Schedules feed refresh when Moments Premium expires.

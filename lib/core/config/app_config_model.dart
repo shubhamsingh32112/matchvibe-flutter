@@ -1,11 +1,13 @@
 class AppFeatures {
   final bool vipEnabled;
+  final bool vipProfileFrameEnabled;
   final bool momentsEnabled;
   /// Consumed only by [momentsAccessStateProvider] — not for direct widget use.
   final String momentsAccessMode;
 
   const AppFeatures({
     this.vipEnabled = false,
+    this.vipProfileFrameEnabled = false,
     this.momentsEnabled = false,
     this.momentsAccessMode = 'paid',
   });
@@ -18,6 +20,7 @@ class AppFeatures {
     final rawMode = json['momentsAccessMode'] as String? ?? 'paid';
     return AppFeatures(
       vipEnabled: json['vipEnabled'] == true,
+      vipProfileFrameEnabled: json['vipProfileFrameEnabled'] == true,
       momentsEnabled: json['momentsEnabled'] == true,
       momentsAccessMode: rawMode == 'free' ? 'free' : 'paid',
     );
@@ -25,11 +28,14 @@ class AppFeatures {
 
   AppFeatures copyWith({
     bool? vipEnabled,
+    bool? vipProfileFrameEnabled,
     bool? momentsEnabled,
     String? momentsAccessMode,
   }) {
     return AppFeatures(
       vipEnabled: vipEnabled ?? this.vipEnabled,
+      vipProfileFrameEnabled:
+          vipProfileFrameEnabled ?? this.vipProfileFrameEnabled,
       momentsEnabled: momentsEnabled ?? this.momentsEnabled,
       momentsAccessMode: momentsAccessMode ?? this.momentsAccessMode,
     );

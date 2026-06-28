@@ -144,10 +144,8 @@ class _VipScreenState extends ConsumerState<VipScreen> {
                               padding: const EdgeInsets.only(top: 16),
                               child: VipActiveMemberPanel(
                                 expiresLabel: vipStatus!.expiresAt != null
-                                    ? 'Active until ${_formatDate(vipStatus.expiresAt!)}'
+                                    ? 'Active until ${_formatDate(vipStatus.expiresAt!)} · ${vipStatus.daysRemaining} days left'
                                     : 'VIP Active',
-                                remaining: vipStatus.freeMomentsRemainingToday,
-                                total: vipStatus.freeMomentsDailyLimit,
                               ),
                             ),
                           ),

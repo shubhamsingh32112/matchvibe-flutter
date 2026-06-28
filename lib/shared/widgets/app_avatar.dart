@@ -3,15 +3,6 @@
 /// Picks the smallest-acceptable Cloudflare variant based on rendered size,
 /// applies the avatar cache manager + blurhash placeholder, and falls back to
 /// initials when no asset is available.
-///
-/// Variant selection (logical dp):
-///   - size <= 48      → xs   (64px)
-///   - size <= 96      → sm   (128px)
-///   - size <= 192     → md   (256px)
-///   - size <= 360     → callPhoto (~512px)
-///   - else            → callBg    (≤1400px, scale-down)
-///
-/// True original is structurally unreachable for avatars on mobile.
 library;
 
 import 'package:flutter/material.dart';
@@ -19,6 +10,7 @@ import 'package:flutter/material.dart';
 import '../../core/images/image_asset_view.dart';
 import '../../core/images/image_cache_managers.dart';
 import 'app_network_image.dart';
+import 'avatar_decoration.dart';
 
 class AppAvatar extends StatelessWidget {
   const AppAvatar({
@@ -34,38 +26,51 @@ class AppAvatar extends StatelessWidget {
     this.isCircular = true,
     this.heroTag,
     this.borderRadius,
+    this.decoration = AvatarDecoration.none,
   });
 
-  /// Either pass [asset] (full ImageAssetView, when both avatar+gallery URLs
-  /// are present) ...
   final ImageAssetView? asset;
-
-  /// ... or [avatarAsset] (the compact serializeAvatar shape, no gallery urls) ...
   final AvatarAssetView? avatarAsset;
-
-  /// ... or [avatarUrls] + optional [blurhash] (lowest-level adapter).
   final AvatarUrls? avatarUrls;
   final String? blurhash;
-
-  /// Last-resort: a plain URL string (e.g. from Stream Chat user.image which
-  /// doesn't carry blurhash). Use [imageUrlOverride] only when no [asset]/
-  /// [avatarUrls] is available.
   final String? imageUrlOverride;
-
-  /// Logical size in dp.
   final double size;
-
   final String? fallbackText;
   final Color? backgroundColor;
   final bool isCircular;
   final String? heroTag;
-
-  /// When [isCircular] is false, this is used as the corner radius. Defaults
-  /// to `size / 6` if also null.
   final BorderRadius? borderRadius;
+  final AvatarDecoration decoration;
 
   @override
   Widget build(BuildContext context) {
+    final avatar = _buildAvatarCore(context);
+    if (decoration == AvatarDecoration.none) return avatar;
+
+    final frameSize = size * 1.14;
+    final assetPath = kAvatarDecorationAssets[decoration];
+    return SizedBox(
+      width: frameSize,
+      height: frameSize,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          if (assetPath != null)
+            Image.asset(
+              assetPath,
+              width: frameSize,
+              height: frameSize,
+              fit: BoxFit.contain,
+            )
+          else if (decoration == AvatarDecoration.vip)
+            _VipGoldRing(size: frameSize),
+          avatar,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAvatarCore(BuildContext context) {
     final radius = isCircular
         ? BorderRadius.circular(size / 2)
         : (borderRadius ?? BorderRadius.circular(size / 6));
@@ -149,5 +154,28 @@ class AppAvatar extends StatelessWidget {
     return embedded
         ? box
         : ClipRRect(borderRadius: radius, child: box);
+  }
+}
+
+class _VipGoldRing extends StatelessWidget {
+  const _VipGoldRing({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+            width: size * 0.05,
+            color: const Color(0xFFD4AF37),
+          ),
+        ),
+      ),
+    );
   }
 }

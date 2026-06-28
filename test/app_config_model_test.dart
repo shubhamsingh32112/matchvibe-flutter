@@ -6,6 +6,7 @@ void main() {
     final config = AppConfig.fromJson({
       'features': {
         'vipEnabled': true,
+        'vipProfileFrameEnabled': true,
         'momentsEnabled': false,
       },
       'pricing': {
@@ -17,6 +18,7 @@ void main() {
     });
 
     expect(config.features.vipEnabled, isTrue);
+    expect(config.features.vipProfileFrameEnabled, isTrue);
     expect(config.features.momentsEnabled, isFalse);
     expect(config.features.momentsAccessMode, 'paid');
     expect(config.pricing.freeCallEnabled, isTrue);

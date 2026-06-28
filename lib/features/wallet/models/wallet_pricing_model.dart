@@ -4,6 +4,9 @@ class WalletCoinPack {
   final int? oldPriceInr;
   final int? originalPriceInr;
   final bool vipDiscountApplied;
+  final int vipBonusCoins;
+  final int totalCoinsReceived;
+  final bool vipBonusApplied;
   final String? badge;
   final int sortOrder;
 
@@ -14,16 +17,25 @@ class WalletCoinPack {
     this.oldPriceInr,
     this.originalPriceInr,
     this.vipDiscountApplied = false,
+    this.vipBonusCoins = 0,
+    this.totalCoinsReceived = 0,
+    this.vipBonusApplied = false,
     this.badge,
   });
 
   factory WalletCoinPack.fromJson(Map<String, dynamic> json) {
+    final baseCoins = (json['coins'] as num?)?.toInt() ?? 0;
+    final bonus = (json['vipBonusCoins'] as num?)?.toInt() ?? 0;
     return WalletCoinPack(
-      coins: (json['coins'] as num?)?.toInt() ?? 0,
+      coins: baseCoins,
       priceInr: (json['priceInr'] as num?)?.toInt() ?? 0,
       oldPriceInr: (json['oldPriceInr'] as num?)?.toInt(),
       originalPriceInr: (json['originalPriceInr'] as num?)?.toInt(),
       vipDiscountApplied: json['vipDiscountApplied'] == true,
+      vipBonusCoins: bonus,
+      totalCoinsReceived:
+          (json['totalCoinsReceived'] as num?)?.toInt() ?? baseCoins + bonus,
+      vipBonusApplied: json['vipBonusApplied'] == true,
       badge: json['badge'] as String?,
       sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
     );
@@ -59,4 +71,3 @@ class WalletPricingData {
     );
   }
 }
-

@@ -93,6 +93,7 @@ class _MomentsGridFeedState extends ConsumerState<MomentsGridFeed> {
   @override
   Widget build(BuildContext context) {
     ref.watch(momentsPremiumExpiryWatcherProvider);
+    ref.watch(vipExpiryWatcherProvider);
 
     if (widget.items.isEmpty) {
       return MomentsFeedEmptyState(

@@ -26,6 +26,16 @@ class VipBenefitSection {
 List<VipBenefitSection> buildVipBenefitSections(VipPlansPerks perks) {
   return [
     VipBenefitSection(
+      id: 'unlimited_moments',
+      shortTitle: 'Moments',
+      title: 'Unlimited Moments',
+      shortDescription: 'Watch every moment',
+      description:
+          'Access the full Moments feed plus exclusive VIP-only content.',
+      iconAsset: VipPageAssets.benefitRewards,
+      fallbackIcon: Icons.play_circle_outline_rounded,
+    ),
+    VipBenefitSection(
       id: 'priority_calls',
       shortTitle: 'Priority Calls',
       title: 'Priority call connections',
@@ -59,20 +69,10 @@ List<VipBenefitSection> buildVipBenefitSections(VipPlansPerks perks) {
       id: 'recharge_rewards',
       shortTitle: 'Extra Rewards',
       title: 'Extra rewards on each recharge',
-      shortDescription: 'More value every top-up',
+      shortDescription: 'Discount + bonus coins',
       description:
-          'Get ${perks.rechargeDiscountPercent}% extra rewards and savings on every coin recharge.',
+          'Get ${perks.rechargeDiscountPercent}% off recharge price and ${perks.rechargeDiscountPercent}% bonus coins on every top-up.',
       iconAsset: VipPageAssets.benefitExtraRewards,
-      fallbackIcon: Icons.card_giftcard_rounded,
-    ),
-    VipBenefitSection(
-      id: 'daily_checkin',
-      shortTitle: 'Daily Rewards',
-      title: 'Daily check-in rewards',
-      shortDescription: 'Bonus gifts every day',
-      description:
-          'Check in daily to collect exclusive VIP bonuses and surprise rewards.',
-      iconAsset: VipPageAssets.benefitRewards,
       fallbackIcon: Icons.card_giftcard_rounded,
     ),
     VipBenefitSection(
@@ -81,7 +81,7 @@ List<VipBenefitSection> buildVipBenefitSections(VipPlansPerks perks) {
       title: 'VIP badging on profile',
       shortDescription: 'Stand out everywhere',
       description:
-          'Show your VIP status with a premium badge on your profile across the app.',
+          'Show your VIP status with a premium badge and profile frame across the app.',
       iconAsset: VipPageAssets.benefitVipBadge,
       fallbackIcon: Icons.workspace_premium_rounded,
     ),

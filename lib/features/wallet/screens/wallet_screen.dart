@@ -637,7 +637,7 @@ class _UserBuyCoinsBody extends StatelessWidget {
                       SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'VIP active — 10% off recharges',
+                          'VIP active — 10% off + 10% bonus coins',
                           style: TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w700,
@@ -734,7 +734,9 @@ class _BuyCoinPackCard extends StatelessWidget {
         ? (((strikethroughPrice! - pack.priceInr) / strikethroughPrice) * 100)
               .round()
         : null;
-    final String? centerPromo = pack.vipDiscountApplied
+    final String? centerPromo = pack.vipBonusApplied && pack.vipBonusCoins > 0
+        ? '+${pack.vipBonusCoins} VIP bonus'
+        : pack.vipDiscountApplied
         ? 'VIP 10% off'
         : hasDiscount
         ? (pack.badge != null && pack.badge!.trim().isNotEmpty
@@ -743,6 +745,9 @@ class _BuyCoinPackCard extends StatelessWidget {
         : (pack.badge != null && pack.badge!.trim().isNotEmpty
               ? pack.badge!.trim()
               : null);
+    final displayCoins = pack.totalCoinsReceived > pack.coins
+        ? pack.totalCoinsReceived
+        : pack.coins;
 
     return Material(
       color: Colors.transparent,
@@ -813,7 +818,7 @@ class _BuyCoinPackCard extends StatelessWidget {
                                   TextSpan(
                                     children: [
                                       TextSpan(
-                                        text: '${pack.coins}',
+                                        text: '$displayCoins',
                                         style: GoogleFonts.poppins(
                                           fontSize: 22,
                                           fontWeight: FontWeight.w800,

@@ -8,19 +8,12 @@ class VipActiveMemberPanel extends StatelessWidget {
   const VipActiveMemberPanel({
     super.key,
     required this.expiresLabel,
-    required this.remaining,
-    required this.total,
   });
 
   final String expiresLabel;
-  final int remaining;
-  final int total;
 
   @override
   Widget build(BuildContext context) {
-    final used = (total - remaining).clamp(0, total);
-    final progress = total > 0 ? used / total : 0.0;
-
     return Padding(
       padding: const EdgeInsets.symmetric(
         horizontal: VipPageTokens.horizontalPadding,
@@ -47,22 +40,13 @@ class VipActiveMemberPanel extends StatelessWidget {
                 fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 14),
-            Text(
-              'Free moments today: $remaining of $total left',
-              style: const TextStyle(
+            const SizedBox(height: 8),
+            const Text(
+              'Unlimited Moments · Unlimited chats · Priority perks',
+              textAlign: TextAlign.center,
+              style: TextStyle(
                 color: VipPageTokens.textMuted,
                 fontSize: 13,
-              ),
-            ),
-            const SizedBox(height: 8),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: LinearProgressIndicator(
-                value: progress,
-                minHeight: 8,
-                backgroundColor: Colors.white.withValues(alpha: 0.12),
-                color: VipPageTokens.borderGold,
               ),
             ),
             const SizedBox(height: 14),

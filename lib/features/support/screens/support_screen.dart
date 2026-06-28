@@ -139,7 +139,9 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
       accountMenuStyle: true,
       appBar: buildAccountFlowAppBar(
         context,
-        title: 'Help & Support',
+        title: ref.watch(authProvider.select((s) => s.user?.isVipActive == true))
+            ? 'Priority Support'
+            : 'Help & Support',
         actions: [BrandHeaderCoinsChip(coins: coins)],
       ),
       child: ColoredBox(
@@ -200,6 +202,8 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
     ColorScheme scheme,
     SupportState supportState,
   ) {
+    final isVip = ref.watch(authProvider.select((s) => s.user?.isVipActive == true));
+
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
       child: Form(
@@ -231,11 +235,23 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
               child: _buildCategoryField(context),
             ),
             const SizedBox(height: 12),
-            _buildSection(
-              context: context,
-              title: 'Priority',
-              child: _buildPrioritySelector(context),
-            ),
+            if (isVip)
+              _buildSection(
+                context: context,
+                title: 'Priority',
+                child: Text(
+                  'As a VIP member, your ticket is automatically assigned high priority.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurface.withValues(alpha: 0.85),
+                  ),
+                ),
+              )
+            else
+              _buildSection(
+                context: context,
+                title: 'Priority',
+                child: _buildPrioritySelector(context),
+              ),
             const SizedBox(height: 12),
             _buildSection(
               context: context,
@@ -762,12 +778,14 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
       return;
     }
 
+    final isVip = ref.read(authProvider.select((s) => s.user?.isVipActive == true));
+
     final success = await ref.read(supportProvider.notifier).createTicket(
       category: _selectedCategory,
       subject: _subjectController.text.trim(),
       message: _messageController.text.trim(),
       contactPhone: _phoneController.text.trim(),
-      priority: _selectedPriority,
+      priority: isVip ? 'high' : _selectedPriority,
       attachmentSessions: sessions,
     );
 

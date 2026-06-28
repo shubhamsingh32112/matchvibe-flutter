@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../../../app/widgets/app_nav_index.dart';
 import '../../../core/config/app_config_provider.dart';
+import '../../../shared/widgets/avatar_decoration.dart';
 import '../../../app/widgets/main_layout.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/models/user_model.dart';
@@ -172,6 +173,7 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(vipExpiryWatcherProvider);
     final user = ref.watch(authProvider.select((s) => s.user));
     final authLoading = ref.watch(authProvider.select((s) => s.isLoading));
     final scheme = Theme.of(context).colorScheme;
@@ -439,6 +441,10 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
                 child: AppAvatar(
                   avatarAsset: user?.avatarAsset,
                   size: 64,
+                  decoration: ref.watch(appFeaturesProvider).vipProfileFrameEnabled &&
+                          user?.isVipActive == true
+                      ? AvatarDecoration.vip
+                      : AvatarDecoration.none,
                   fallbackText: user?.username?.isNotEmpty == true
                       ? user!.username![0]
                       : 'U',
@@ -525,6 +531,16 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
               alignment: Alignment.centerLeft,
               child: VipBadge(),
             ),
+            if (user!.vipStatus.daysRemaining > 0) ...[
+              const SizedBox(height: 4),
+              Text(
+                'VIP · ${user.vipStatus.daysRemaining} days left',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: const Color(0xFFD4AF37),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ],
           if (user?.role == 'admin') ...[
             const SizedBox(height: 12),
