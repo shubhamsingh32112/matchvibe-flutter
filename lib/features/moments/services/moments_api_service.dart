@@ -179,6 +179,89 @@ class MomentsApiService {
     return Map<String, dynamic>.from(response.data['data'] as Map? ?? {});
   }
 
+  Future<MomentLikeResult> likeMoment(String momentId) async {
+    final response = await _api.post('/moments/$momentId/like');
+    return MomentLikeResult.fromJson(
+      Map<String, dynamic>.from(response.data['data'] as Map),
+    );
+  }
+
+  Future<MomentLikeResult> unlikeMoment(String momentId) async {
+    final response = await _api.delete('/moments/$momentId/like');
+    return MomentLikeResult.fromJson(
+      Map<String, dynamic>.from(response.data['data'] as Map),
+    );
+  }
+
+  Future<MomentCommentsPage> fetchComments(
+    String momentId, {
+    String? cursor,
+    int limit = 20,
+  }) async {
+    final response = await _api.get(
+      '/moments/$momentId/comments',
+      queryParameters: {
+        if (cursor != null) 'cursor': cursor,
+        'limit': limit,
+      },
+    );
+    return MomentCommentsPage.fromJson(
+      Map<String, dynamic>.from(response.data['data'] as Map),
+    );
+  }
+
+  Future<MomentComment> postComment(
+    String momentId, {
+    required String text,
+    String? parentCommentId,
+  }) async {
+    final response = await _api.post(
+      '/moments/$momentId/comments',
+      data: {
+        'text': text,
+        if (parentCommentId != null) 'parentCommentId': parentCommentId,
+      },
+    );
+    return MomentComment.fromJson(
+      Map<String, dynamic>.from(response.data['data'] as Map),
+    );
+  }
+
+  Future<void> deleteComment(String momentId, String commentId) async {
+    await _api.delete('/moments/$momentId/comments/$commentId');
+  }
+
+  Future<MomentLikeResult> likeComment(
+    String momentId,
+    String commentId,
+  ) async {
+    final response = await _api.post(
+      '/moments/$momentId/comments/$commentId/like',
+    );
+    return MomentLikeResult.fromJson(
+      Map<String, dynamic>.from(response.data['data'] as Map),
+    );
+  }
+
+  Future<MomentLikeResult> unlikeComment(
+    String momentId,
+    String commentId,
+  ) async {
+    final response = await _api.delete(
+      '/moments/$momentId/comments/$commentId/like',
+    );
+    return MomentLikeResult.fromJson(
+      Map<String, dynamic>.from(response.data['data'] as Map),
+    );
+  }
+
+  Future<MomentShareInfo> fetchShareInfo(String momentId) async {
+    final response = await _api.get('/moments/$momentId/share');
+    return MomentShareInfo.fromJson(
+      Map<String, dynamic>.from(response.data['data'] as Map),
+    );
+  }
+
   Future<void> createStory({
     required String type,
     String? imageSessionId,

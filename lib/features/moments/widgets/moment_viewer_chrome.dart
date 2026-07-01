@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 import '../../../shared/widgets/brand_app_chrome.dart';
 import '../providers/moments_providers.dart';
-import 'follow_creator_button.dart';
 
 /// App bar matching the homepage / Moments tab purple gradient header.
 PreferredSizeWidget buildMomentViewerAppBar(
@@ -254,15 +253,6 @@ class MomentViewerBottomBar extends ConsumerWidget {
                   ),
                 ),
               ),
-              if (isFollowing != true) ...[
-                const SizedBox(width: 8),
-                FollowCreatorButton(
-                  creatorId: creatorId,
-                  initiallyFollowing: isFollowing,
-                  style: CreatorFollowButtonStyle.viewerGradient,
-                  onFollowChanged: onFollowChanged,
-                ),
-              ],
             ],
           ),
           const SizedBox(height: 4),

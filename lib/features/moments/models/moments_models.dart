@@ -93,6 +93,9 @@ class MomentFeedItem {
     this.isFollowing = false,
     this.viewsCount,
     this.purchaseCount,
+    this.likesCount = 0,
+    this.commentsCount = 0,
+    this.isLiked = false,
     this.moderationStatus,
     this.processingStatus,
   });
@@ -110,6 +113,9 @@ class MomentFeedItem {
   final bool isFollowing;
   final int? viewsCount;
   final int? purchaseCount;
+  final int likesCount;
+  final int commentsCount;
+  final bool isLiked;
   final String? moderationStatus;
   final String? processingStatus;
 
@@ -130,6 +136,9 @@ class MomentFeedItem {
       isFollowing: json['isFollowing'] as bool? ?? false,
       viewsCount: json['viewsCount'] as int?,
       purchaseCount: json['purchaseCount'] as int?,
+      likesCount: (json['likesCount'] as num?)?.toInt() ?? 0,
+      commentsCount: (json['commentsCount'] as num?)?.toInt() ?? 0,
+      isLiked: json['isLiked'] as bool? ?? false,
       moderationStatus: json['moderationStatus'] as String?,
       processingStatus: json['processingStatus'] as String?,
     );
@@ -141,6 +150,9 @@ class MomentFeedItem {
     bool? isFollowing,
     bool? isPreview,
     String? accessReason,
+    int? likesCount,
+    int? commentsCount,
+    bool? isLiked,
   }) {
     return MomentFeedItem(
       id: id,
@@ -156,6 +168,9 @@ class MomentFeedItem {
       isFollowing: isFollowing ?? this.isFollowing,
       viewsCount: viewsCount,
       purchaseCount: purchaseCount,
+      likesCount: likesCount ?? this.likesCount,
+      commentsCount: commentsCount ?? this.commentsCount,
+      isLiked: isLiked ?? this.isLiked,
       moderationStatus: moderationStatus,
       processingStatus: processingStatus,
     );
@@ -293,3 +308,116 @@ class StoryViewer {
 enum MomentsUploadContentType { story, moment }
 
 enum MomentsMediaKind { photo, video }
+
+class MomentLikeResult {
+  const MomentLikeResult({
+    required this.likesCount,
+    required this.isLiked,
+  });
+
+  final int likesCount;
+  final bool isLiked;
+
+  factory MomentLikeResult.fromJson(Map<String, dynamic> json) {
+    return MomentLikeResult(
+      likesCount: (json['likesCount'] as num?)?.toInt() ?? 0,
+      isLiked: json['isLiked'] as bool? ?? false,
+    );
+  }
+}
+
+class MomentShareInfo {
+  const MomentShareInfo({
+    required this.shareUrl,
+    required this.deepLink,
+    required this.playStoreUrl,
+    required this.title,
+    required this.thumbnailUrl,
+  });
+
+  final String shareUrl;
+  final String deepLink;
+  final String playStoreUrl;
+  final String title;
+  final String thumbnailUrl;
+
+  factory MomentShareInfo.fromJson(Map<String, dynamic> json) {
+    return MomentShareInfo(
+      shareUrl: json['shareUrl'] as String? ?? '',
+      deepLink: json['deepLink'] as String? ?? '',
+      playStoreUrl: json['playStoreUrl'] as String? ?? '',
+      title: json['title'] as String? ?? '',
+      thumbnailUrl: json['thumbnailUrl'] as String? ?? '',
+    );
+  }
+}
+
+class MomentComment {
+  const MomentComment({
+    required this.id,
+    required this.authorUserId,
+    required this.authorName,
+    this.authorAvatarUrl,
+    required this.isCreator,
+    required this.text,
+    required this.likesCount,
+    required this.isLiked,
+    this.parentCommentId,
+    this.replies = const [],
+    required this.createdAt,
+  });
+
+  final String id;
+  final String authorUserId;
+  final String authorName;
+  final String? authorAvatarUrl;
+  final bool isCreator;
+  final String text;
+  final int likesCount;
+  final bool isLiked;
+  final String? parentCommentId;
+  final List<MomentComment> replies;
+  final String createdAt;
+
+  factory MomentComment.fromJson(Map<String, dynamic> json) {
+    final rawReplies = json['replies'] as List? ?? const [];
+    return MomentComment(
+      id: json['id'] as String,
+      authorUserId: json['authorUserId'] as String? ?? '',
+      authorName: json['authorName'] as String? ?? 'User',
+      authorAvatarUrl: json['authorAvatarUrl'] as String?,
+      isCreator: json['isCreator'] as bool? ?? false,
+      text: json['text'] as String? ?? '',
+      likesCount: (json['likesCount'] as num?)?.toInt() ?? 0,
+      isLiked: json['isLiked'] as bool? ?? false,
+      parentCommentId: json['parentCommentId'] as String?,
+      replies: rawReplies
+          .map((e) => MomentComment.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList(),
+      createdAt: json['createdAt'] as String? ?? '',
+    );
+  }
+}
+
+class MomentCommentsPage {
+  const MomentCommentsPage({
+    required this.items,
+    this.nextCursor,
+    this.hasMore = false,
+  });
+
+  final List<MomentComment> items;
+  final String? nextCursor;
+  final bool hasMore;
+
+  factory MomentCommentsPage.fromJson(Map<String, dynamic> json) {
+    final raw = json['items'] as List? ?? const [];
+    return MomentCommentsPage(
+      items: raw
+          .map((e) => MomentComment.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList(),
+      nextCursor: json['nextCursor'] as String?,
+      hasMore: json['hasMore'] as bool? ?? false,
+    );
+  }
+}

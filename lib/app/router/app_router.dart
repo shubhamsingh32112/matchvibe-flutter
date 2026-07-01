@@ -11,6 +11,7 @@ import '../../features/home/screens/home_screen.dart';
 import '../../features/home/screens/favorite_creators_screen.dart';
 import '../../features/recent/screens/recent_screen.dart';
 import '../../features/moments/screens/moments_screen.dart';
+import '../../features/moments/screens/moment_deep_link_screen.dart';
 import '../../features/moments/screens/my_moments_screen.dart';
 import '../../features/vip/screens/vip_screen.dart';
 import '../../features/vip/screens/scheduled_calls_screen.dart';
@@ -96,6 +97,17 @@ final appRouter = GoRouter(
         return null;
       },
       builder: (context, state) => const MomentsScreen(),
+    ),
+    GoRoute(
+      path: '/moments/view/:momentId',
+      redirect: (context, state) {
+        if (!appConfigSnapshot.features.momentsEnabled) return '/home';
+        return null;
+      },
+      builder: (context, state) {
+        final momentId = state.pathParameters['momentId'] ?? '';
+        return MomentDeepLinkScreen(momentId: momentId);
+      },
     ),
     GoRoute(
       path: '/account/my-moments',

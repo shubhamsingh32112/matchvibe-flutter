@@ -5,7 +5,7 @@ import '../../../shared/styles/app_brand_styles.dart';
 import '../services/moments_api_service.dart';
 import '../utils/moments_follow_sync.dart';
 
-enum CreatorFollowButtonStyle { outlined, compact, profileCard, viewerGradient }
+enum CreatorFollowButtonStyle { outlined, compact, profileCard, viewerGradient, reelsAvatar }
 
 class FollowCreatorButton extends ConsumerStatefulWidget {
   const FollowCreatorButton({
@@ -16,6 +16,8 @@ class FollowCreatorButton extends ConsumerStatefulWidget {
     this.style,
     this.onFollowChanged,
     this.enabled = true,
+    this.creatorAvatarUrl,
+    this.creatorName,
   });
 
   final String creatorId;
@@ -24,6 +26,8 @@ class FollowCreatorButton extends ConsumerStatefulWidget {
   final CreatorFollowButtonStyle? style;
   final void Function(bool isFollowing, int followerCount)? onFollowChanged;
   final bool enabled;
+  final String? creatorAvatarUrl;
+  final String? creatorName;
 
   CreatorFollowButtonStyle get _resolvedStyle {
     if (style != null) return style!;
@@ -177,6 +181,72 @@ class _FollowCreatorButtonState extends ConsumerState<FollowCreatorButton> {
                     ),
             ),
           ),
+        );
+      case CreatorFollowButtonStyle.reelsAvatar:
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            GestureDetector(
+              onTap: canTap && !following ? _toggle : null,
+              child: SizedBox(
+                width: 52,
+                height: 52,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    CircleAvatar(
+                      radius: 24,
+                      backgroundColor: Colors.white24,
+                      backgroundImage: widget.creatorAvatarUrl != null &&
+                              widget.creatorAvatarUrl!.isNotEmpty
+                          ? NetworkImage(widget.creatorAvatarUrl!)
+                          : null,
+                      child: widget.creatorAvatarUrl == null ||
+                              widget.creatorAvatarUrl!.isEmpty
+                          ? const Icon(Icons.person, color: Colors.white, size: 24)
+                          : null,
+                    ),
+                    if (_busy)
+                      const Positioned.fill(
+                        child: Center(
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      )
+                    else if (!following)
+                      Positioned(
+                        bottom: 0,
+                        child: Container(
+                          width: 20,
+                          height: 20,
+                          decoration: BoxDecoration(
+                            gradient: AppBrandGradients.momentsViewerActionGradient,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.black, width: 2),
+                          ),
+                          child: const Icon(Icons.add, color: Colors.white, size: 14),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              following ? 'Following' : 'Follow',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         );
     }
   }

@@ -19,8 +19,11 @@ import '../../video/utils/call_admission_constants.dart';
 import '../models/moments_models.dart';
 import '../providers/moments_providers.dart';
 import '../services/moments_api_service.dart';
+import '../services/moment_share_service.dart';
 import '../utils/moment_owner_actions.dart';
+import '../utils/moments_follow_sync.dart';
 import '../widgets/moment_card.dart';
+import '../widgets/moment_comments_sheet.dart';
 import '../widgets/moment_viewer_chrome.dart';
 
 class CreatorMomentViewerScreen extends ConsumerStatefulWidget {
@@ -53,7 +56,10 @@ class _CreatorMomentViewerScreenState
   bool _isVideoMuted = true;
   bool _isInitiatingCall = false;
   bool _isOpeningChat = false;
+  bool _isLikeBusy = false;
+  bool _isShareBusy = false;
   final _momentsApi = MomentsApiService();
+  final _shareService = MomentShareService();
 
   List<MomentFeedItem> get _visibleItems =>
       applyMediaFilter(_allItems, _mediaFilter);
@@ -254,6 +260,74 @@ class _CreatorMomentViewerScreenState
           )
           .toList();
     });
+    syncFollowState(
+      ref,
+      creatorId: creatorId,
+      isFollowing: isFollowing,
+    );
+  }
+
+  void _updateCurrentItem(MomentFeedItem updated) {
+    setState(() {
+      final allIndex = _allItems.indexWhere((m) => m.id == updated.id);
+      if (allIndex >= 0) {
+        _allItems[allIndex] = updated;
+      }
+    });
+  }
+
+  Future<void> _toggleLike(MomentFeedItem item) async {
+    if (_isLikeBusy || item.locked) return;
+    final optimistic = item.copyWith(
+      isLiked: !item.isLiked,
+      likesCount: item.isLiked
+          ? (item.likesCount > 0 ? item.likesCount - 1 : 0)
+          : item.likesCount + 1,
+    );
+    _updateCurrentItem(optimistic);
+    setState(() => _isLikeBusy = true);
+    try {
+      final result = item.isLiked
+          ? await _momentsApi.unlikeMoment(item.id)
+          : await _momentsApi.likeMoment(item.id);
+      if (!mounted) return;
+      _updateCurrentItem(
+        optimistic.copyWith(
+          isLiked: result.isLiked,
+          likesCount: result.likesCount,
+        ),
+      );
+    } catch (_) {
+      if (mounted) _updateCurrentItem(item);
+    } finally {
+      if (mounted) setState(() => _isLikeBusy = false);
+    }
+  }
+
+  Future<void> _openComments(MomentFeedItem item) async {
+    if (item.locked) return;
+    await showMomentCommentsSheet(
+      context: context,
+      momentId: item.id,
+      initialCommentsCount: item.commentsCount,
+      onCommentsCountChanged: (count) {
+        _updateCurrentItem(item.copyWith(commentsCount: count));
+      },
+    );
+  }
+
+  Future<void> _shareMoment(MomentFeedItem item) async {
+    if (_isShareBusy) return;
+    setState(() => _isShareBusy = true);
+    try {
+      await _shareService.shareMoment(item.id);
+    } catch (_) {
+      if (mounted) {
+        AppToast.showError(context, 'Could not share this moment');
+      }
+    } finally {
+      if (mounted) setState(() => _isShareBusy = false);
+    }
   }
 
   void _showMoreMenu() {
@@ -377,8 +451,6 @@ class _CreatorMomentViewerScreenState
           isFollowing: currentItem.isFollowing,
           isOpeningChat: _isOpeningChat,
           isCalling: _isInitiatingCall,
-          onFollowChanged: (isFollowing, _) =>
-              _onFollowChanged(currentItem.creatorId, isFollowing),
           onCreatorTap: () =>
               openCreatorProfile(context, ref, currentItem.creatorId),
           onChatPressed: _isOpeningChat
@@ -395,8 +467,6 @@ class _CreatorMomentViewerScreenState
           isFollowing: currentItem.isFollowing,
           isOpeningChat: _isOpeningChat,
           isCalling: _isInitiatingCall,
-          onFollowChanged: (isFollowing, _) =>
-              _onFollowChanged(currentItem.creatorId, isFollowing),
           onCreatorTap: () =>
               openCreatorProfile(context, ref, currentItem.creatorId),
           onChatPressed: null,
@@ -409,8 +479,6 @@ class _CreatorMomentViewerScreenState
           isFollowing: currentItem.isFollowing,
           isOpeningChat: _isOpeningChat,
           isCalling: _isInitiatingCall,
-          onFollowChanged: (isFollowing, _) =>
-              _onFollowChanged(currentItem.creatorId, isFollowing),
           onCreatorTap: () =>
               openCreatorProfile(context, ref, currentItem.creatorId),
           onChatPressed: null,
@@ -464,18 +532,20 @@ class _CreatorMomentViewerScreenState
                 playbackContext: 'profile',
                 playerInitDelay: initDelay,
                 isVideoMuted: _isVideoMuted,
-                bottomOverlayInset: showContactActions ? 140 : 0,
+                bottomOverlayInset: showContactActions ? 200 : 120,
+                showEngagementRail: true,
+                engagementEnabled: !item.locked,
+                showFollowOnRail: !viewingOwnMoment && !item.isFollowing,
+                isLikeBusy: _isLikeBusy && item.id == _currentItem?.id,
+                isShareBusy: _isShareBusy && item.id == _currentItem?.id,
+                onLike: () => unawaited(_toggleLike(item)),
+                onComment: () => unawaited(_openComments(item)),
+                onShare: () => unawaited(_shareMoment(item)),
+                onFollowChanged: (isFollowing, _) =>
+                    _onFollowChanged(item.creatorId, isFollowing),
                 onMuteToggle: () =>
                     setState(() => _isVideoMuted = !_isVideoMuted),
-                onItemUpdated: (updated) {
-                  setState(() {
-                    final allIndex =
-                        _allItems.indexWhere((m) => m.id == updated.id);
-                    if (allIndex >= 0) {
-                      _allItems[allIndex] = updated;
-                    }
-                  });
-                },
+                onItemUpdated: _updateCurrentItem,
                 onCreatorTap: () =>
                     openCreatorProfile(context, ref, item.creatorId),
                 onReport: _showMoreMenu,

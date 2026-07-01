@@ -89,6 +89,7 @@ dependencies:
   # Wallet checkout flow
   url_launcher: ^6.3.1
   app_links: ^6.3.2
+  share_plus: ^10.1.4
   play_install_referrer: ^0.5.0
 
   # Fonts

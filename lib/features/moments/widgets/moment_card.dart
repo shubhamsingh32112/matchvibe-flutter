@@ -4,8 +4,10 @@ import '../../../core/theme/app_theme.dart';
 import '../../creator/utils/creator_home_formatters.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 import '../models/moments_models.dart';
+import '../utils/moment_caption_utils.dart';
 import 'follow_creator_button.dart';
 import 'locked_moment_overlay.dart';
+import 'moment_action_rail.dart';
 import 'stream_hls_player.dart';
 
 class MomentCard extends StatelessWidget {
@@ -21,6 +23,15 @@ class MomentCard extends StatelessWidget {
     this.isVideoMuted = true,
     this.onMuteToggle,
     this.bottomOverlayInset = 0,
+    this.showEngagementRail = false,
+    this.onLike,
+    this.onComment,
+    this.onShare,
+    this.onFollowChanged,
+    this.showFollowOnRail = true,
+    this.engagementEnabled = true,
+    this.isLikeBusy = false,
+    this.isShareBusy = false,
   });
 
   final MomentFeedItem item;
@@ -33,6 +44,15 @@ class MomentCard extends StatelessWidget {
   final bool isVideoMuted;
   final VoidCallback? onMuteToggle;
   final double bottomOverlayInset;
+  final bool showEngagementRail;
+  final VoidCallback? onLike;
+  final VoidCallback? onComment;
+  final VoidCallback? onShare;
+  final void Function(bool isFollowing, int followerCount)? onFollowChanged;
+  final bool showFollowOnRail;
+  final bool engagementEnabled;
+  final bool isLikeBusy;
+  final bool isShareBusy;
 
   String get _timeAgo {
     final parsed = DateTime.tryParse(item.createdAt);
@@ -91,23 +111,51 @@ class MomentCard extends StatelessWidget {
           Image.network(media.thumbnailUrl, fit: BoxFit.cover),
         if (viewerLayout) ...[
           Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: _ViewerTopCreatorHeader(
+            top: 8,
+            right: 8,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (!item.locked && media.isVideo && onMuteToggle != null)
+                  _MuteToggleButton(
+                    isMuted: isVideoMuted,
+                    onTap: onMuteToggle!,
+                  ),
+                if (onReport != null)
+                  IconButton(
+                    icon: const Icon(Icons.more_horiz, color: Colors.white),
+                    onPressed: onReport,
+                  ),
+              ],
+            ),
+          ),
+          Positioned(
+            left: 16,
+            right: showEngagementRail ? 88 : 16,
+            bottom: bottomOverlayInset > 0 ? bottomOverlayInset + 8 : 24,
+            child: _ViewerBottomInfo(
               item: item,
               timeAgo: _timeAgo,
               onCreatorTap: onCreatorTap,
-              onReport: onReport,
             ),
           ),
-          if (!item.locked && media.isVideo && onMuteToggle != null)
+          if (showEngagementRail &&
+              onLike != null &&
+              onComment != null &&
+              onShare != null)
             Positioned(
-              right: 16,
-              bottom: bottomOverlayInset > 0 ? bottomOverlayInset + 24 : 200,
-              child: _MuteToggleButton(
-                isMuted: isVideoMuted,
-                onTap: onMuteToggle!,
+              right: 12,
+              bottom: bottomOverlayInset > 0 ? bottomOverlayInset + 72 : 160,
+              child: MomentActionRail(
+                item: item,
+                onLike: onLike!,
+                onComment: onComment!,
+                onShare: onShare!,
+                onFollowChanged: onFollowChanged,
+                showFollow: showFollowOnRail,
+                engagementEnabled: engagementEnabled,
+                isLikeBusy: isLikeBusy,
+                isShareBusy: isShareBusy,
               ),
             ),
         ] else
@@ -189,70 +237,66 @@ class MomentCard extends StatelessWidget {
   }
 }
 
-class _ViewerTopCreatorHeader extends StatelessWidget {
-  const _ViewerTopCreatorHeader({
+class _ViewerBottomInfo extends StatelessWidget {
+  const _ViewerBottomInfo({
     required this.item,
     required this.timeAgo,
     this.onCreatorTap,
-    this.onReport,
   });
 
   final MomentFeedItem item;
   final String timeAgo;
   final VoidCallback? onCreatorTap;
-  final VoidCallback? onReport;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 8, 8, 12),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Colors.black.withValues(alpha: 0.65),
-            Colors.transparent,
-          ],
-        ),
-      ),
-      child: Row(
+    final hashtags = extractHashtags(item.caption);
+    final captionText = captionWithoutHashtags(item.caption);
+
+    return GestureDetector(
+      onTap: onCreatorTap,
+      behavior: HitTestBehavior.opaque,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          GestureDetector(
-            onTap: onCreatorTap,
-            behavior: HitTestBehavior.opaque,
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 18,
-                  backgroundColor: Colors.white24,
-                  backgroundImage: item.creatorAvatarUrl != null &&
-                          item.creatorAvatarUrl!.isNotEmpty
-                      ? NetworkImage(item.creatorAvatarUrl!)
-                      : null,
-                  child: item.creatorAvatarUrl == null ||
-                          item.creatorAvatarUrl!.isEmpty
-                      ? const Icon(Icons.person, color: Colors.white, size: 20)
-                      : null,
-                ),
-                const SizedBox(width: 10),
-                Column(
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 14,
+                backgroundColor: Colors.white24,
+                backgroundImage: item.creatorAvatarUrl != null &&
+                        item.creatorAvatarUrl!.isNotEmpty
+                    ? NetworkImage(item.creatorAvatarUrl!)
+                    : null,
+                child: item.creatorAvatarUrl == null ||
+                        item.creatorAvatarUrl!.isEmpty
+                    ? const Icon(Icons.person, color: Colors.white, size: 16)
+                    : null,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       children: [
-                        Text(
-                          item.creatorName,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 15,
+                        Flexible(
+                          child: Text(
+                            item.creatorName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 4),
                         Icon(
                           Icons.verified,
-                          size: 16,
+                          size: 14,
                           color: AppBrandGradients.creatorProfileInactiveTabColor,
                         ),
                       ],
@@ -262,19 +306,46 @@ class _ViewerTopCreatorHeader extends StatelessWidget {
                         timeAgo,
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: 0.7),
-                          fontSize: 12,
+                          fontSize: 11,
                         ),
                       ),
                   ],
                 ),
-              ],
+              ),
+            ],
+          ),
+          if (captionText.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              captionText,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                height: 1.3,
+              ),
             ),
-          ),
-          const Spacer(),
-          IconButton(
-            icon: const Icon(Icons.more_horiz, color: Colors.white),
-            onPressed: onReport,
-          ),
+          ],
+          if (hashtags.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: hashtags
+                  .map(
+                    (tag) => Text(
+                      tag,
+                      style: TextStyle(
+                        color: AppBrandGradients.momentsTabActiveColor,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
         ],
       ),
     );

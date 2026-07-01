@@ -505,6 +505,17 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
 
     if (uri.scheme != 'zztherapy') return;
 
+    if (uri.host == 'moment') {
+      final momentId = uri.queryParameters['id']?.trim();
+      if (momentId == null || momentId.isEmpty) {
+        debugPrint('🔗 [APP LINKS] moment deep link without id');
+        return;
+      }
+      debugPrint('🔗 [APP LINKS] moment deep link id=$momentId');
+      appRouter.push('/moments/view/$momentId');
+      return;
+    }
+
     if (uri.host == 'vip') {
       final checkoutTxn =
           SentryService.startTransaction('vip.checkout_return', 'navigation');
