@@ -45,10 +45,10 @@ Future<void> _startUploadFlow(
             );
             return;
           }
-          final rewardText =
-              rewardCoins > 0 ? ' · +$rewardCoins coins earned' : '';
           ScaffoldMessenger.of(ctx).showSnackBar(
-            SnackBar(content: Text('Moment posted$rewardText')),
+            const SnackBar(
+              content: Text('Moment posted · waiting for coin approval'),
+            ),
           );
         },
       ),

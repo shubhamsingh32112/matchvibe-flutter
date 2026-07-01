@@ -214,12 +214,14 @@ class MomentsApiService {
     String momentId, {
     required String text,
     String? parentCommentId,
+    bool isVipHighlighted = false,
   }) async {
     final response = await _api.post(
       '/moments/$momentId/comments',
       data: {
         'text': text,
         if (parentCommentId != null) 'parentCommentId': parentCommentId,
+        if (isVipHighlighted) 'isVipHighlighted': true,
       },
     );
     return MomentComment.fromJson(

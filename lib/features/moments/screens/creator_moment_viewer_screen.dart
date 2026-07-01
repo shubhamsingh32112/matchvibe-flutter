@@ -304,14 +304,23 @@ class _CreatorMomentViewerScreenState
     }
   }
 
+  void _doubleTapLike(MomentFeedItem item) {
+    if (_isLikeBusy || item.locked || item.isLiked) return;
+    unawaited(_toggleLike(item));
+  }
+
   Future<void> _openComments(MomentFeedItem item) async {
     if (item.locked) return;
+    final momentId = item.id;
     await showMomentCommentsSheet(
       context: context,
-      momentId: item.id,
+      momentId: momentId,
       initialCommentsCount: item.commentsCount,
       onCommentsCountChanged: (count) {
-        _updateCurrentItem(item.copyWith(commentsCount: count));
+        final idx = _allItems.indexWhere((m) => m.id == momentId);
+        if (idx >= 0) {
+          _updateCurrentItem(_allItems[idx].copyWith(commentsCount: count));
+        }
       },
     );
   }
@@ -539,6 +548,7 @@ class _CreatorMomentViewerScreenState
                 isLikeBusy: _isLikeBusy && item.id == _currentItem?.id,
                 isShareBusy: _isShareBusy && item.id == _currentItem?.id,
                 onLike: () => unawaited(_toggleLike(item)),
+                onDoubleTapLike: () => _doubleTapLike(item),
                 onComment: () => unawaited(_openComments(item)),
                 onShare: () => unawaited(_shareMoment(item)),
                 onFollowChanged: (isFollowing, _) =>

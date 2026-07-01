@@ -6,11 +6,13 @@ class MomentStatusBadge extends StatelessWidget {
     super.key,
     this.processingStatus,
     this.moderationStatus,
+    this.uploadRewardStatus,
     this.mediaProcessingStatus,
   });
 
   final String? processingStatus;
   final String? moderationStatus;
+  final String? uploadRewardStatus;
   final String? mediaProcessingStatus;
 
   String? get _effectiveProcessing =>
@@ -29,6 +31,12 @@ class MomentStatusBadge extends StatelessWidget {
     }
     if (moderationStatus == 'rejected') {
       return (label: 'Rejected', color: Colors.red.shade700);
+    }
+    if (uploadRewardStatus == 'pending') {
+      return (label: 'Waiting for approval', color: Colors.orange.shade800);
+    }
+    if (uploadRewardStatus == 'rejected') {
+      return (label: 'Reward rejected', color: Colors.red.shade700);
     }
     return null;
   }

@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/compact_count_formatter.dart';
 import '../../../shared/styles/app_brand_styles.dart';
+import '../../../shared/widgets/app_avatar.dart';
+import '../../account/theme/moments_premium_page_tokens.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../../creator/utils/creator_home_formatters.dart';
 import '../models/moments_models.dart';
 import '../services/moments_api_service.dart';
+import 'vip_highlight_badge.dart';
 
 Future<void> showMomentCommentsSheet({
   required BuildContext context,
@@ -28,7 +34,7 @@ Future<void> showMomentCommentsSheet({
   );
 }
 
-class MomentCommentsSheet extends StatefulWidget {
+class MomentCommentsSheet extends ConsumerStatefulWidget {
   const MomentCommentsSheet({
     super.key,
     required this.momentId,
@@ -41,22 +47,26 @@ class MomentCommentsSheet extends StatefulWidget {
   final void Function(int commentsCount)? onCommentsCountChanged;
 
   @override
-  State<MomentCommentsSheet> createState() => _MomentCommentsSheetState();
+  ConsumerState<MomentCommentsSheet> createState() => _MomentCommentsSheetState();
 }
 
-class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
+class _MomentCommentsSheetState extends ConsumerState<MomentCommentsSheet> {
   final _api = MomentsApiService();
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
+  final List<MomentComment> _pinnedComments = [];
   final List<MomentComment> _comments = [];
   String? _nextCursor;
   bool _hasMore = false;
   bool _loading = true;
   bool _loadingMore = false;
   bool _posting = false;
+  bool _postAsVipHighlighted = false;
   String? _replyToCommentId;
   String? _replyToAuthorName;
   int _commentsCount = 0;
+
+  static const _accentPurple = MomentsPremiumPageTokens.accentPurple;
 
   @override
   void initState() {
@@ -83,12 +93,17 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
     }
   }
 
+  int get _totalVisibleComments => _pinnedComments.length + _comments.length;
+
   Future<void> _loadComments() async {
     setState(() => _loading = true);
     try {
       final page = await _api.fetchComments(widget.momentId);
       if (!mounted) return;
       setState(() {
+        _pinnedComments
+          ..clear()
+          ..addAll(page.pinnedHighlightedComments);
         _comments
           ..clear()
           ..addAll(page.items);
@@ -125,6 +140,7 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
     setState(() {
       _replyToCommentId = comment.id;
       _replyToAuthorName = comment.authorName;
+      _postAsVipHighlighted = false;
     });
   }
 
@@ -138,44 +154,54 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
   Future<void> _submitComment() async {
     final text = _controller.text.trim();
     if (text.isEmpty || _posting) return;
+    final postHighlighted =
+        _postAsVipHighlighted && _replyToCommentId == null;
     setState(() => _posting = true);
     try {
       final comment = await _api.postComment(
         widget.momentId,
         text: text,
         parentCommentId: _replyToCommentId,
+        isVipHighlighted: postHighlighted,
       );
       if (!mounted) return;
       setState(() {
         if (_replyToCommentId == null) {
-          _comments.insert(0, comment);
+          if (postHighlighted) {
+            _pinnedComments.insert(0, comment);
+          } else {
+            _comments.insert(0, comment);
+          }
           _commentsCount += 1;
           widget.onCommentsCountChanged?.call(_commentsCount);
         } else {
-          final parentIndex = _comments.indexWhere((c) => c.id == _replyToCommentId);
-          if (parentIndex >= 0) {
-            final parent = _comments[parentIndex];
-            _comments[parentIndex] = MomentComment(
-              id: parent.id,
-              authorUserId: parent.authorUserId,
-              authorName: parent.authorName,
-              authorAvatarUrl: parent.authorAvatarUrl,
-              isCreator: parent.isCreator,
-              text: parent.text,
-              likesCount: parent.likesCount,
-              isLiked: parent.isLiked,
-              parentCommentId: parent.parentCommentId,
-              replies: [...parent.replies, comment],
-              createdAt: parent.createdAt,
-            );
-          }
+          _insertReply(_replyToCommentId!, comment);
         }
         _controller.clear();
         _clearReplyTarget();
+        _postAsVipHighlighted = false;
         _posting = false;
       });
     } catch (_) {
       if (mounted) setState(() => _posting = false);
+    }
+  }
+
+  void _insertReply(String parentId, MomentComment reply) {
+    final pinnedIndex = _pinnedComments.indexWhere((c) => c.id == parentId);
+    if (pinnedIndex >= 0) {
+      final parent = _pinnedComments[pinnedIndex];
+      _pinnedComments[pinnedIndex] = parent.copyWith(
+        replies: [...parent.replies, reply],
+      );
+      return;
+    }
+    final index = _comments.indexWhere((c) => c.id == parentId);
+    if (index >= 0) {
+      final parent = _comments[index];
+      _comments[index] = parent.copyWith(
+        replies: [...parent.replies, reply],
+      );
     }
   }
 
@@ -203,62 +229,57 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
     required bool isLiked,
   }) {
     if (parentId == null) {
+      final pinnedIndex = _pinnedComments.indexWhere((c) => c.id == commentId);
+      if (pinnedIndex >= 0) {
+        _pinnedComments[pinnedIndex] = _pinnedComments[pinnedIndex].copyWith(
+          likesCount: likesCount,
+          isLiked: isLiked,
+        );
+        return;
+      }
       final index = _comments.indexWhere((c) => c.id == commentId);
-      if (index < 0) return;
-      final c = _comments[index];
-      _comments[index] = MomentComment(
-        id: c.id,
-        authorUserId: c.authorUserId,
-        authorName: c.authorName,
-        authorAvatarUrl: c.authorAvatarUrl,
-        isCreator: c.isCreator,
-        text: c.text,
-        likesCount: likesCount,
-        isLiked: isLiked,
-        parentCommentId: c.parentCommentId,
-        replies: c.replies,
-        createdAt: c.createdAt,
-      );
+      if (index >= 0) {
+        _comments[index] = _comments[index].copyWith(
+          likesCount: likesCount,
+          isLiked: isLiked,
+        );
+      }
+      return;
+    }
+
+    void updateParent(List<MomentComment> list, int parentIndex) {
+      final parent = list[parentIndex];
+      final replies = parent.replies.map((r) {
+        if (r.id != commentId) return r;
+        return r.copyWith(likesCount: likesCount, isLiked: isLiked);
+      }).toList();
+      list[parentIndex] = parent.copyWith(replies: replies);
+    }
+
+    final pinnedParentIndex = _pinnedComments.indexWhere((c) => c.id == parentId);
+    if (pinnedParentIndex >= 0) {
+      updateParent(_pinnedComments, pinnedParentIndex);
       return;
     }
     final parentIndex = _comments.indexWhere((c) => c.id == parentId);
-    if (parentIndex < 0) return;
-    final parent = _comments[parentIndex];
-    final replies = parent.replies.map((r) {
-      if (r.id != commentId) return r;
-      return MomentComment(
-        id: r.id,
-        authorUserId: r.authorUserId,
-        authorName: r.authorName,
-        authorAvatarUrl: r.authorAvatarUrl,
-        isCreator: r.isCreator,
-        text: r.text,
-        likesCount: likesCount,
-        isLiked: isLiked,
-        parentCommentId: r.parentCommentId,
-        replies: r.replies,
-        createdAt: r.createdAt,
-      );
-    }).toList();
-    _comments[parentIndex] = MomentComment(
-      id: parent.id,
-      authorUserId: parent.authorUserId,
-      authorName: parent.authorName,
-      authorAvatarUrl: parent.authorAvatarUrl,
-      isCreator: parent.isCreator,
-      text: parent.text,
-      likesCount: parent.likesCount,
-      isLiked: parent.isLiked,
-      parentCommentId: parent.parentCommentId,
-      replies: replies,
-      createdAt: parent.createdAt,
-    );
+    if (parentIndex >= 0) {
+      updateParent(_comments, parentIndex);
+    }
+  }
+
+  MomentComment _commentAt(int index) {
+    if (index < _pinnedComments.length) {
+      return _pinnedComments[index];
+    }
+    return _comments[index - _pinnedComments.length];
   }
 
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
-    final sheetHeight = MediaQuery.sizeOf(context).height * 0.75;
+    final sheetHeight = MediaQuery.sizeOf(context).height * 0.82;
+    final user = ref.watch(authProvider.select((s) => s.user));
+    final isVipActive = user?.isVipActive ?? false;
 
     return Padding(
       padding: EdgeInsets.only(bottom: bottomInset),
@@ -276,29 +297,65 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
               child: Row(
                 children: [
-                  Text(
-                    'Comments',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: AppPalette.onSurface,
-                          fontWeight: FontWeight.w700,
-                        ),
+                  Expanded(
+                    child: Text(
+                      'Comments ($_commentsCount)',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            color: AppPalette.onSurface,
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    formatCompactCount(_commentsCount),
-                    style: TextStyle(color: AppPalette.subtitle),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: () => Navigator.of(context).pop(),
                   ),
                 ],
               ),
             ),
-            const Divider(height: 1, color: Colors.white12),
+            if (isVipActive && _replyToCommentId == null)
+              _VipCommentPromoBanner(
+                active: _postAsVipHighlighted,
+                onTap: () => setState(
+                  () => _postAsVipHighlighted = !_postAsVipHighlighted,
+                ),
+              )
+            else if (!isVipActive && _replyToCommentId == null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: GestureDetector(
+                  onTap: () => context.push('/vip'),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _accentPurple.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _accentPurple.withValues(alpha: 0.25),
+                      ),
+                    ),
+                    child: Text(
+                      'Get VIP to post highlighted comments',
+                      style: TextStyle(
+                        color: MomentsPremiumPageTokens.textMuted,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             Expanded(
               child: _loading
                   ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-                  : _comments.isEmpty
+                  : _totalVisibleComments == 0
                       ? Center(
                           child: Text(
                             'No comments yet. Be the first!',
@@ -308,9 +365,10 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
                       : ListView.builder(
                           controller: _scrollController,
                           padding: const EdgeInsets.symmetric(vertical: 8),
-                          itemCount: _comments.length + (_loadingMore ? 1 : 0),
+                          itemCount:
+                              _totalVisibleComments + (_loadingMore ? 1 : 0),
                           itemBuilder: (context, index) {
-                            if (index >= _comments.length) {
+                            if (index >= _totalVisibleComments) {
                               return const Padding(
                                 padding: EdgeInsets.all(16),
                                 child: Center(
@@ -318,7 +376,7 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
                                 ),
                               );
                             }
-                            final comment = _comments[index];
+                            final comment = _commentAt(index);
                             return _CommentTile(
                               comment: comment,
                               onReply: () => _setReplyTarget(comment),
@@ -351,30 +409,58 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
                   ],
                 ),
               ),
+            if (_postAsVipHighlighted && _replyToCommentId == null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                child: Row(
+                  children: [
+                    const VipHighlightBadge(),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Next comment will be highlighted',
+                        style: TextStyle(
+                          color: MomentsPremiumPageTokens.textMuted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 16, color: Colors.white54),
+                      onPressed: () => setState(() => _postAsVipHighlighted = false),
+                    ),
+                  ],
+                ),
+              ),
             SafeArea(
               top: false,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
                 child: Row(
                   children: [
+                    AppAvatar(
+                      avatarAsset: user?.avatarAsset,
+                      size: 36,
+                    ),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: TextField(
                         controller: _controller,
                         style: const TextStyle(color: Colors.white),
                         maxLength: 500,
                         decoration: InputDecoration(
-                          hintText: 'Add a comment…',
+                          hintText: 'Add a comment...',
                           hintStyle: TextStyle(color: AppPalette.subtitle),
                           counterText: '',
                           filled: true,
-                          fillColor: Colors.white.withValues(alpha: 0.08),
+                          fillColor: const Color(0xFF1E1E1E),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(24),
                             borderSide: BorderSide.none,
                           ),
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 16,
-                            vertical: 10,
+                            vertical: 12,
                           ),
                         ),
                       ),
@@ -390,10 +476,127 @@ class _MomentCommentsSheetState extends State<MomentCommentsSheet> {
                             )
                           : Icon(
                               Icons.send_rounded,
-                              color: AppBrandGradients.momentsTabActiveColor,
+                              color: _accentPurple,
                             ),
                     ),
                   ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _VipCommentPromoBanner extends StatelessWidget {
+  const _VipCommentPromoBanner({
+    required this.active,
+    required this.onTap,
+  });
+
+  final bool active;
+  final VoidCallback onTap;
+
+  static const _accentPurple = MomentsPremiumPageTokens.accentPurple;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: _accentPurple.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: _accentPurple.withValues(alpha: 0.35)),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.diamond_rounded,
+              color: _accentPurple.withValues(alpha: 0.9),
+              size: 28,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        'VIP Comment',
+                        style: TextStyle(
+                          color: _accentPurple.withValues(alpha: 0.95),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(
+                        Icons.info_outline,
+                        size: 14,
+                        color: MomentsPremiumPageTokens.textMuted,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Stand out! Your comment will be highlighted.',
+                    style: TextStyle(
+                      color: MomentsPremiumPageTokens.textMuted,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(20),
+                child: Ink(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: active
+                          ? [
+                              _accentPurple,
+                              MomentsPremiumPageTokens.accentPink,
+                            ]
+                          : [
+                              const Color(0xFFE53935),
+                              const Color(0xFFFF9800),
+                            ],
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.workspace_premium_rounded,
+                        size: 14,
+                        color: MomentsPremiumPageTokens.accentGold,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        active ? 'VIP on' : 'Comment as VIP',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -417,6 +620,8 @@ class _CommentTile extends StatelessWidget {
   final VoidCallback onLike;
   final void Function(MomentComment reply) onReplyLike;
 
+  static const _accentPurple = MomentsPremiumPageTokens.accentPurple;
+
   @override
   Widget build(BuildContext context) {
     final createdAt = DateTime.tryParse(comment.createdAt);
@@ -430,7 +635,7 @@ class _CommentTile extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               CircleAvatar(
-                radius: 16,
+                radius: 18,
                 backgroundColor: Colors.white24,
                 backgroundImage: comment.authorAvatarUrl != null &&
                         comment.authorAvatarUrl!.isNotEmpty
@@ -438,7 +643,7 @@ class _CommentTile extends StatelessWidget {
                     : null,
                 child: comment.authorAvatarUrl == null ||
                         comment.authorAvatarUrl!.isEmpty
-                    ? const Icon(Icons.person, size: 16, color: Colors.white)
+                    ? const Icon(Icons.person, size: 18, color: Colors.white)
                     : null,
               ),
               const SizedBox(width: 10),
@@ -448,14 +653,22 @@ class _CommentTile extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Text(
-                          comment.authorName,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13,
+                        Flexible(
+                          child: Text(
+                            comment.authorName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
                           ),
                         ),
+                        if (comment.isVipHighlighted) ...[
+                          const SizedBox(width: 6),
+                          const VipHighlightBadge(compact: true),
+                        ],
                         if (comment.isCreator) ...[
                           const SizedBox(width: 6),
                           Container(
@@ -464,51 +677,46 @@ class _CommentTile extends StatelessWidget {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: AppBrandGradients.momentsTabActiveColor
-                                  .withValues(alpha: 0.25),
+                              color: _accentPurple.withValues(alpha: 0.25),
                               borderRadius: BorderRadius.circular(8),
                             ),
-                            child: Text(
+                            child: const Text(
                               'Creator',
                               style: TextStyle(
-                                color: AppBrandGradients.momentsTabActiveColor,
+                                color: Colors.white,
                                 fontSize: 10,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
                           ),
                         ],
+                        if (createdAt != null) ...[
+                          Text(
+                            ' · ${formatRelativeStoryTime(createdAt)}',
+                            style: TextStyle(
+                              color: AppPalette.subtitle,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 4),
                     Text(
                       comment.text,
                       style: const TextStyle(color: Colors.white, fontSize: 14),
                     ),
                     const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        if (createdAt != null)
-                          Text(
-                            formatRelativeStoryTime(createdAt),
-                            style: TextStyle(
-                              color: AppPalette.subtitle,
-                              fontSize: 12,
-                            ),
-                          ),
-                        const SizedBox(width: 12),
-                        GestureDetector(
-                          onTap: onReply,
-                          child: Text(
-                            'Reply',
-                            style: TextStyle(
-                              color: AppPalette.subtitle,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+                    GestureDetector(
+                      onTap: onReply,
+                      child: const Text(
+                        'Reply',
+                        style: TextStyle(
+                          color: _accentPurple,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
                         ),
-                      ],
+                      ),
                     ),
                   ],
                 ),
@@ -519,15 +727,18 @@ class _CommentTile extends StatelessWidget {
                   children: [
                     Icon(
                       comment.isLiked ? Icons.favorite : Icons.favorite_border,
-                      size: 18,
+                      size: 20,
                       color: comment.isLiked
                           ? AppBrandGradients.creatorProfileAccentPink
-                          : Colors.white70,
+                          : Colors.white,
                     ),
                     if (comment.likesCount > 0)
                       Text(
                         formatCompactCount(comment.likesCount),
-                        style: const TextStyle(color: Colors.white70, fontSize: 11),
+                        style: TextStyle(
+                          color: AppPalette.subtitle,
+                          fontSize: 11,
+                        ),
                       ),
                   ],
                 ),
@@ -536,7 +747,7 @@ class _CommentTile extends StatelessWidget {
           ),
           if (comment.replies.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(left: 42, top: 8),
+              padding: const EdgeInsets.only(left: 46, top: 8),
               child: Column(
                 children: comment.replies
                     .map(
@@ -564,19 +775,19 @@ class _ReplyTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final createdAt = DateTime.tryParse(reply.createdAt);
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           CircleAvatar(
-            radius: 12,
+            radius: 14,
             backgroundColor: Colors.white24,
             backgroundImage: reply.authorAvatarUrl != null &&
                     reply.authorAvatarUrl!.isNotEmpty
                 ? NetworkImage(reply.authorAvatarUrl!)
                 : null,
             child: reply.authorAvatarUrl == null || reply.authorAvatarUrl!.isEmpty
-                ? const Icon(Icons.person, size: 12, color: Colors.white)
+                ? const Icon(Icons.person, size: 14, color: Colors.white)
                 : null,
           ),
           const SizedBox(width: 8),
@@ -591,7 +802,7 @@ class _ReplyTile extends StatelessWidget {
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w700,
-                        fontSize: 12,
+                        fontSize: 13,
                       ),
                     ),
                     if (reply.isCreator) ...[
@@ -599,34 +810,48 @@ class _ReplyTile extends StatelessWidget {
                       Text(
                         '· Creator',
                         style: TextStyle(
-                          color: AppBrandGradients.momentsTabActiveColor,
+                          color: MomentsPremiumPageTokens.accentPurple,
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
+                    if (createdAt != null) ...[
+                      Text(
+                        ' · ${formatRelativeStoryTime(createdAt)}',
+                        style: TextStyle(
+                          color: AppPalette.subtitle,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
-                Text(reply.text, style: const TextStyle(color: Colors.white, fontSize: 13)),
-                if (createdAt != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text(
-                      formatRelativeStoryTime(createdAt),
-                      style: TextStyle(color: AppPalette.subtitle, fontSize: 11),
-                    ),
-                  ),
+                const SizedBox(height: 2),
+                Text(
+                  reply.text,
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                ),
               ],
             ),
           ),
           GestureDetector(
             onTap: onLike,
-            child: Icon(
-              reply.isLiked ? Icons.favorite : Icons.favorite_border,
-              size: 16,
-              color: reply.isLiked
-                  ? AppBrandGradients.creatorProfileAccentPink
-                  : Colors.white70,
+            child: Column(
+              children: [
+                Icon(
+                  reply.isLiked ? Icons.favorite : Icons.favorite_border,
+                  size: 16,
+                  color: reply.isLiked
+                      ? AppBrandGradients.creatorProfileAccentPink
+                      : Colors.white70,
+                ),
+                if (reply.likesCount > 0)
+                  Text(
+                    formatCompactCount(reply.likesCount),
+                    style: TextStyle(color: AppPalette.subtitle, fontSize: 10),
+                  ),
+              ],
             ),
           ),
         ],

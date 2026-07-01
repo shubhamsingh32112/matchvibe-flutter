@@ -98,6 +98,7 @@ class MomentFeedItem {
     this.isLiked = false,
     this.moderationStatus,
     this.processingStatus,
+    this.uploadRewardStatus,
   });
 
   final String id;
@@ -118,6 +119,7 @@ class MomentFeedItem {
   final bool isLiked;
   final String? moderationStatus;
   final String? processingStatus;
+  final String? uploadRewardStatus;
 
   factory MomentFeedItem.fromJson(Map<String, dynamic> json) {
     return MomentFeedItem(
@@ -141,6 +143,7 @@ class MomentFeedItem {
       isLiked: json['isLiked'] as bool? ?? false,
       moderationStatus: json['moderationStatus'] as String?,
       processingStatus: json['processingStatus'] as String?,
+      uploadRewardStatus: json['uploadRewardStatus'] as String?,
     );
   }
 
@@ -173,6 +176,7 @@ class MomentFeedItem {
       isLiked: isLiked ?? this.isLiked,
       moderationStatus: moderationStatus,
       processingStatus: processingStatus,
+      uploadRewardStatus: uploadRewardStatus,
     );
   }
 }
@@ -359,6 +363,7 @@ class MomentComment {
     required this.authorName,
     this.authorAvatarUrl,
     required this.isCreator,
+    this.isVipHighlighted = false,
     required this.text,
     required this.likesCount,
     required this.isLiked,
@@ -372,12 +377,43 @@ class MomentComment {
   final String authorName;
   final String? authorAvatarUrl;
   final bool isCreator;
+  final bool isVipHighlighted;
   final String text;
   final int likesCount;
   final bool isLiked;
   final String? parentCommentId;
   final List<MomentComment> replies;
   final String createdAt;
+
+  MomentComment copyWith({
+    String? id,
+    String? authorUserId,
+    String? authorName,
+    String? authorAvatarUrl,
+    bool? isCreator,
+    bool? isVipHighlighted,
+    String? text,
+    int? likesCount,
+    bool? isLiked,
+    String? parentCommentId,
+    List<MomentComment>? replies,
+    String? createdAt,
+  }) {
+    return MomentComment(
+      id: id ?? this.id,
+      authorUserId: authorUserId ?? this.authorUserId,
+      authorName: authorName ?? this.authorName,
+      authorAvatarUrl: authorAvatarUrl ?? this.authorAvatarUrl,
+      isCreator: isCreator ?? this.isCreator,
+      isVipHighlighted: isVipHighlighted ?? this.isVipHighlighted,
+      text: text ?? this.text,
+      likesCount: likesCount ?? this.likesCount,
+      isLiked: isLiked ?? this.isLiked,
+      parentCommentId: parentCommentId ?? this.parentCommentId,
+      replies: replies ?? this.replies,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
 
   factory MomentComment.fromJson(Map<String, dynamic> json) {
     final rawReplies = json['replies'] as List? ?? const [];
@@ -387,6 +423,7 @@ class MomentComment {
       authorName: json['authorName'] as String? ?? 'User',
       authorAvatarUrl: json['authorAvatarUrl'] as String?,
       isCreator: json['isCreator'] as bool? ?? false,
+      isVipHighlighted: json['isVipHighlighted'] as bool? ?? false,
       text: json['text'] as String? ?? '',
       likesCount: (json['likesCount'] as num?)?.toInt() ?? 0,
       isLiked: json['isLiked'] as bool? ?? false,
@@ -402,18 +439,24 @@ class MomentComment {
 class MomentCommentsPage {
   const MomentCommentsPage({
     required this.items,
+    this.pinnedHighlightedComments = const [],
     this.nextCursor,
     this.hasMore = false,
   });
 
   final List<MomentComment> items;
+  final List<MomentComment> pinnedHighlightedComments;
   final String? nextCursor;
   final bool hasMore;
 
   factory MomentCommentsPage.fromJson(Map<String, dynamic> json) {
     final raw = json['items'] as List? ?? const [];
+    final pinnedRaw = json['pinnedHighlightedComments'] as List? ?? const [];
     return MomentCommentsPage(
       items: raw
+          .map((e) => MomentComment.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList(),
+      pinnedHighlightedComments: pinnedRaw
           .map((e) => MomentComment.fromJson(Map<String, dynamic>.from(e as Map)))
           .toList(),
       nextCursor: json['nextCursor'] as String?,

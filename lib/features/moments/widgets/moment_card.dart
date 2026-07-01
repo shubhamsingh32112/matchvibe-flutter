@@ -8,6 +8,7 @@ import '../utils/moment_caption_utils.dart';
 import 'follow_creator_button.dart';
 import 'locked_moment_overlay.dart';
 import 'moment_action_rail.dart';
+import 'moment_like_burst_overlay.dart';
 import 'stream_hls_player.dart';
 
 class MomentCard extends StatelessWidget {
@@ -32,6 +33,7 @@ class MomentCard extends StatelessWidget {
     this.engagementEnabled = true,
     this.isLikeBusy = false,
     this.isShareBusy = false,
+    this.onDoubleTapLike,
   });
 
   final MomentFeedItem item;
@@ -53,6 +55,7 @@ class MomentCard extends StatelessWidget {
   final bool engagementEnabled;
   final bool isLikeBusy;
   final bool isShareBusy;
+  final VoidCallback? onDoubleTapLike;
 
   String get _timeAgo {
     final parsed = DateTime.tryParse(item.createdAt);
@@ -88,27 +91,16 @@ class MomentCard extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        if (item.locked)
-          LockedMomentOverlay(
-            item: item,
-            onUnlocked: onItemUpdated,
-            viewerLayout: viewerLayout,
-            bottomOverlayInset: bottomOverlayInset,
+        if (viewerLayout && !item.locked && onDoubleTapLike != null)
+          Positioned.fill(
+            child: MomentLikeBurstOverlay(
+              enabled: engagementEnabled && !isLikeBusy && !item.isLiked,
+              onDoubleTap: onDoubleTapLike,
+              child: _buildMediaLayer(),
+            ),
           )
-        else if (media.isVideo && media.playbackUrl != null)
-          StreamHlsPlayer(
-            key: ValueKey('${item.id}-${media.playbackUrl}'),
-            momentId: item.id,
-            playbackUrl: media.playbackUrl!,
-            expiresAtMs: media.expiresAtMs,
-            playbackContext: playbackContext,
-            initDelay: playerInitDelay,
-            muted: isVideoMuted,
-          )
-        else if (media.playbackUrl != null)
-          Image.network(media.playbackUrl!, fit: BoxFit.cover)
         else
-          Image.network(media.thumbnailUrl, fit: BoxFit.cover),
+          _buildMediaLayer(),
         if (viewerLayout) ...[
           Positioned(
             top: 8,
@@ -234,6 +226,33 @@ class MomentCard extends StatelessWidget {
           ),
       ],
     );
+  }
+
+  Widget _buildMediaLayer() {
+    final media = item.media;
+    if (item.locked) {
+      return LockedMomentOverlay(
+        item: item,
+        onUnlocked: onItemUpdated,
+        viewerLayout: viewerLayout,
+        bottomOverlayInset: bottomOverlayInset,
+      );
+    }
+    if (media.isVideo && media.playbackUrl != null) {
+      return StreamHlsPlayer(
+        key: ValueKey('${item.id}-${media.playbackUrl}'),
+        momentId: item.id,
+        playbackUrl: media.playbackUrl!,
+        expiresAtMs: media.expiresAtMs,
+        playbackContext: playbackContext,
+        initDelay: playerInitDelay,
+        muted: isVideoMuted,
+      );
+    }
+    if (media.playbackUrl != null) {
+      return Image.network(media.playbackUrl!, fit: BoxFit.cover);
+    }
+    return Image.network(media.thumbnailUrl, fit: BoxFit.cover);
   }
 }
 

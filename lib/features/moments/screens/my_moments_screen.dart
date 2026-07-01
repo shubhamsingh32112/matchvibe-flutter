@@ -207,6 +207,7 @@ class _MyPostsTab extends ConsumerWidget {
                     MomentStatusBadge(
                       processingStatus: moment.processingStatus,
                       moderationStatus: moment.moderationStatus,
+                      uploadRewardStatus: moment.uploadRewardStatus,
                       mediaProcessingStatus: moment.media.processingStatus,
                     ),
                   ],
