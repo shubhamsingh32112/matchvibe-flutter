@@ -298,7 +298,10 @@ class _CreatorMomentViewerScreenState
         ),
       );
     } catch (_) {
-      if (mounted) _updateCurrentItem(item);
+      if (mounted) {
+        _updateCurrentItem(item);
+        AppToast.showError(context, 'Could not update like. Try again.');
+      }
     } finally {
       if (mounted) setState(() => _isLikeBusy = false);
     }

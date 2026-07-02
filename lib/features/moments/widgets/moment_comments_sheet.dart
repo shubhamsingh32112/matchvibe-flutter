@@ -6,6 +6,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/compact_count_formatter.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 import '../../../shared/widgets/app_avatar.dart';
+import '../../../shared/widgets/app_toast.dart';
 import '../../account/theme/moments_premium_page_tokens.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../creator/utils/creator_home_formatters.dart';
@@ -183,7 +184,10 @@ class _MomentCommentsSheetState extends ConsumerState<MomentCommentsSheet> {
         _posting = false;
       });
     } catch (_) {
-      if (mounted) setState(() => _posting = false);
+      if (mounted) {
+        setState(() => _posting = false);
+        AppToast.showError(context, 'Could not post comment. Try again.');
+      }
     }
   }
 

@@ -8,12 +8,20 @@ class MomentShareService {
 
   final MomentsApiService _api;
 
+  static const _defaultPlayStoreUrl =
+      'https://play.google.com/store/apps/details?id=com.matchvibe.app&pcampaignid=web_share';
+
   Future<void> shareMoment(String momentId) async {
     final info = await _api.fetchShareInfo(momentId);
+    final storeUrl =
+        info.playStoreUrl.isNotEmpty ? info.playStoreUrl : _defaultPlayStoreUrl;
     final message = StringBuffer()
       ..writeln(info.title)
-      ..writeln()
-      ..write('Watch on MatchVibe: ${info.shareUrl}');
+      ..writeln();
+    if (info.deepLink.isNotEmpty) {
+      message.writeln('Open in MatchVibe: ${info.deepLink}');
+    }
+    message.write('Get MatchVibe on Google Play: $storeUrl');
     await Share.share(message.toString());
   }
 }
