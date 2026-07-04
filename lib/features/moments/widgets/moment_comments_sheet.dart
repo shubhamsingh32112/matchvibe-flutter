@@ -12,6 +12,7 @@ import '../../auth/providers/auth_provider.dart';
 import '../../creator/utils/creator_home_formatters.dart';
 import '../models/moments_models.dart';
 import '../services/moments_api_service.dart';
+import '../utils/moment_comment_text_filter.dart';
 import 'vip_highlight_badge.dart';
 
 Future<void> showMomentCommentsSheet({
@@ -155,6 +156,10 @@ class _MomentCommentsSheetState extends ConsumerState<MomentCommentsSheet> {
   Future<void> _submitComment() async {
     final text = _controller.text.trim();
     if (text.isEmpty || _posting) return;
+    if (momentCommentContainsNumbers(text)) {
+      AppToast.showError(context, 'Numbers are not allowed in comments');
+      return;
+    }
     final postHighlighted =
         _postAsVipHighlighted && _replyToCommentId == null;
     setState(() => _posting = true);
@@ -452,6 +457,9 @@ class _MomentCommentsSheetState extends ConsumerState<MomentCommentsSheet> {
                         controller: _controller,
                         style: const TextStyle(color: Colors.white),
                         maxLength: 500,
+                        inputFormatters: const [
+                          MomentCommentNoNumbersFormatter(),
+                        ],
                         decoration: InputDecoration(
                           hintText: 'Add a comment...',
                           hintStyle: TextStyle(color: AppPalette.subtitle),
