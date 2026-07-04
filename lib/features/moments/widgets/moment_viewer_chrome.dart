@@ -10,8 +10,6 @@ PreferredSizeWidget buildMomentViewerAppBar(
   BuildContext context, {
   required MomentsMediaFilter mediaFilter,
   required ValueChanged<MomentsMediaFilter> onFilterChanged,
-  required int itemCount,
-  required int currentIndex,
   VoidCallback? onMorePressed,
 }) {
   String filterLabel(MomentsMediaFilter filter) {
@@ -24,8 +22,6 @@ PreferredSizeWidget buildMomentViewerAppBar(
         return 'Videos';
     }
   }
-
-  final progressHeight = itemCount > 1 ? 20.0 : 8.0;
 
   return buildBrandAppBar(
     context,
@@ -90,54 +86,7 @@ PreferredSizeWidget buildMomentViewerAppBar(
         onPressed: onMorePressed,
       ),
     ],
-    bottom: PreferredSize(
-      preferredSize: Size.fromHeight(progressHeight),
-      child: MomentViewerProgressBar(
-        itemCount: itemCount,
-        currentIndex: currentIndex,
-      ),
-    ),
   );
-}
-
-class MomentViewerProgressBar extends StatelessWidget {
-  const MomentViewerProgressBar({
-    super.key,
-    required this.itemCount,
-    required this.currentIndex,
-  });
-
-  final int itemCount;
-  final int currentIndex;
-
-  @override
-  Widget build(BuildContext context) {
-    if (itemCount <= 1) return const SizedBox(height: 8);
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-      child: Row(
-        children: List.generate(itemCount, (index) {
-          final isActive = index == currentIndex;
-          return Expanded(
-            child: Padding(
-              padding: EdgeInsets.only(right: index == itemCount - 1 ? 0 : 4),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                height: 3,
-                decoration: BoxDecoration(
-                  color: isActive
-                      ? AppBrandGradients.momentsTabActiveColor
-                      : Colors.white.withValues(alpha: 0.25),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-          );
-        }),
-      ),
-    );
-  }
 }
 
 class MomentViewerActionButton extends StatelessWidget {

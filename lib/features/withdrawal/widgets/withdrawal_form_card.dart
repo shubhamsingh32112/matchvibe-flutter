@@ -59,7 +59,7 @@ class WithdrawalFormCard extends StatelessWidget {
             WithdrawalStyledField(
               controller: amountController,
               labelText: 'Amount (coins)',
-              hintText: 'Min 100 coins',
+              hintText: 'Min ${WithdrawalTokens.minCreatorWithdrawalCoins} coins',
               keyboardType: TextInputType.number,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               prefixIcon: const GemIcon(size: 20),
@@ -71,8 +71,8 @@ class WithdrawalFormCard extends StatelessWidget {
                 if (amount == null || amount <= 0) {
                   return 'Enter a valid amount';
                 }
-                if (amount < 100) {
-                  return 'Minimum withdrawal is 100 coins';
+                if (amount < WithdrawalTokens.minCreatorWithdrawalCoins) {
+                  return 'Minimum withdrawal is ${WithdrawalTokens.minCreatorWithdrawalCoins} coins';
                 }
                 if (amount > availableBalance) {
                   return 'Exceeds available balance ($availableBalance coins)';

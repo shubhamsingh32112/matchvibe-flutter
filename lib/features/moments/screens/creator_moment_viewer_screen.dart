@@ -34,6 +34,7 @@ class CreatorMomentViewerScreen extends ConsumerStatefulWidget {
     this.allowOwnerDelete = false,
     this.creatorId,
     this.initialMediaFilter = MomentsMediaFilter.all,
+    this.onLoadMore,
   });
 
   final List<MomentFeedItem> items;
@@ -41,6 +42,7 @@ class CreatorMomentViewerScreen extends ConsumerStatefulWidget {
   final bool allowOwnerDelete;
   final String? creatorId;
   final MomentsMediaFilter initialMediaFilter;
+  final Future<List<MomentFeedItem>> Function()? onLoadMore;
 
   @override
   ConsumerState<CreatorMomentViewerScreen> createState() =>
@@ -58,6 +60,7 @@ class _CreatorMomentViewerScreenState
   bool _isOpeningChat = false;
   bool _isLikeBusy = false;
   bool _isShareBusy = false;
+  bool _loadingMore = false;
   final _momentsApi = MomentsApiService();
   final _shareService = MomentShareService();
 
@@ -84,6 +87,7 @@ class _CreatorMomentViewerScreenState
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _recordViewForCurrentItem();
       _mergeFollowStateFromProvider();
+      unawaited(_maybeLoadMore(_currentIndex));
     });
   }
 
@@ -133,6 +137,35 @@ class _CreatorMomentViewerScreenState
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  List<MomentFeedItem> _mergeFeedItems(
+    List<MomentFeedItem> local,
+    List<MomentFeedItem> remote,
+  ) {
+    final localById = {for (final item in local) item.id: item};
+    return remote.map((item) => localById[item.id] ?? item).toList();
+  }
+
+  Future<void> _maybeLoadMore(int index) async {
+    final onLoadMore = widget.onLoadMore;
+    if (onLoadMore == null || _loadingMore) return;
+
+    final visibleCount = _visibleItems.length;
+    if (visibleCount == 0 || index < visibleCount - 3) return;
+
+    _loadingMore = true;
+    try {
+      final updated = await onLoadMore();
+      if (!mounted || updated.isEmpty) return;
+      setState(() {
+        _allItems = _mergeFeedItems(_allItems, updated);
+      });
+    } catch (_) {
+      // Non-blocking; user can keep swiping through loaded items.
+    } finally {
+      _loadingMore = false;
+    }
   }
 
   void _onFilterChanged(MomentsMediaFilter filter) {
@@ -424,8 +457,6 @@ class _CreatorMomentViewerScreenState
           context,
           mediaFilter: _mediaFilter,
           onFilterChanged: _onFilterChanged,
-          itemCount: 0,
-          currentIndex: 0,
         ),
         body: const Center(
           child: Text(
@@ -505,8 +536,6 @@ class _CreatorMomentViewerScreenState
         context,
         mediaFilter: _mediaFilter,
         onFilterChanged: _onFilterChanged,
-        itemCount: visibleItems.length,
-        currentIndex: _currentIndex,
         onMorePressed: _showMoreMenu,
       ),
       body: Stack(
@@ -519,6 +548,7 @@ class _CreatorMomentViewerScreenState
             onPageChanged: (index) {
               setState(() => _currentIndex = index);
               _recordViewForCurrentItem();
+              unawaited(_maybeLoadMore(index));
             },
             itemCount: visibleItems.length,
             itemBuilder: (context, index) {

@@ -24,7 +24,7 @@ class WithdrawalInfoStrip extends StatelessWidget {
               child: _InfoColumn(
                 icon: const GemIcon(size: _iconSize),
                 label: 'Min. Withdrawal',
-                value: '100 coins',
+                value: '${WithdrawalTokens.minCreatorWithdrawalCoins} coins',
               ),
             ),
             Container(width: 1, color: WithdrawalTokens.borderGrey),

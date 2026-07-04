@@ -20,6 +20,8 @@ class WithdrawalTokens {
   static const double fieldRadius = 12;
   static const double submitRadius = 14;
 
+  static const int minCreatorWithdrawalCoins = 1000;
+
   static const LinearGradient submitGradient = CreatorHomeTokens.withdrawalGradient;
 
   static BoxDecoration cardDecoration({Color? color}) {

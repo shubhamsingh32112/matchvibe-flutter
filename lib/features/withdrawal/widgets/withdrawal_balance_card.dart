@@ -9,12 +9,12 @@ class WithdrawalBalanceCard extends StatelessWidget {
 
   final int coins;
 
-  static const int _minWithdrawal = 100;
+  static const int _minWithdrawal = WithdrawalTokens.minCreatorWithdrawalCoins;
 
   @override
   Widget build(BuildContext context) {
     final chipText = coins < _minWithdrawal
-        ? 'Reach 100 coins to withdraw'
+        ? 'Reach $_minWithdrawal coins to withdraw'
         : 'Keep going! You can do more.';
 
     return Container(

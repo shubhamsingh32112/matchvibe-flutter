@@ -17,6 +17,7 @@ class MomentsGridFeed extends ConsumerStatefulWidget {
     this.previewEndIndex = 0,
     this.mediaFilter = MomentsMediaFilter.all,
     this.onLoadMore,
+    this.onViewerLoadMore,
     required this.onItemUpdated,
     this.onCreatorTap,
     this.onReport,
@@ -30,6 +31,7 @@ class MomentsGridFeed extends ConsumerStatefulWidget {
   final int previewEndIndex;
   final MomentsMediaFilter mediaFilter;
   final VoidCallback? onLoadMore;
+  final Future<List<MomentFeedItem>> Function()? onViewerLoadMore;
   final void Function(int index, MomentFeedItem item) onItemUpdated;
   final void Function(String creatorId)? onCreatorTap;
   final void Function(MomentFeedItem item)? onReport;
@@ -77,6 +79,7 @@ class _MomentsGridFeedState extends ConsumerState<MomentsGridFeed> {
           items: widget.viewerItems,
           initialIndex: viewerIndex >= 0 ? viewerIndex : index,
           initialMediaFilter: widget.mediaFilter,
+          onLoadMore: widget.onViewerLoadMore,
         ),
       ),
     );

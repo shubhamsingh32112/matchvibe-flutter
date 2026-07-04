@@ -133,6 +133,10 @@ class _FollowingFeedBody extends ConsumerWidget {
         previewEndIndex: feed.previewEndIndex,
         filter: filter,
         onLoadMore: () => ref.read(followingFeedProvider.notifier).loadMore(),
+        onViewerLoadMore: () async {
+          await ref.read(followingFeedProvider.notifier).loadMore();
+          return ref.read(followingFeedProvider).valueOrNull?.items ?? feed.items;
+        },
         onItemUpdated: (index, item) =>
             ref.read(followingFeedProvider.notifier).updateItem(index, item),
         onCreatorTap: (id) => openCreatorProfile(context, ref, id),
@@ -166,6 +170,10 @@ class _PopularFeedBody extends ConsumerWidget {
         previewEndIndex: feed.previewEndIndex,
         filter: filter,
         onLoadMore: () => ref.read(popularFeedProvider.notifier).loadMore(),
+        onViewerLoadMore: () async {
+          await ref.read(popularFeedProvider.notifier).loadMore();
+          return ref.read(popularFeedProvider).valueOrNull?.items ?? feed.items;
+        },
         onItemUpdated: (index, item) =>
             ref.read(popularFeedProvider.notifier).updateItem(index, item),
         onCreatorTap: (id) => openCreatorProfile(context, ref, id),
@@ -197,12 +205,13 @@ class _FeedErrorMessage extends StatelessWidget {
   }
 }
 
-class _FilteredGridFeed extends StatelessWidget {
+class _FilteredGridFeed extends ConsumerWidget {
   const _FilteredGridFeed({
     required this.items,
     required this.previewEndIndex,
     required this.filter,
     this.onLoadMore,
+    this.onViewerLoadMore,
     required this.onItemUpdated,
     this.onCreatorTap,
     this.onAddMoment,
@@ -214,6 +223,7 @@ class _FilteredGridFeed extends StatelessWidget {
   final int previewEndIndex;
   final MomentsMediaFilter filter;
   final VoidCallback? onLoadMore;
+  final Future<List<MomentFeedItem>> Function()? onViewerLoadMore;
   final void Function(int index, MomentFeedItem item) onItemUpdated;
   final void Function(String creatorId)? onCreatorTap;
   final VoidCallback? onAddMoment;
@@ -221,7 +231,7 @@ class _FilteredGridFeed extends StatelessWidget {
   final String emptyMessage;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final filtered = applyMediaFilter(items, filter);
     if (filtered.isEmpty && items.isNotEmpty) {
       return Center(
@@ -240,6 +250,7 @@ class _FilteredGridFeed extends StatelessWidget {
       previewEndIndex: filteredPreviewEndIndex(items, filter, previewEndIndex),
       mediaFilter: filter,
       onLoadMore: onLoadMore,
+      onViewerLoadMore: onViewerLoadMore,
       onItemUpdated: (index, item) {
         final originalIndex = items.indexWhere((i) => i.id == item.id);
         if (originalIndex >= 0) {

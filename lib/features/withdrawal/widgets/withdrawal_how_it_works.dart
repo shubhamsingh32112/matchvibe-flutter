@@ -36,7 +36,10 @@ class WithdrawalHowItWorks extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          const _InfoRow(text: 'Minimum withdrawal: 100 coins'),
+          _InfoRow(
+            text:
+                'Minimum withdrawal: ${WithdrawalTokens.minCreatorWithdrawalCoins} coins',
+          ),
           const SizedBox(height: 8),
           const _InfoRow(text: 'Submit your request — coins stay in your wallet'),
           const SizedBox(height: 8),
