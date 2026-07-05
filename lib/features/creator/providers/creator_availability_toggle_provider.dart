@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../../core/services/socket_service.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../home/providers/availability_provider.dart';
 import '../providers/creator_status_provider.dart' as creator_self_status;
@@ -56,6 +57,7 @@ class CreatorAvailabilityToggleNotifier
   final Ref _ref;
   final CreatorAvailabilityService _service = CreatorAvailabilityService();
   bool _localMutationInFlight = false;
+  bool _profileIntentOnline = false;
   ProviderSubscription<CreatorAvailability?>? _ownAvailabilitySub;
 
   bool get _isCreatorRole {
@@ -77,6 +79,7 @@ class CreatorAvailabilityToggleNotifier
         return;
       }
       final stored = prefs.getBool(AppConstants.keyCreatorAvailabilityToggle) ?? false;
+      _profileIntentOnline = stored;
       state = state.copyWith(toggleOn: stored, hasLoadedPersisted: true, clearError: true);
       debugPrint('📡 [CREATOR TOGGLE] Loaded persisted toggle=$stored');
     } catch (e) {
@@ -93,6 +96,7 @@ class CreatorAvailabilityToggleNotifier
       return;
     }
     await _persistToggle(profileIsOnline);
+    _profileIntentOnline = profileIsOnline;
     state = state.copyWith(toggleOn: profileIsOnline, clearError: true);
     debugPrint(
       '📡 [CREATOR TOGGLE] Seeded from profile isOnline=$profileIsOnline',
@@ -109,8 +113,12 @@ class CreatorAvailabilityToggleNotifier
   /// Reconcile device cache with Mongo after dashboard fetch (multi-device).
   Future<void> reconcileFromProfile(bool profileIsOnline) async {
     if (!_isCreatorRole || _localMutationInFlight) return;
-    if (profileIsOnline == state.toggleOn) return;
+    if (profileIsOnline == state.toggleOn) {
+      _profileIntentOnline = profileIsOnline;
+      return;
+    }
     await _persistToggle(profileIsOnline);
+    _profileIntentOnline = profileIsOnline;
     if (mounted) {
       state = state.copyWith(toggleOn: profileIsOnline, clearError: true);
     }
@@ -133,15 +141,26 @@ class CreatorAvailabilityToggleNotifier
         if (_localMutationInFlight || next == null) return;
         if (next == CreatorAvailability.onCall) return;
         final shouldBeOn = next == CreatorAvailability.online;
-        if (shouldBeOn != state.toggleOn) {
-          unawaited(_applyRemoteToggle(shouldBeOn));
+        if (shouldBeOn == state.toggleOn) return;
+        if (!shouldBeOn && _profileIntentOnline) {
+          debugPrint(
+            '📡 [CREATOR TOGGLE] Ignoring transient runtime offline (Mongo intent still online)',
+          );
+          unawaited(
+            _ref
+                .read(creatorPresenceOrchestratorProvider)
+                .refreshPresence(reason: 'remote_sync_guard'),
+          );
+          return;
         }
+        unawaited(_applyRemoteToggle(shouldBeOn));
       },
     );
   }
 
   Future<void> _applyRemoteToggle(bool isOn) async {
     debugPrint('📡 [CREATOR TOGGLE] Remote sync → $isOn');
+    _profileIntentOnline = isOn;
     await _persistToggle(isOn);
     if (mounted) {
       state = state.copyWith(toggleOn: isOn, clearError: true);
@@ -164,6 +183,47 @@ class CreatorAvailabilityToggleNotifier
       _ref
           .read(creatorAvailabilityProvider.notifier)
           .applyCallLifecycleHint(uid, CreatorAvailability.offline);
+    }
+  }
+
+  Future<bool> _waitForSelfAvailabilityOnline({
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    final uid = _ref.read(authProvider).firebaseUser?.uid;
+    if (uid == null || uid.isEmpty) return false;
+
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      final self = _ref.read(creatorAvailabilityProvider)[uid];
+      if (self == CreatorAvailability.online ||
+          self == CreatorAvailability.onCall) {
+        return true;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    return false;
+  }
+
+  Future<void> _confirmToggleOnlineRuntime({
+    required SocketService socket,
+    required String uid,
+    required bool wasOnCall,
+  }) async {
+    var confirmed = await _waitForSelfAvailabilityOnline();
+    if (confirmed) return;
+
+    debugPrint('⚠️ [CREATOR TOGGLE] Runtime still offline — retrying creator:online emit');
+    if (socket.isConnected) {
+      socket.emitCreatorOnline(clearStuckCall: wasOnCall);
+      socket.requestAvailability([uid]);
+    }
+    confirmed = await _waitForSelfAvailabilityOnline(
+      timeout: const Duration(seconds: 5),
+    );
+    if (!confirmed && mounted) {
+      state = state.copyWith(
+        error: 'Could not confirm online status. Check connection and try again.',
+      );
     }
   }
 
@@ -210,6 +270,7 @@ class CreatorAvailabilityToggleNotifier
       }
 
       final confirmedOnline = await _service.setOnlineStatus(wantOn);
+      _profileIntentOnline = confirmedOnline;
 
       await _persistToggle(confirmedOnline);
       state = state.copyWith(
@@ -222,6 +283,11 @@ class CreatorAvailabilityToggleNotifier
         final uid = fbUser.uid;
         if (uid.isNotEmpty) {
           socket.requestAvailability([uid]);
+          await _confirmToggleOnlineRuntime(
+            socket: socket,
+            uid: uid,
+            wasOnCall: wasOnCall,
+          );
         }
       }
       debugPrint('✅ [CREATOR TOGGLE] Set availability isOnline=$confirmedOnline');
@@ -260,6 +326,7 @@ class CreatorAvailabilityToggleNotifier
 
   /// Logout — local cache off (Mongo via setIntentOfflineForLogout).
   Future<void> clearOnLogout() async {
+    _profileIntentOnline = false;
     await _persistToggle(false);
     if (mounted) {
       state = const CreatorAvailabilityToggleState(

@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/services/socket_service.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../home/providers/availability_provider.dart';
+import 'creator_availability_toggle_provider.dart';
+import 'creator_presence_orchestrator_provider.dart';
 
 enum CreatorStatus {
   syncing,
@@ -34,6 +36,9 @@ class CreatorStatusNotifier extends StateNotifier<CreatorStatus> {
   final Ref _ref;
   ProviderSubscription<String?>? _ownUidSub;
   Timer? _disconnectGraceTimer;
+  bool _desyncRetryScheduled = false;
+
+  bool get _toggleOn => _ref.read(creatorAvailabilityToggleProvider).toggleOn;
 
   @override
   void dispose() {
@@ -90,6 +95,14 @@ class CreatorStatusNotifier extends StateNotifier<CreatorStatus> {
         _applyStatusFromSources(ownAvailability: next);
       },
     );
+
+    _ref.listen<bool>(
+      creatorAvailabilityToggleProvider.select((s) => s.toggleOn),
+      (previous, next) {
+        if (!_isCreatorRole) return;
+        _applyStatusFromSources();
+      },
+    );
   }
 
   void _applyStatusFromSources({CreatorAvailability? ownAvailability}) {
@@ -100,7 +113,12 @@ class CreatorStatusNotifier extends StateNotifier<CreatorStatus> {
 
     final socketConnected = _socket.isConnected;
     if (!socketConnected) {
-      state = CreatorStatus.offline;
+      if (_toggleOn) {
+        state = CreatorStatus.syncing;
+        _scheduleDesyncRecovery('socket_disconnected_toggle_on');
+      } else {
+        state = CreatorStatus.offline;
+      }
       return;
     }
 
@@ -114,7 +132,12 @@ class CreatorStatusNotifier extends StateNotifier<CreatorStatus> {
     }
 
     if (ownAvailability == CreatorAvailability.offline) {
-      state = CreatorStatus.offline;
+      if (_toggleOn) {
+        state = CreatorStatus.syncing;
+        _scheduleDesyncRecovery('runtime_offline_toggle_on');
+      } else {
+        state = CreatorStatus.offline;
+      }
       return;
     }
 
@@ -124,7 +147,26 @@ class CreatorStatusNotifier extends StateNotifier<CreatorStatus> {
     }
 
     // Socket is up but we don't yet have an authoritative self record.
+    if (_toggleOn) {
+      _scheduleDesyncRecovery('awaiting_self_presence');
+    }
     state = CreatorStatus.syncing;
+  }
+
+  void _scheduleDesyncRecovery(String reason) {
+    if (_desyncRetryScheduled || !_toggleOn) return;
+    _desyncRetryScheduled = true;
+    unawaited(() async {
+      try {
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+        if (!_toggleOn) return;
+        await _ref
+            .read(creatorPresenceOrchestratorProvider)
+            .refreshPresence(reason: 'status_desync_$reason');
+      } finally {
+        _desyncRetryScheduled = false;
+      }
+    }());
   }
 
   /// Refresh own presence after app/tab resume (creator home).
@@ -142,9 +184,14 @@ class CreatorStatusNotifier extends StateNotifier<CreatorStatus> {
       _disconnectGraceTimer?.cancel();
       _disconnectGraceTimer = Timer(_disconnectGrace, () {
         if (!_socket.isConnected) {
-          state = CreatorStatus.offline;
+          if (_toggleOn) {
+            state = CreatorStatus.syncing;
+            _scheduleDesyncRecovery('socket_grace_elapsed_toggle_on');
+          } else {
+            state = CreatorStatus.offline;
+          }
           debugPrint(
-            '📡 [CREATOR STATUS] Socket disconnected past grace → offline',
+            '📡 [CREATOR STATUS] Socket disconnected past grace → ${_toggleOn ? "syncing (toggle on)" : "offline"}',
           );
         }
       });
