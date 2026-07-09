@@ -35,9 +35,19 @@ class _CreatorHomeStatsTileState extends ConsumerState<CreatorHomeStatsTile> {
     _loadedWithdrawals = true;
   }
 
-  bool get _hasPendingWithdrawal {
+  get _activeWithdrawal {
     final withdrawals = ref.watch(withdrawalProvider).withdrawals;
-    return withdrawals.any((w) => w.status == 'pending');
+    for (final w in withdrawals) {
+      if (w.isActive) return w;
+    }
+    return null;
+  }
+
+  String get _withdrawalButtonLabel {
+    final active = _activeWithdrawal;
+    if (active == null) return 'Withdrawal';
+    if (active.isPending) return 'Withdrawal Pending';
+    return 'Payout In Progress';
   }
 
   @override
@@ -119,10 +129,10 @@ class _CreatorHomeStatsTileState extends ConsumerState<CreatorHomeStatsTile> {
                 width: double.infinity,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    gradient: _hasPendingWithdrawal
+                    gradient: _activeWithdrawal != null
                         ? null
                         : CreatorHomeTokens.withdrawalGradient,
-                    color: _hasPendingWithdrawal
+                    color: _activeWithdrawal != null
                         ? CreatorHomeTokens.labelGrey
                         : null,
                     borderRadius: BorderRadius.circular(12),
@@ -131,7 +141,7 @@ class _CreatorHomeStatsTileState extends ConsumerState<CreatorHomeStatsTile> {
                     color: Colors.transparent,
                     child: InkWell(
                       borderRadius: BorderRadius.circular(12),
-                      onTap: _hasPendingWithdrawal
+                      onTap: _activeWithdrawal != null
                           ? null
                           : () => context.push('/creator/withdraw'),
                       child: Padding(
@@ -146,9 +156,7 @@ class _CreatorHomeStatsTileState extends ConsumerState<CreatorHomeStatsTile> {
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              _hasPendingWithdrawal
-                                  ? 'Withdrawal Pending'
-                                  : 'Withdrawal',
+                              _withdrawalButtonLabel,
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,

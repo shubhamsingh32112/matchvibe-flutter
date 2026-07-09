@@ -73,4 +73,7 @@ class WithdrawalRequest {
   bool get isApproved => status == 'approved';
   bool get isRejected => status == 'rejected';
   bool get isPaid => status == 'paid';
+
+  /// Whether the withdrawal blocks a new request (pending or approved).
+  bool get isActive => isPending || isApproved;
 }

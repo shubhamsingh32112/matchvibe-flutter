@@ -61,6 +61,10 @@ class _WithdrawalScreenState extends ConsumerState<WithdrawalScreen> {
     }
 
     final coins = user?.coins ?? 0;
+    final activeWithdrawals =
+        withdrawalState.withdrawals.where((w) => w.isActive);
+    final activeWithdrawal =
+        activeWithdrawals.isEmpty ? null : activeWithdrawals.first;
 
     ref.listen<WithdrawalState>(withdrawalProvider, (prev, next) {
       if (next.successMessage != null &&
@@ -93,20 +97,56 @@ class _WithdrawalScreenState extends ConsumerState<WithdrawalScreen> {
           children: [
             WithdrawalBalanceCard(coins: coins),
             const SizedBox(height: 16),
-            WithdrawalFormCard(
-              formKey: _formKey,
-              amountController: _amountController,
-              nameController: _nameController,
-              numberController: _numberController,
-              upiController: _upiController,
-              accountNumberController: _accountNumberController,
-              ifscController: _ifscController,
-              useUpi: _useUpi,
-              onUseUpiChanged: (value) => setState(() => _useUpi = value),
-              availableBalance: coins,
-              isSubmitting: withdrawalState.isSubmitting,
-              onSubmit: _submitWithdrawal,
-            ),
+            if (activeWithdrawal != null) ...[
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: WithdrawalTokens.bannerLavender,
+                  borderRadius:
+                      BorderRadius.circular(WithdrawalTokens.fieldRadius),
+                  border: Border.all(
+                    color: WithdrawalTokens.borderGrey.withValues(alpha: 0.5),
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      color: WithdrawalTokens.primaryPurple.withValues(alpha: 0.85),
+                      size: 20,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        activeWithdrawal.isPending
+                            ? 'You already have a pending withdrawal request. Please wait for it to be processed before submitting another.'
+                            : 'You have an approved withdrawal awaiting payout. Please wait until it is marked paid before submitting another.',
+                        style: const TextStyle(
+                          color: WithdrawalTokens.valueDark,
+                          fontSize: 14,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else
+              WithdrawalFormCard(
+                formKey: _formKey,
+                amountController: _amountController,
+                nameController: _nameController,
+                numberController: _numberController,
+                upiController: _upiController,
+                accountNumberController: _accountNumberController,
+                ifscController: _ifscController,
+                useUpi: _useUpi,
+                onUseUpiChanged: (value) => setState(() => _useUpi = value),
+                availableBalance: coins,
+                isSubmitting: withdrawalState.isSubmitting,
+                onSubmit: _submitWithdrawal,
+              ),
             if (withdrawalState.withdrawals.isNotEmpty) ...[
               const SizedBox(height: 24),
               const Text(

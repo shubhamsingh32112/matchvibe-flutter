@@ -43,6 +43,10 @@ class WithdrawalHowItWorks extends StatelessWidget {
           const SizedBox(height: 8),
           const _InfoRow(text: 'Submit your request — coins stay in your wallet'),
           const SizedBox(height: 8),
+          const _InfoRow(
+            text: 'Only one active request at a time (pending or approved)',
+          ),
+          const SizedBox(height: 8),
           const _InfoRow(text: 'Admin reviews & approves, then marks paid (coins deducted)'),
           const SizedBox(height: 8),
           const _InfoRow(text: 'Payment processed & marked as paid'),
