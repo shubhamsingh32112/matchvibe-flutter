@@ -37,10 +37,13 @@ class InAppFeedbackService {
 
   static int _defaultNowMs() => DateTime.now().millisecondsSinceEpoch;
   static Future<void> _defaultHaptic() {
-    // `lightImpact()` is frequently imperceptible or a no-op on many Android devices
-    // (and on emulators). Prefer a stronger, more widely supported signal there.
+    // Android: lightImpact is often imperceptible; prefer vibrate.
+    // iOS: mediumImpact is the usual chat/notification feel (light can be missed).
     if (defaultTargetPlatform == TargetPlatform.android) {
       return HapticFeedback.vibrate();
+    }
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      return HapticFeedback.mediumImpact();
     }
     return HapticFeedback.lightImpact();
   }

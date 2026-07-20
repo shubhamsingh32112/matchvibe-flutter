@@ -2,7 +2,8 @@ name: zztherapy
 description: "Match Vibe - Flutter mobile app"
 publish_to: 'none'
 
-version: 1.0.0+76
+version: 1.0.0+80
+
 
 
 environment:

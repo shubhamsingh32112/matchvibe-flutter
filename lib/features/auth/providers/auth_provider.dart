@@ -98,6 +98,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
   bool _isSyncingToBackend = false;
   String? _lastSyncedUid;
 
+  /// When set, next successful backend sync logs Meta [Login] (interactive sign-in only).
+  String? _pendingMetaLoginMethod;
+
   @visibleForTesting
   AuthNotifier.testInitial(AuthState initial) : _ref = null, super(initial) {
     _isInitializing = true;
@@ -233,6 +236,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         debugPrint('🚪 [AUTH] Auth state changed: User logged out');
         _isSyncingToBackend = false;
         _lastSyncedUid = null;
+        _pendingMetaLoginMethod = null;
         ApiClient.clearAuthTokenMemory();
         state = AuthState();
       }
@@ -589,10 +593,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
           ),
         );
         unawaited(MetaAppEventsService.setUserId(user.id));
+        final loginMethod = _pendingMetaLoginMethod;
+        _pendingMetaLoginMethod = null;
+        if (loginMethod != null) {
+          unawaited(MetaAppEventsService.logLogin(method: loginMethod));
+        }
         if (createdNow) {
           unawaited(
             MetaAppEventsService.logCompleteRegistration(
-              registrationMethod: 'google',
+              registrationMethod: loginMethod ?? 'google',
             ),
           );
         }
@@ -701,6 +710,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         error: errorMessage,
         createdNow: false,
       );
+      // Keep _pendingMetaLoginMethod so a login-screen retry can still report Login.
       debugPrint('   💾 Error state updated with message: $errorMessage');
       if (pendingReferralForLogin != null && !referralDispositionFinalized) {
         _pendingReferralCode = pendingReferralForLogin;
@@ -798,6 +808,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         );
         _lastSyncedUid = null;
         _isSyncingToBackend = false;
+        _pendingMetaLoginMethod = 'google';
         await _syncUserToBackend(_auth!.currentUser!);
         return;
       }
@@ -808,6 +819,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       }
 
       state = state.copyWith(isLoading: true, error: null);
+      _pendingMetaLoginMethod = 'google';
       // Note: _pendingReferralCode is set by login screen before calling signInWithGoogle
 
       if (AppConstants.googleWebClientId.isEmpty && kDebugMode) {
@@ -821,6 +833,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         googleUser = await AppGoogleSignIn.instance.signIn();
       } on PlatformException catch (e) {
         debugPrint('❌ [GOOGLE AUTH] PlatformException: ${e.code} ${e.message}');
+        _pendingMetaLoginMethod = null;
         state = state.copyWith(
           isLoading: false,
           error: _googleSignInPlatformMessage(e),
@@ -830,6 +843,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
       if (googleUser == null) {
         debugPrint('⏭️ [GOOGLE AUTH] User canceled sign-in');
+        _pendingMetaLoginMethod = null;
         state = state.copyWith(isLoading: false);
         return;
       }
@@ -838,6 +852,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final idToken = googleAuth.idToken;
       if (idToken == null || idToken.isEmpty) {
         debugPrint('❌ [GOOGLE AUTH] Missing idToken from GoogleSignIn');
+        _pendingMetaLoginMethod = null;
         state = state.copyWith(
           isLoading: false,
           error: kDebugMode
@@ -862,9 +877,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
       debugPrint(
         '❌ [GOOGLE AUTH] FirebaseAuthException: ${e.code} ${e.message}',
       );
+      _pendingMetaLoginMethod = null;
       state = state.copyWith(isLoading: false, error: _firebaseAuthMessage(e));
     } catch (e) {
       debugPrint('❌ [GOOGLE AUTH] Error: $e');
+      _pendingMetaLoginMethod = null;
       state = state.copyWith(
         isLoading: false,
         error: UserMessageMapper.userMessageFor(
@@ -938,6 +955,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
       _isSyncingToBackend = false;
       _lastSyncedUid = null;
+      _pendingMetaLoginMethod = null;
 
       state = AuthState();
       debugPrint('✅ [AUTH] Sign out completed');

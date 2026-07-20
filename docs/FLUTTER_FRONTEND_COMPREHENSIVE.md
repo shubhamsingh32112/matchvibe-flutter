@@ -1,6 +1,10 @@
 # Match Vibe — Flutter Frontend Comprehensive Reference
 
-> **Package:** `zztherapy` · **Display name:** Match Vibe · **Version:** 1.0.0+37  
+> **⚠️ Superseded:** This document is outdated. Use the authoritative references in `docs/` instead:
+> - **[`docs/FLUTTER_APP_FRONTEND_COMPLETE_REFERENCE.md`](../../docs/FLUTTER_APP_FRONTEND_COMPLETE_REFERENCE.md)** — full Flutter frontend spec (UI, routes, API, sockets, code)
+> - **[`docs/FLUTTER_TO_REACT_WEB_MIGRATION_GUIDE.md`](../../docs/FLUTTER_TO_REACT_WEB_MIGRATION_GUIDE.md)** — React web migration plan
+
+> **Package:** `zztherapy` · **Display name:** Match Vibe · **Version:** 1.0.0+37 *(stale — live app is 1.0.0+77)*  
 > **Path:** `D:\zztherapy\frontend`  
 > **Generated from:** source code analysis (`lib/`, `pubspec.yaml`, `.env.example`) — May 2026
 

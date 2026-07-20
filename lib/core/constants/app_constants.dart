@@ -35,6 +35,14 @@ class AppConstants {
   static String get creatorWhatsappNumber =>
       (dotenv.env['CREATOR_WHATSAPP_NUMBER'] ?? '').replaceAll(RegExp(r'\D'), '');
 
+  /// App Store URL for share sheets on iOS (set after App Store Connect listing exists).
+  /// Example: https://apps.apple.com/app/idXXXXXXXX
+  static String get appStoreUrl => (dotenv.env['APP_STORE_URL'] ?? '').trim();
+
+  /// Play Store URL fallback for share sheets on Android.
+  static const String playStoreUrl =
+      'https://play.google.com/store/apps/details?id=com.matchvibe.app&pcampaignid=web_share';
+
   static bool get enableServerOnboardingFlow =>
       (dotenv.env['ENABLE_SERVER_ONBOARDING_FLOW'] ?? 'true').toLowerCase() ==
       'true';

@@ -53,12 +53,14 @@ class WalletCheckoutLauncher {
           packageId: packageId,
           coins: resolvedCoins,
           priceInr: resolvedPriceInr,
+          contentType: 'coin_pack',
         ),
       );
       if (resolvedPriceInr > 0) {
         await MetaAppEventsService.logInitiateCheckout(
           contentId: packageId,
           priceInr: resolvedPriceInr.toDouble(),
+          contentType: 'coin_pack',
           sessionId: sessionId.isNotEmpty ? sessionId : null,
         );
       }

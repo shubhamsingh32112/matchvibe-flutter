@@ -290,9 +290,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         status = await Permission.storage.request();
       }
     } else {
-      // iOS
+      // iOS — limited library access still allows picking selected photos.
       status = await Permission.photos.status;
-      if (!status.isGranted) {
+      if (!status.isGranted && !status.isLimited) {
         status = await Permission.photos.request();
       }
     }
@@ -302,6 +302,11 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         _showPermissionDeniedDialog();
       }
       return false;
+    }
+
+    // iOS limited access and Android system pickers can still succeed.
+    if (Platform.isIOS) {
+      return status.isGranted || status.isLimited;
     }
 
     // image_picker on Android can often work even without explicit permission

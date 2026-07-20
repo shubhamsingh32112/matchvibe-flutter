@@ -16,13 +16,19 @@ class VipApiService {
     return VipStatus.fromJson(data);
   }
 
-  Future<String> initiateCheckout({required String planId}) async {
+  /// Returns checkout handoff fields used for browser launch + Meta Purchase.
+  Future<Map<String, dynamic>> initiateCheckout({required String planId}) async {
     final response = await _api.post(
       '/vip/checkout/initiate',
       data: {'planId': planId},
     );
     final data = response.data['data'] as Map<String, dynamic>;
-    return data['checkoutUrl'] as String;
+    return {
+      'checkoutUrl': data['checkoutUrl'] as String,
+      'sessionId': data['sessionId'] as String? ?? '',
+      'planId': data['planId'] as String? ?? planId,
+      'priceInr': (data['priceInr'] as num?)?.toInt() ?? 0,
+    };
   }
 
   Future<void> scheduleCall({

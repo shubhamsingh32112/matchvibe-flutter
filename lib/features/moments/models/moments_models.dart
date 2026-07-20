@@ -335,6 +335,7 @@ class MomentShareInfo {
     required this.shareUrl,
     required this.deepLink,
     required this.playStoreUrl,
+    this.appStoreUrl = '',
     required this.title,
     required this.thumbnailUrl,
   });
@@ -342,6 +343,7 @@ class MomentShareInfo {
   final String shareUrl;
   final String deepLink;
   final String playStoreUrl;
+  final String appStoreUrl;
   final String title;
   final String thumbnailUrl;
 
@@ -350,6 +352,7 @@ class MomentShareInfo {
       shareUrl: json['shareUrl'] as String? ?? '',
       deepLink: json['deepLink'] as String? ?? '',
       playStoreUrl: json['playStoreUrl'] as String? ?? '',
+      appStoreUrl: json['appStoreUrl'] as String? ?? '',
       title: json['title'] as String? ?? '',
       thumbnailUrl: json['thumbnailUrl'] as String? ?? '',
     );

@@ -588,6 +588,12 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     final deepLinkMessage = uri.queryParameters['message'];
 
     if (paymentStatus == 'success') {
+      final dedupeId = uri.queryParameters['session'] ??
+          uri.queryParameters['sessionId'] ??
+          uri.queryParameters['orderId'];
+      unawaited(
+        MetaAppEventsService.logPurchaseFromPending(dedupeId: dedupeId),
+      );
       await ref.read(authProvider.notifier).refreshUser();
       if (!mounted) return;
       appRouter.go('/vip');
@@ -622,6 +628,12 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
     final deepLinkMessage = uri.queryParameters['message'];
 
     if (paymentStatus == 'success') {
+      final dedupeId = uri.queryParameters['session'] ??
+          uri.queryParameters['sessionId'] ??
+          uri.queryParameters['orderId'];
+      unawaited(
+        MetaAppEventsService.logPurchaseFromPending(dedupeId: dedupeId),
+      );
       await syncMomentsPremiumAfterPurchase(container);
       if (!mounted) return;
       appRouter.go('/account/moments-plan');

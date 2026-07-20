@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../app/widgets/app_nav_destinations.dart';
 import '../../../app/widgets/app_nav_index.dart';
 import '../../../app/widgets/main_layout.dart';
+import '../../../core/services/meta_app_events_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../../shared/widgets/app_toast.dart';
@@ -40,21 +41,60 @@ class _VipScreenState extends ConsumerState<VipScreen> {
     await ref.read(authProvider.notifier).refreshUser();
   }
 
-  Future<void> _subscribe(String planId, {required bool isActive}) async {
+  Future<void> _subscribe(
+    String planId, {
+    required bool isActive,
+    int? priceInr,
+  }) async {
     if (_isCheckingOut) return;
     setState(() => _isCheckingOut = true);
     try {
-      final url = await ref
+      if (priceInr != null && priceInr > 0) {
+        await MetaAppEventsService.logAddToCart(
+          contentId: planId,
+          priceInr: priceInr.toDouble(),
+          contentType: 'vip_plan',
+        );
+      }
+
+      final checkout = await ref
           .read(vipApiServiceProvider)
           .initiateCheckout(planId: planId);
+      final checkoutUrl = checkout['checkoutUrl'] as String;
+      final sessionId = checkout['sessionId'] as String? ?? '';
+      final resolvedPlanId = checkout['planId'] as String? ?? planId;
+      final resolvedPriceInr =
+          checkout['priceInr'] as int? ?? priceInr ?? 0;
+
+      MetaAppEventsService.setPendingCheckout(
+        MetaPendingCheckout(
+          sessionId: sessionId,
+          packageId: resolvedPlanId,
+          priceInr: resolvedPriceInr,
+          contentType: 'vip_plan',
+        ),
+      );
+      if (resolvedPriceInr > 0) {
+        await MetaAppEventsService.logInitiateCheckout(
+          contentId: resolvedPlanId,
+          priceInr: resolvedPriceInr.toDouble(),
+          contentType: 'vip_plan',
+          sessionId: sessionId.isNotEmpty ? sessionId : null,
+        );
+      }
+
       final launched = await launchUrl(
-        Uri.parse(url),
+        Uri.parse(checkoutUrl),
         mode: LaunchMode.externalApplication,
       );
-      if (!launched && mounted) {
-        AppToast.showError(context, 'Could not open checkout');
+      if (!launched) {
+        MetaAppEventsService.takePendingCheckout();
+        if (mounted) {
+          AppToast.showError(context, 'Could not open checkout');
+        }
       }
     } catch (_) {
+      MetaAppEventsService.takePendingCheckout();
       if (mounted) {
         AppToast.showError(context, 'Failed to start VIP checkout');
       }
@@ -191,6 +231,7 @@ class _VipScreenState extends ConsumerState<VipScreen> {
                     onPressed: () => _subscribe(
                       selectedPlan.planId,
                       isActive: isActive,
+                      priceInr: selectedPlan.priceInr,
                     ),
                   )
                 else

@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../app/widgets/app_nav_destinations.dart';
 import '../../../app/widgets/app_nav_index.dart';
 import '../../../app/widgets/main_layout.dart';
+import '../../../core/services/meta_app_events_service.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/decorative_asset_image.dart';
 import '../../../shared/widgets/loading_indicator.dart';
@@ -61,21 +62,56 @@ class _MomentsPlanScreenState extends ConsumerState<MomentsPlanScreen> {
     );
   }
 
-  Future<void> _onBuy(String planId) async {
+  Future<void> _onBuy(String planId, {int? priceInr}) async {
     if (_isCheckingOut) return;
     setState(() => _isCheckingOut = true);
     try {
-      final url = await ref
+      if (priceInr != null && priceInr > 0) {
+        await MetaAppEventsService.logAddToCart(
+          contentId: planId,
+          priceInr: priceInr.toDouble(),
+          contentType: 'moments_premium',
+        );
+      }
+
+      final checkout = await ref
           .read(momentsPremiumApiServiceProvider)
           .initiateCheckout(planId: planId);
+      final checkoutUrl = checkout['checkoutUrl'] as String;
+      final sessionId = checkout['sessionId'] as String? ?? '';
+      final resolvedPlanId = checkout['planId'] as String? ?? planId;
+      final resolvedPriceInr =
+          checkout['priceInr'] as int? ?? priceInr ?? 0;
+
+      MetaAppEventsService.setPendingCheckout(
+        MetaPendingCheckout(
+          sessionId: sessionId,
+          packageId: resolvedPlanId,
+          priceInr: resolvedPriceInr,
+          contentType: 'moments_premium',
+        ),
+      );
+      if (resolvedPriceInr > 0) {
+        await MetaAppEventsService.logInitiateCheckout(
+          contentId: resolvedPlanId,
+          priceInr: resolvedPriceInr.toDouble(),
+          contentType: 'moments_premium',
+          sessionId: sessionId.isNotEmpty ? sessionId : null,
+        );
+      }
+
       final launched = await launchUrl(
-        Uri.parse(url),
+        Uri.parse(checkoutUrl),
         mode: LaunchMode.externalApplication,
       );
-      if (!launched && mounted) {
-        AppToast.showError(context, 'Could not open checkout');
+      if (!launched) {
+        MetaAppEventsService.takePendingCheckout();
+        if (mounted) {
+          AppToast.showError(context, 'Could not open checkout');
+        }
       }
     } catch (_) {
+      MetaAppEventsService.takePendingCheckout();
       if (mounted) {
         AppToast.showError(context, 'Failed to start Moments Premium checkout');
       }
@@ -191,7 +227,12 @@ class _MomentsPlanScreenState extends ConsumerState<MomentsPlanScreen> {
                   ),
                 ),
                 _SubscribeFooter(
-                  onBuy: canPurchase ? () => _onBuy(selectedPlan.planId) : null,
+                  onBuy: canPurchase
+                      ? () => _onBuy(
+                            selectedPlan.planId,
+                            priceInr: selectedPlan.priceInr,
+                          )
+                      : null,
                   isLoading: _isCheckingOut,
                 ),
               ],

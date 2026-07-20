@@ -9,14 +9,18 @@ class MetaPendingCheckout {
   const MetaPendingCheckout({
     required this.sessionId,
     required this.packageId,
-    required this.coins,
     required this.priceInr,
+    this.coins = 0,
+    this.contentType = 'coin_pack',
   });
 
   final String sessionId;
   final String packageId;
   final int coins;
   final int priceInr;
+
+  /// Meta content type: `coin_pack`, `vip_plan`, or `moments_premium`.
+  final String contentType;
 }
 
 /// Meta App Events (Android) — single facade over [FacebookAppEvents].
@@ -141,6 +145,19 @@ class MetaAppEventsService {
     }
   }
 
+  /// Successful interactive login (Google / phone / etc.). Custom Meta event.
+  static Future<void> logLogin({String method = 'google'}) async {
+    if (!isEnabled) return;
+    try {
+      await _events.logEvent(
+        name: 'Login',
+        parameters: {'method': method},
+      );
+    } catch (e) {
+      debugPrint('[META] Login failed: $e');
+    }
+  }
+
   static Future<void> logTutorialCompletion({bool success = true}) async {
     if (!isEnabled) return;
     try {
@@ -200,6 +217,7 @@ class MetaAppEventsService {
   static Future<void> logInitiateCheckout({
     required String contentId,
     required double priceInr,
+    String contentType = 'coin_pack',
     String? sessionId,
     int numItems = 1,
   }) async {
@@ -211,7 +229,7 @@ class MetaAppEventsService {
     try {
       final params = <String, dynamic>{
         FacebookAppEvents.paramNameContentId: contentId,
-        FacebookAppEvents.paramNameContentType: 'coin_pack',
+        FacebookAppEvents.paramNameContentType: contentType,
         FacebookAppEvents.paramNameCurrency: 'INR',
         FacebookAppEvents.paramNameNumItems: numItems,
         if (sessionId != null && sessionId.isNotEmpty)
@@ -230,14 +248,15 @@ class MetaAppEventsService {
   static Future<void> logPurchase({
     required double amountInr,
     required String contentId,
-    required int coins,
+    String contentType = 'coin_pack',
+    int coins = 0,
     String? sessionId,
     String? dedupeId,
   }) async {
     if (!isEnabled) return;
     final key = dedupeId ??
         sessionId ??
-        'purchase:$contentId:$coins:${amountInr.toStringAsFixed(0)}';
+        'purchase:$contentId:$contentType:${amountInr.toStringAsFixed(0)}';
     if (!_rememberDedupeKey('purchase:$key')) return;
     try {
       await _events.logPurchase(
@@ -245,8 +264,8 @@ class MetaAppEventsService {
         currency: 'INR',
         parameters: {
           FacebookAppEvents.paramNameContentId: contentId,
-          FacebookAppEvents.paramNameContentType: 'coin_pack',
-          'coins': coins,
+          FacebookAppEvents.paramNameContentType: contentType,
+          if (coins > 0) 'coins': coins,
           if (sessionId != null && sessionId.isNotEmpty)
             FacebookAppEvents.paramNameOrderId: sessionId,
         },
@@ -265,6 +284,7 @@ class MetaAppEventsService {
     await logPurchase(
       amountInr: pending.priceInr.toDouble(),
       contentId: pending.packageId,
+      contentType: pending.contentType,
       coins: coinsAddedFromDeepLink ?? pending.coins,
       sessionId: pending.sessionId,
       dedupeId: dedupeId ?? pending.sessionId,
