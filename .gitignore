@@ -90,6 +90,8 @@ app.*.map.json
 !macos/Runner/Assets.xcassets/**/*.png
 !web/icons/*.png
 !web/favicon.png
+!lib/assets/nav/*.png
+!lib/assets/moments/post_reel_fab_icon.png
 
 # Ignore large image and media files in assets
 /lib/assets/**/*.jpg
