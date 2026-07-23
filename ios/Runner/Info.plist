@@ -61,22 +61,30 @@
 				<string>app</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.911372372113-8aqk0309a8j2lgkoqopv0dosti9htu7q</string>
+			</array>
+		</dict>
 	</array>
 	<!-- Privacy usage descriptions (required on iOS) -->
 	<key>NSCameraUsageDescription</key>
 	<string>We need camera access for video calls and profile photo capture.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>We need microphone access for video/audio calls and chat voice messages.</string>
+	<string>We need microphone access for audio during calls and voice messages.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>We need photo library access to let you choose a profile picture.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>We save photos and clips to your library when you choose to save them.</string>
+	<string>We save photos and clips you capture to your library.</string>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
+		<string>tel</string>
+		<string>mailto</string>
 		<string>https</string>
 		<string>http</string>
-		<string>mailto</string>
-		<string>tel</string>
 		<string>sms</string>
 		<string>whatsapp</string>
 	</array>

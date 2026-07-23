@@ -1,5 +1,8 @@
-import 'dart:async' show Completer, unawaited;
+import 'dart:async' show Completer, TimeoutException, unawaited;
+import 'dart:convert';
+import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
@@ -8,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/images/image_asset_view.dart';
@@ -97,9 +101,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
   // Guards to prevent duplicate operations
   bool _isSyncingToBackend = false;
   String? _lastSyncedUid;
-
-  /// When set, next successful backend sync logs Meta [Login] (interactive sign-in only).
-  String? _pendingMetaLoginMethod;
 
   @visibleForTesting
   AuthNotifier.testInitial(AuthState initial) : _ref = null, super(initial) {
@@ -236,7 +237,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
         debugPrint('🚪 [AUTH] Auth state changed: User logged out');
         _isSyncingToBackend = false;
         _lastSyncedUid = null;
-        _pendingMetaLoginMethod = null;
         ApiClient.clearAuthTokenMemory();
         state = AuthState();
       }
@@ -593,15 +593,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
           ),
         );
         unawaited(MetaAppEventsService.setUserId(user.id));
-        final loginMethod = _pendingMetaLoginMethod;
-        _pendingMetaLoginMethod = null;
-        if (loginMethod != null) {
-          unawaited(MetaAppEventsService.logLogin(method: loginMethod));
-        }
         if (createdNow) {
           unawaited(
             MetaAppEventsService.logCompleteRegistration(
-              registrationMethod: loginMethod ?? 'google',
+              registrationMethod: _registrationMethodFor(firebaseUser),
             ),
           );
         }
@@ -710,7 +705,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
         error: errorMessage,
         createdNow: false,
       );
-      // Keep _pendingMetaLoginMethod so a login-screen retry can still report Login.
       debugPrint('   💾 Error state updated with message: $errorMessage');
       if (pendingReferralForLogin != null && !referralDispositionFinalized) {
         _pendingReferralCode = pendingReferralForLogin;
@@ -808,7 +802,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
         );
         _lastSyncedUid = null;
         _isSyncingToBackend = false;
-        _pendingMetaLoginMethod = 'google';
         await _syncUserToBackend(_auth!.currentUser!);
         return;
       }
@@ -819,7 +812,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
       }
 
       state = state.copyWith(isLoading: true, error: null);
-      _pendingMetaLoginMethod = 'google';
       // Note: _pendingReferralCode is set by login screen before calling signInWithGoogle
 
       if (AppConstants.googleWebClientId.isEmpty && kDebugMode) {
@@ -833,7 +825,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
         googleUser = await AppGoogleSignIn.instance.signIn();
       } on PlatformException catch (e) {
         debugPrint('❌ [GOOGLE AUTH] PlatformException: ${e.code} ${e.message}');
-        _pendingMetaLoginMethod = null;
         state = state.copyWith(
           isLoading: false,
           error: _googleSignInPlatformMessage(e),
@@ -843,7 +834,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
       if (googleUser == null) {
         debugPrint('⏭️ [GOOGLE AUTH] User canceled sign-in');
-        _pendingMetaLoginMethod = null;
         state = state.copyWith(isLoading: false);
         return;
       }
@@ -852,7 +842,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final idToken = googleAuth.idToken;
       if (idToken == null || idToken.isEmpty) {
         debugPrint('❌ [GOOGLE AUTH] Missing idToken from GoogleSignIn');
-        _pendingMetaLoginMethod = null;
         state = state.copyWith(
           isLoading: false,
           error: kDebugMode
@@ -877,11 +866,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
       debugPrint(
         '❌ [GOOGLE AUTH] FirebaseAuthException: ${e.code} ${e.message}',
       );
-      _pendingMetaLoginMethod = null;
       state = state.copyWith(isLoading: false, error: _firebaseAuthMessage(e));
     } catch (e) {
       debugPrint('❌ [GOOGLE AUTH] Error: $e');
-      _pendingMetaLoginMethod = null;
       state = state.copyWith(
         isLoading: false,
         error: UserMessageMapper.userMessageFor(
@@ -889,6 +876,192 @@ class AuthNotifier extends StateNotifier<AuthState> {
           fallback: 'Sign-in failed. Please try again.',
         ),
       );
+    }
+  }
+
+  /// Sign in with Apple (iOS only — call from iOS UI).
+  Future<void> signInWithApple() async {
+    try {
+      debugPrint('═══════════════════════════════════════════════════════');
+      debugPrint('🍎 [APPLE AUTH] Starting Sign in with Apple');
+      debugPrint('═══════════════════════════════════════════════════════');
+
+      if (_auth == null) {
+        debugPrint('❌ [APPLE AUTH] Firebase not initialized');
+        state = state.copyWith(error: 'Firebase not initialized');
+        return;
+      }
+
+      if (_auth!.currentUser != null && !state.isAuthenticated) {
+        debugPrint(
+          '🔄 [APPLE AUTH] User signed in with Firebase, retrying backend sync',
+        );
+        state = state.copyWith(
+          isLoading: true,
+          error: null,
+          firebaseUser: _auth!.currentUser,
+        );
+        _lastSyncedUid = null;
+        _isSyncingToBackend = false;
+        await _syncUserToBackend(_auth!.currentUser!);
+        return;
+      }
+
+      if (_auth!.currentUser != null && state.isAuthenticated) {
+        debugPrint('✅ [APPLE AUTH] Already fully authenticated');
+        return;
+      }
+
+      state = state.copyWith(isLoading: true, error: null);
+
+      final rawNonce = _generateNonce();
+      final nonce = _sha256ofString(rawNonce);
+
+      debugPrint('🍎 [APPLE AUTH] Requesting Apple ID credential…');
+      final AuthorizationCredentialAppleID appleCredential;
+      try {
+        appleCredential = await SignInWithApple.getAppleIDCredential(
+          scopes: [
+            AppleIDAuthorizationScopes.email,
+            AppleIDAuthorizationScopes.fullName,
+          ],
+          nonce: nonce,
+        ).timeout(
+          const Duration(seconds: 120),
+          onTimeout: () {
+            throw TimeoutException(
+              'Apple Sign-In timed out. Check Sign in with Apple capability, '
+              'App ID, and that the simulator is signed into iCloud.',
+            );
+          },
+        );
+      } on TimeoutException catch (e) {
+        debugPrint('❌ [APPLE AUTH] Timeout: $e');
+        state = state.copyWith(
+          isLoading: false,
+          error: e.message ??
+              'Apple Sign-In timed out. Please try again.',
+        );
+        return;
+      }
+
+      debugPrint('🍎 [APPLE AUTH] Apple credential received, signing into Firebase…');
+      final idToken = appleCredential.identityToken;
+      if (idToken == null || idToken.isEmpty) {
+        debugPrint('❌ [APPLE AUTH] Missing identityToken from Apple');
+        state = state.copyWith(
+          isLoading: false,
+          error: 'Apple Sign-In failed. Please try again.',
+        );
+        return;
+      }
+
+      final oauthCredential = OAuthProvider('apple.com').credential(
+        idToken: idToken,
+        rawNonce: rawNonce,
+        accessToken: appleCredential.authorizationCode,
+      );
+
+      final userCredential = await _auth!.signInWithCredential(oauthCredential);
+      debugPrint('🍎 [APPLE AUTH] Firebase credential accepted');
+
+      // Apple only provides the name on the first authorization.
+      final givenName = appleCredential.givenName?.trim();
+      final familyName = appleCredential.familyName?.trim();
+      final displayName = [
+        if (givenName != null && givenName.isNotEmpty) givenName,
+        if (familyName != null && familyName.isNotEmpty) familyName,
+      ].join(' ');
+      final user = userCredential.user;
+      if (user != null &&
+          displayName.isNotEmpty &&
+          (user.displayName == null || user.displayName!.trim().isEmpty)) {
+        try {
+          await user.updateDisplayName(displayName);
+        } catch (e) {
+          debugPrint('⚠️  [APPLE AUTH] Could not set display name: $e');
+        }
+      }
+
+      debugPrint('✅ [APPLE AUTH] Sign-in successful');
+      state = state.copyWith(isLoading: false);
+      // Auth state listener will trigger _syncUserToBackend
+    } on SignInWithAppleAuthorizationException catch (e) {
+      debugPrint(
+        '❌ [APPLE AUTH] AuthorizationException: ${e.code} ${e.message}',
+      );
+      if (e.code == AuthorizationErrorCode.canceled) {
+        debugPrint('⏭️ [APPLE AUTH] User canceled sign-in');
+        state = state.copyWith(isLoading: false);
+        return;
+      }
+      state = state.copyWith(
+        isLoading: false,
+        error: _appleSignInMessage(e),
+      );
+    } on FirebaseAuthException catch (e) {
+      debugPrint(
+        '❌ [APPLE AUTH] FirebaseAuthException: ${e.code} ${e.message}',
+      );
+      state = state.copyWith(
+        isLoading: false,
+        error: _firebaseAuthMessage(e, providerLabel: 'Apple'),
+      );
+    } catch (e) {
+      debugPrint('❌ [APPLE AUTH] Error: $e');
+      state = state.copyWith(
+        isLoading: false,
+        error: UserMessageMapper.userMessageFor(
+          e,
+          fallback: 'Sign-in failed. Please try again.',
+        ),
+      );
+    }
+  }
+
+  String _generateNonce([int length = 32]) {
+    const charset =
+        '0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._';
+    final random = Random.secure();
+    return List.generate(
+      length,
+      (_) => charset[random.nextInt(charset.length)],
+    ).join();
+  }
+
+  String _sha256ofString(String input) {
+    final bytes = utf8.encode(input);
+    final digest = sha256.convert(bytes);
+    return digest.toString();
+  }
+
+  String _registrationMethodFor(User firebaseUser) {
+    for (final info in firebaseUser.providerData) {
+      final id = info.providerId;
+      if (id == 'apple.com') return 'apple';
+      if (id == 'google.com') return 'google';
+    }
+    return 'google';
+  }
+
+  String _appleSignInMessage(SignInWithAppleAuthorizationException e) {
+    switch (e.code) {
+      case AuthorizationErrorCode.canceled:
+        return '';
+      case AuthorizationErrorCode.failed:
+        return 'Apple Sign-In failed. Please try again.';
+      case AuthorizationErrorCode.invalidResponse:
+        return 'Apple Sign-In returned an invalid response. Please try again.';
+      case AuthorizationErrorCode.notHandled:
+        return 'Apple Sign-In is not available on this device.';
+      case AuthorizationErrorCode.notInteractive:
+        return 'Apple Sign-In requires interaction. Please try again.';
+      case AuthorizationErrorCode.unknown:
+        // ASAuthorizationError 1000 — almost always missing capability / team /
+        // App ID Sign in with Apple, or simulator not signed into iCloud.
+        return kDebugMode
+            ? 'Apple Sign-In failed (error 1000). Enable “Sign in with Apple” on App ID com.matchvibe.app, add the capability in Xcode with Team YSULFNB29L, enable Apple in Firebase Auth, sign the simulator into iCloud, then fully rebuild.'
+            : 'Apple Sign-In isn’t set up on this build. Please try again later.';
     }
   }
 
@@ -908,10 +1081,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
     );
   }
 
-  String _firebaseAuthMessage(FirebaseAuthException e) {
+  String _firebaseAuthMessage(
+    FirebaseAuthException e, {
+    String providerLabel = 'Google',
+  }) {
     switch (e.code) {
       case 'invalid-credential':
-        return 'Your Google session is invalid or expired. Please try signing in again.';
+        return 'Your $providerLabel session is invalid or expired. Please try signing in again.';
       case 'user-disabled':
         return 'This account has been disabled.';
       case 'account-exists-with-different-credential':
@@ -955,7 +1131,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
       _isSyncingToBackend = false;
       _lastSyncedUid = null;
-      _pendingMetaLoginMethod = null;
 
       state = AuthState();
       debugPrint('✅ [AUTH] Sign out completed');

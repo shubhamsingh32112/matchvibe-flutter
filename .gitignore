@@ -109,7 +109,24 @@ app.*.map.json
 **/facebook.properties
 **/google-services.json
 
+# Firebase iOS client plist — keep local (download from Firebase Console).
+# Do not untrack android/app/google-services.json if it is already in git;
+# that would break Android clones. This only blocks *new* adds of the iOS plist.
+**/GoogleService-Info.plist
+
+# Apple push / signing secrets (never commit)
+**/*.p8
+**/AuthKey_*.p8
+**/*.mobileprovision
+**/*.provisionprofile
+**/Certificates.p12
+
+# Xcode user-specific state
+**/xcuserdata/
+*.xcuserstate
+
 # Environment files (never commit secrets)
+# Local .env.development / .env.production stay on each machine (PC + Mac).
 .env
 .env.*
 !.env.example

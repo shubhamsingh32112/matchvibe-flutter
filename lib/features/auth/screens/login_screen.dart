@@ -45,6 +45,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   /// Tracks that the user started Google sign-in (for in-pill spinner).
   bool _googlePressed = false;
 
+  /// Tracks that the user started Apple sign-in (for in-pill spinner).
+  bool _applePressed = false;
+
   /// After successful [GET /referral/preview] — normalized code shown in banner.
   String? _stagedReferralDisplay;
 
@@ -324,6 +327,38 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     await ref.read(authProvider.notifier).signInWithGoogle();
     if (mounted && !ref.read(authProvider).isLoading) {
       setState(() => _googlePressed = false);
+    }
+  }
+
+  Future<void> _handleAppleLogin() async {
+    debugPrint('🖱️  [UI] Apple Sign-In button pressed');
+
+    if (!_referralReadyForSignIn()) {
+      AppToast.showInfo(
+        context,
+        _autoReferralFromLink
+            ? 'Verifying your referral code…'
+            : 'Tap Apply to confirm your referral code first.',
+      );
+      return;
+    }
+
+    final refCode = _referralController.text.trim();
+    if (refCode.isNotEmpty && !ReferralCodeFormat.isValid(refCode)) {
+      AppToast.showInfo(
+        context,
+        'Referral code must be 6 or 8 characters (e.g. JO4832 or JOE48392)',
+      );
+      return;
+    }
+
+    setState(() => _applePressed = true);
+    await ref
+        .read(authProvider.notifier)
+        .setPendingReferralCode(refCode.isEmpty ? null : refCode.toUpperCase());
+    await ref.read(authProvider.notifier).signInWithApple();
+    if (mounted && !ref.read(authProvider).isLoading) {
+      setState(() => _applePressed = false);
     }
   }
 
@@ -758,8 +793,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       if (previous?.isLoading == true &&
           next.isLoading == false &&
           mounted &&
-          _googlePressed) {
-        setState(() => _googlePressed = false);
+          (_googlePressed || _applePressed)) {
+        setState(() {
+          _googlePressed = false;
+          _applePressed = false;
+        });
       }
 
       if (next.isAuthenticated &&
@@ -800,6 +838,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     });
 
     final showGoogleSpinner = _googlePressed && isLoginBusy;
+    final showAppleSpinner = _applePressed && isLoginBusy;
+    final showAppleSignIn =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
     final pillsEnabled = !isLoginBusy;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -929,6 +970,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                           busyLabel: 'Signing in…',
                           showSpinner: showGoogleSpinner,
                         ),
+                        if (showAppleSignIn) ...[
+                          const SizedBox(height: 12),
+                          _pillButton(
+                            onPressed: pillsEnabled && !_previewLoading
+                                ? _handleAppleLogin
+                                : null,
+                            leading: Icon(
+                              Icons.apple,
+                              size: 28,
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
+                            label: 'Continue with Apple',
+                            busyLabel: 'Signing in…',
+                            showSpinner: showAppleSpinner,
+                          ),
+                        ],
                         const SizedBox(height: 20),
                         Center(
                           child: Column(
