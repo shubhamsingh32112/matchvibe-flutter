@@ -22,6 +22,7 @@ import '../../features/account/screens/blocked_buddies_screen.dart';
 import '../../features/account/screens/delete_account_screen.dart';
 import '../../features/account/screens/edit_profile_screen.dart';
 import '../../features/referral/screens/host_application_pending_screen.dart';
+import '../../features/account/screens/host_disabled_screen.dart';
 import '../../features/wallet/screens/wallet_screen.dart';
 import '../../features/wallet/screens/payment_status_screen.dart';
 import '../../features/wallet/screens/transactions_screen.dart';
@@ -73,6 +74,10 @@ final appRouter = GoRouter(
           GoRoute(
             path: '/host-application-pending',
             builder: (context, state) => const HostApplicationPendingScreen(),
+          ),
+          GoRoute(
+            path: '/host-disabled',
+            builder: (context, state) => const HostDisabledScreen(),
           ),
           GoRoute(
             path: '/host-profile-setup',

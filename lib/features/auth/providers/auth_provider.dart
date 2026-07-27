@@ -543,6 +543,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
             onboardingNotificationStatus:
                 onboardingData?['notificationStatus'] as String? ?? 'unknown',
             hasAgencyAssignment: creatorData['hasAgencyAssignment'] == true,
+            isHostDisabled: creatorData['isDisabled'] == true,
           );
           debugPrint('🎭 [AUTH] Creator login detected');
           debugPrint('   👤 Creator Name: ${creatorData['name']}');
@@ -1308,6 +1309,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
             onboardingNotificationStatus:
                 onboardingData?['notificationStatus'] as String? ?? 'unknown',
             hasAgencyAssignment: responseData['hasAgencyAssignment'] == true,
+            isHostDisabled: responseData['isDisabled'] == true,
           );
           debugPrint('✅ [AUTH] User data refreshed (creator)');
         }

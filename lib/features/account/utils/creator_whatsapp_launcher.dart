@@ -14,6 +14,15 @@ class CreatorWhatsappLauncher {
         'User ID: $userId';
   }
 
+  static String buildHostDisabledMessage({
+    required String userId,
+    required String hostName,
+  }) {
+    return 'Hi MatchVibe team, my host account has been disabled. Please help.\n'
+        'User ID: $userId\n'
+        'Host: $hostName';
+  }
+
   static Uri? buildWaMeUri(String message) {
     final number = AppConstants.creatorWhatsappNumber;
     if (number.isEmpty) return null;
@@ -30,6 +39,21 @@ class CreatorWhatsappLauncher {
       userWhatsapp: userWhatsapp,
       userId: userId,
     );
+    return _launchMessage(message);
+  }
+
+  static Future<bool> launchHostDisabledChat({
+    required String userId,
+    required String hostName,
+  }) async {
+    final message = buildHostDisabledMessage(
+      userId: userId,
+      hostName: hostName,
+    );
+    return _launchMessage(message);
+  }
+
+  static Future<bool> _launchMessage(String message) async {
     final uri = buildWaMeUri(message);
     if (uri == null) return false;
 

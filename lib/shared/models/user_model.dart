@@ -32,6 +32,8 @@ class UserModel extends Equatable {
   final bool hostProfileSetupRequired;
   /// True when creator profile has [assignedAgencyId] on the server.
   final bool hasAgencyAssignment;
+  /// True when superadmin deactivated this host (`Creator.isDisabled`).
+  final bool isHostDisabled;
   // Creator-specific fields (only populated when role is 'creator')
   final String? name; // Creator name
   final String? about; // Creator about/bio
@@ -72,6 +74,7 @@ class UserModel extends Equatable {
     this.creatorApplicationRejectionReason,
     this.hostProfileSetupRequired = false,
     this.hasAgencyAssignment = false,
+    this.isHostDisabled = false,
     this.name,
     this.about,
     this.age,
@@ -124,6 +127,7 @@ class UserModel extends Equatable {
           json['creatorApplicationRejectionReason'] as String?,
       hostProfileSetupRequired: json['hostProfileSetupRequired'] == true,
       hasAgencyAssignment: json['hasAgencyAssignment'] == true,
+      isHostDisabled: json['isDisabled'] == true,
       name: json['name'] as String?,
       about: json['about'] as String?,
       age: json['age'] != null ? json['age'] as int? : null,
@@ -186,6 +190,7 @@ class UserModel extends Equatable {
       'creatorApplicationRejectionReason': creatorApplicationRejectionReason,
       'hostProfileSetupRequired': hostProfileSetupRequired,
       'hasAgencyAssignment': hasAgencyAssignment,
+      'isDisabled': isHostDisabled,
       'name': name,
       'about': about,
       'age': age,
@@ -230,6 +235,7 @@ class UserModel extends Equatable {
     String? creatorApplicationRejectionReason,
     bool? hostProfileSetupRequired,
     bool? hasAgencyAssignment,
+    bool? isHostDisabled,
     String? name,
     String? about,
     int? age,
@@ -275,6 +281,7 @@ class UserModel extends Equatable {
           hostProfileSetupRequired ?? this.hostProfileSetupRequired,
       hasAgencyAssignment:
           hasAgencyAssignment ?? this.hasAgencyAssignment,
+      isHostDisabled: isHostDisabled ?? this.isHostDisabled,
       name: name ?? this.name,
       about: about ?? this.about,
       age: age ?? this.age,
@@ -324,6 +331,7 @@ class UserModel extends Equatable {
         creatorApplicationRejectionReason,
         hostProfileSetupRequired,
         hasAgencyAssignment,
+        isHostDisabled,
         name,
         about,
         age,
