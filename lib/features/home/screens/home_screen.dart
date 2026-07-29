@@ -348,6 +348,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
     // Connect socket (no-op if already connected)
     final socketService = ref.read(socketServiceProvider);
+    socketService.setClientRole(authState.user?.role);
     socketService.connect(token);
   }
 

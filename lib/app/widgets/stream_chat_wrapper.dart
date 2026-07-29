@@ -128,6 +128,7 @@ class _StreamChatWrapperState extends ConsumerState<StreamChatWrapper> {
     final socketService = ref.read(socketServiceProvider);
     final user = ref.read(authProvider).user;
     final role = user?.role;
+    socketService.setClientRole(role);
     final presenceHydration = ref.read(presenceHydrationServiceProvider);
 
     try {

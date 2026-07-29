@@ -35,6 +35,8 @@ class SocketService {
   final Set<String> _trackedUserIds = <String>{};
   Completer<bool>? _connectCompleter;
   String? _currentAuthToken;
+  /// Auth role used to gate fan presence announce (`user` only).
+  String? _clientRole;
   bool _isRefreshingSocketToken = false;
   DateTime? _lastSocketTokenRefreshAt;
   // ── Pending billing events (queued when socket is disconnected) ─────────
@@ -199,8 +201,8 @@ class SocketService {
       // Flush any pending billing events that were queued while disconnected
       _flushPendingBillingEvents();
       // Fans: announce presence so admin "Users online (5m)" Redis keys refresh
-      // even if the gateway connect path is delayed. Creators are ignored server-side.
-      emitUserOnline();
+      // even if the gateway connect path is delayed.
+      _announceFanPresenceIfNeeded();
       onConnected?.call();
     });
 
@@ -479,7 +481,7 @@ class SocketService {
       _isConnected = true;
       unawaited(_afterSocketReconnected());
 
-      emitUserOnline();
+      _announceFanPresenceIfNeeded();
       onConnected?.call();
       onReconnected?.call();
     });
@@ -561,6 +563,18 @@ class SocketService {
     if (!_isConnected || _socket == null) return;
     debugPrint('📡 [SOCKET] Emitting user:online');
     _socket!.emit('user:online');
+  }
+
+  /// Role from auth (`user` / `creator` / `admin`). Used to gate fan presence.
+  void setClientRole(String? role) {
+    _clientRole = role;
+  }
+
+  void _announceFanPresenceIfNeeded() {
+    final role = _clientRole;
+    // Fail open when role not loaded yet (likely a fan early in bootstrap).
+    if (role != null && role != 'user') return;
+    emitUserOnline();
   }
 
   void emitCreatorOffline() {
