@@ -2,6 +2,8 @@ import 'package:equatable/equatable.dart';
 
 class CreatorEarnings extends Equatable {
   final double totalEarnings;
+  final double freeCallEarnings;
+  final double paidCallEarnings;
   final double totalMinutes;
   final int totalCalls;
   final double earningsPerMinute; // CURRENT rate (what I earn right now based on current price)
@@ -12,6 +14,8 @@ class CreatorEarnings extends Equatable {
 
   const CreatorEarnings({
     required this.totalEarnings,
+    this.freeCallEarnings = 0,
+    this.paidCallEarnings = 0,
     required this.totalMinutes,
     required this.totalCalls,
     required this.earningsPerMinute,
@@ -22,13 +26,17 @@ class CreatorEarnings extends Equatable {
   });
 
   factory CreatorEarnings.fromJson(Map<String, dynamic> json) {
-    double _toDouble(dynamic value) {
+    double toDouble(dynamic value) {
       if (value is num) return value.toDouble();
       return 0.0;
     }
 
-    final totalEarnings = _toDouble(json['totalEarnings']);
-    final totalMinutes = _toDouble(json['totalMinutes']);
+    final totalEarnings = toDouble(json['totalEarnings']);
+    final totalMinutes = toDouble(json['totalMinutes']);
+    final freeCallEarnings = toDouble(json['freeCallEarnings']);
+    final paidCallEarnings = json['paidCallEarnings'] != null
+        ? toDouble(json['paidCallEarnings'])
+        : totalEarnings;
 
     // ⚠️ IMPORTANT: earningsPerMinute = CURRENT rate (what I earn right now)
     // avgEarningsPerMinute = Historical average (what I earned on average)
@@ -40,24 +48,27 @@ class CreatorEarnings extends Equatable {
     
     // Backend sends both fields separately
     final earningsPerMinute = json['earningsPerMinute'] != null
-        ? _toDouble(json['earningsPerMinute'])
+        ? toDouble(json['earningsPerMinute'])
         : (totalMinutes > 0 ? totalEarnings / totalMinutes : 0.0); // Fallback to average if current rate not available
     
     final avgEarningsPerMinute = json['avgEarningsPerMinute'] != null
-        ? _toDouble(json['avgEarningsPerMinute'])
+        ? toDouble(json['avgEarningsPerMinute'])
         : (totalMinutes > 0 ? totalEarnings / totalMinutes : 0.0); // Historical average
 
     return CreatorEarnings(
       totalEarnings: totalEarnings,
+      freeCallEarnings: freeCallEarnings,
+      paidCallEarnings: paidCallEarnings,
       totalMinutes: totalMinutes,
       totalCalls: (json['totalCalls'] as int?) ?? 0,
       earningsPerMinute: earningsPerMinute,
       avgEarningsPerMinute: avgEarningsPerMinute,
-      currentPrice: json['currentPrice'] != null ? _toDouble(json['currentPrice']) : null,
-      creatorSharePercentage: json['creatorSharePercentage'] != null ? _toDouble(json['creatorSharePercentage']) : null,
-      calls: (json['calls'] as List<dynamic>)
-          .map((call) => CallEarning.fromJson(call as Map<String, dynamic>))
-          .toList(),
+      currentPrice: json['currentPrice'] != null ? toDouble(json['currentPrice']) : null,
+      creatorSharePercentage: json['creatorSharePercentage'] != null ? toDouble(json['creatorSharePercentage']) : null,
+      calls: (json['calls'] as List<dynamic>?)
+              ?.map((call) => CallEarning.fromJson(call as Map<String, dynamic>))
+              .toList() ??
+          const [],
     );
   }
 
@@ -74,6 +85,8 @@ class CreatorEarnings extends Equatable {
   @override
   List<Object?> get props => [
         totalEarnings,
+        freeCallEarnings,
+        paidCallEarnings,
         totalMinutes,
         totalCalls,
         earningsPerMinute,

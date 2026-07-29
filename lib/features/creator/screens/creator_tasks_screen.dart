@@ -6,6 +6,7 @@ import '../../auth/providers/auth_provider.dart';
 import '../providers/creator_dashboard_provider.dart';
 import '../providers/creator_task_provider.dart';
 import '../models/creator_task_model.dart';
+import '../utils/creator_earnings_display.dart';
 import '../../../core/utils/user_message_mapper.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../../shared/widgets/ui_primitives.dart';
@@ -21,14 +22,12 @@ class CreatorTasksScreen extends ConsumerStatefulWidget {
 }
 
 class _CreatorTasksScreenState extends ConsumerState<CreatorTasksScreen> {
-  // Track claiming state for optimistic UX
   final Set<String> _claimingTaskKeys = {};
 
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider.select((s) => s.user));
 
-    // 🔒 PHASE T2: Role guard at route level
     if (user?.role != 'creator' && user?.role != 'admin') {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         Navigator.of(context).pop();
@@ -37,21 +36,17 @@ class _CreatorTasksScreenState extends ConsumerState<CreatorTasksScreen> {
     }
 
     final coins = user?.coins ?? 0;
-    // Use dashboard-derived tasks provider (auto-synced via socket)
     final tasksAsync = ref.watch(dashboardTasksProvider);
 
     return Scaffold(
       backgroundColor: AppBrandGradients.accountMenuPageBackground,
       appBar: buildAccountFlowAppBar(
         context,
-        title: 'Tasks & Rewards',
+        title: 'Weekly Targets',
         actions: [BrandHeaderCoinsChip(coins: coins)],
       ),
       body: tasksAsync.when(
         data: (tasksResponse) {
-          if (tasksResponse.totalMinutes == 0) {
-            return _EmptyState();
-          }
           return _TasksContent(
             tasksResponse: tasksResponse,
             claimingTaskKeys: _claimingTaskKeys,
@@ -62,7 +57,7 @@ class _CreatorTasksScreenState extends ConsumerState<CreatorTasksScreen> {
         error: (error, stack) => _ErrorView(
           error: UserMessageMapper.userMessageFor(
             error,
-            fallback: 'Couldn\'t load tasks. Please try again.',
+            fallback: 'Couldn\'t load targets. Please try again.',
           ),
           onRetry: () => ref.invalidate(creatorDashboardProvider),
         ),
@@ -70,35 +65,22 @@ class _CreatorTasksScreenState extends ConsumerState<CreatorTasksScreen> {
     );
   }
 
-  // 🔒 PHASE T2: Optimistic claim UX (without coin mutation)
   Future<void> _claimTask(String taskKey) async {
-    // Optimistically disable button and show spinner
     setState(() {
       _claimingTaskKeys.add(taskKey);
     });
 
     try {
       await ref.read(creatorTaskServiceProvider).claimTaskReward(taskKey);
-
-      // Invalidate dashboard to refresh task state (mark as claimed)
-      // The backend also emits creator:data_updated, but invalidate immediately for responsiveness
       ref.invalidate(creatorDashboardProvider);
 
-      // Remove from claiming set
       if (mounted) {
         setState(() {
           _claimingTaskKeys.remove(taskKey);
         });
-      }
-
-      // DO NOT modify coins locally - wait for coins_updated socket event
-      // This matches wallet & call billing behavior
-
-      if (mounted) {
         AppToast.showSuccess(context, 'Reward claimed successfully!');
       }
     } catch (e) {
-      // Remove from claiming set on error
       if (mounted) {
         setState(() {
           _claimingTaskKeys.remove(taskKey);
@@ -130,23 +112,23 @@ class _TasksContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final totalMinutes = tasksResponse.totalMinutes;
+    final totalPaidCoins = tasksResponse.totalPaidCoins;
+    const maxThreshold = 30000.0;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Top Card: Total Minutes Completed
           AppCard(
             margin: const EdgeInsets.only(bottom: 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  "Today's Minutes",
+                  "This Week's Paid Coins",
                   style: TextStyle(
-                    color: scheme.onSurface.withOpacity(0.7),
+                    color: scheme.onSurface.withValues(alpha: 0.7),
                     fontSize: 14,
                   ),
                 ),
@@ -164,7 +146,7 @@ class _TasksContent extends StatelessWidget {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        '${totalMinutes.toStringAsFixed(1)} mins',
+                        CreatorEarningsDisplay.formatCoins(totalPaidCoins),
                         style: const TextStyle(
                           color: AppBrandGradients.walletOnGold,
                           fontSize: 24,
@@ -179,16 +161,15 @@ class _TasksContent extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 8),
-                // B) Next task preview - "Next reward in X minutes"
-                _NextTaskPreview(
-                  totalMinutes: totalMinutes,
+                _NextTargetPreview(
+                  totalPaidCoins: totalPaidCoins,
                   tasks: tasksResponse.tasks,
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Tasks reset daily at 11:59 PM. Complete calls to earn bonus coins!',
+                  'Targets reset weekly (every Monday). Earn paid-call coins to unlock bonuses!',
                   style: TextStyle(
-                    color: scheme.onSurface.withOpacity(0.6),
+                    color: scheme.onSurface.withValues(alpha: 0.6),
                     fontSize: 12,
                   ),
                 ),
@@ -196,7 +177,6 @@ class _TasksContent extends StatelessWidget {
             ),
           ),
 
-          // Progress Slider
           AppCard(
             margin: const EdgeInsets.only(bottom: 16),
             child: Column(
@@ -211,57 +191,36 @@ class _TasksContent extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 16),
-                // Progress bar
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: LinearProgressIndicator(
-                    value: (totalMinutes / 600).clamp(
-                      0.0,
-                      1.0,
-                    ), // Max 600 mins (4 hours)
+                    value: (totalPaidCoins / maxThreshold).clamp(0.0, 1.0),
                     minHeight: 12,
                     backgroundColor: scheme.surfaceContainerHighest,
                     valueColor: AlwaysStoppedAnimation<Color>(scheme.primary),
                   ),
                 ),
                 const SizedBox(height: 12),
-                // Milestones
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    _MilestoneMarker(
-                      label: '1hr',
-                      minutes: 60,
-                      currentMinutes: totalMinutes,
-                    ),
-                    _MilestoneMarker(
-                      label: '2hrs',
-                      minutes: 120,
-                      currentMinutes: totalMinutes,
-                    ),
-                    _MilestoneMarker(
-                      label: '3hrs',
-                      minutes: 180,
-                      currentMinutes: totalMinutes,
-                    ),
-                    _MilestoneMarker(
-                      label: '4hrs',
-                      minutes: 240,
-                      currentMinutes: totalMinutes,
-                    ),
+                    for (final t in tasksResponse.tasks)
+                      _MilestoneMarker(
+                        label: '${(t.thresholdPaidCoins / 1000).round()}k',
+                        threshold: t.thresholdPaidCoins,
+                        currentPaidCoins: totalPaidCoins,
+                      ),
                   ],
                 ),
               ],
             ),
           ),
 
-          // Daily Reset Countdown
           if (tasksResponse.resetsAt != null)
-            _DailyResetCountdown(resetsAt: tasksResponse.resetsAt!),
+            _WeeklyResetCountdown(resetsAt: tasksResponse.resetsAt!),
 
-          // Task List
           Text(
-            'Tasks',
+            'Targets',
             style: TextStyle(
               color: scheme.onSurface,
               fontSize: 18,
@@ -269,13 +228,16 @@ class _TasksContent extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          ...tasksResponse.tasks.map(
-            (task) => _TaskCard(
-              task: task,
-              isClaiming: claimingTaskKeys.contains(task.taskKey),
-              onClaim: () => onClaim(task.taskKey),
+          if (tasksResponse.tasks.isEmpty)
+            const _EmptyState()
+          else
+            ...tasksResponse.tasks.map(
+              (task) => _TaskCard(
+                task: task,
+                isClaiming: claimingTaskKeys.contains(task.taskKey),
+                onClaim: () => onClaim(task.taskKey),
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -284,19 +246,19 @@ class _TasksContent extends StatelessWidget {
 
 class _MilestoneMarker extends StatelessWidget {
   final String label;
-  final int minutes;
-  final double currentMinutes;
+  final int threshold;
+  final double currentPaidCoins;
 
   const _MilestoneMarker({
     required this.label,
-    required this.minutes,
-    required this.currentMinutes,
+    required this.threshold,
+    required this.currentPaidCoins,
   });
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final isReached = currentMinutes >= minutes;
+    final isReached = currentPaidCoins >= threshold;
 
     return Column(
       children: [
@@ -314,7 +276,7 @@ class _MilestoneMarker extends StatelessWidget {
           style: TextStyle(
             color: isReached
                 ? scheme.primary
-                : scheme.onSurface.withOpacity(0.5),
+                : scheme.onSurface.withValues(alpha: 0.5),
             fontSize: 12,
             fontWeight: isReached ? FontWeight.bold : FontWeight.normal,
           ),
@@ -353,7 +315,6 @@ class _TaskCardState extends State<_TaskCard>
       duration: const Duration(milliseconds: 500),
     );
 
-    // 🔒 PHASE T4: Visual "completion moment" - animate when task becomes completed
     if (widget.task.isCompleted && !widget.task.isClaimed) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _animationController.forward();
@@ -364,7 +325,6 @@ class _TaskCardState extends State<_TaskCard>
   @override
   void didUpdateWidget(_TaskCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Animate when task transitions from incomplete to completed
     if (!_wasCompleted && widget.task.isCompleted && !widget.task.isClaimed) {
       _animationController.forward();
       _wasCompleted = true;
@@ -388,10 +348,8 @@ class _TaskCardState extends State<_TaskCard>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Task header
           Row(
             children: [
-              // Checkbox/checkmark with animation
               AnimatedBuilder(
                 animation: _animationController,
                 builder: (context, child) {
@@ -406,8 +364,8 @@ class _TaskCardState extends State<_TaskCard>
                       boxShadow: task.isCompleted && !task.isClaimed
                           ? [
                               BoxShadow(
-                                color: scheme.primary.withOpacity(
-                                  0.5 * _animationController.value,
+                                color: scheme.primary.withValues(
+                                  alpha: 0.5 * _animationController.value,
                                 ),
                                 blurRadius: 8 * _animationController.value,
                                 spreadRadius: 2 * _animationController.value,
@@ -427,7 +385,7 @@ class _TaskCardState extends State<_TaskCard>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Complete ${task.thresholdMinutes} minutes',
+                      '${CreatorEarningsDisplay.formatCoins(task.thresholdPaidCoins)} paid coins',
                       style: TextStyle(
                         color: scheme.onSurface,
                         fontSize: 16,
@@ -436,16 +394,15 @@ class _TaskCardState extends State<_TaskCard>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${task.progressMinutes.toStringAsFixed(1)} / ${task.thresholdMinutes} minutes',
+                      '${CreatorEarningsDisplay.formatCoins(task.progressPaidCoins)} / ${CreatorEarningsDisplay.formatCoins(task.thresholdPaidCoins)} coins',
                       style: TextStyle(
-                        color: scheme.onSurface.withOpacity(0.7),
+                        color: scheme.onSurface.withValues(alpha: 0.7),
                         fontSize: 12,
                       ),
                     ),
                   ],
                 ),
               ),
-              // Reward label
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
@@ -466,10 +423,7 @@ class _TaskCardState extends State<_TaskCard>
               ),
             ],
           ),
-
           const SizedBox(height: 12),
-
-          // Progress bar
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
@@ -479,12 +433,10 @@ class _TaskCardState extends State<_TaskCard>
               valueColor: AlwaysStoppedAnimation<Color>(
                 task.isCompleted
                     ? scheme.primary
-                    : scheme.primary.withOpacity(0.5),
+                    : scheme.primary.withValues(alpha: 0.5),
               ),
             ),
           ),
-
-          // Claim button
           if (task.canClaim) ...[
             const SizedBox(height: 12),
             SizedBox(
@@ -512,8 +464,6 @@ class _TaskCardState extends State<_TaskCard>
               ),
             ),
           ],
-
-          // Claimed indicator
           if (task.isClaimed) ...[
             const SizedBox(height: 12),
             Row(
@@ -538,7 +488,6 @@ class _TaskCardState extends State<_TaskCard>
   }
 }
 
-// 🔒 PHASE T2: Empty state - "No completed calls yet" (NOT "No tasks")
 class _EmptyState extends StatelessWidget {
   const _EmptyState();
 
@@ -546,14 +495,13 @@ class _EmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     return const EmptyState(
       icon: Icons.phone_disabled_outlined,
-      title: 'No completed calls yet',
+      title: 'No paid-call earnings yet',
       message:
-          'Complete video calls to start earning bonus coins! Your progress will appear here once you finish your first call.',
+          'Complete paid video calls this week to progress toward your weekly coin targets.',
     );
   }
 }
 
-// 🔒 PHASE T2: Error state (explicit)
 class _ErrorView extends StatelessWidget {
   final String error;
   final VoidCallback onRetry;
@@ -563,7 +511,7 @@ class _ErrorView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ErrorState(
-      title: 'Failed to load tasks',
+      title: 'Failed to load targets',
       message: error,
       actionLabel: 'Retry',
       onAction: onRetry,
@@ -571,23 +519,24 @@ class _ErrorView extends StatelessWidget {
   }
 }
 
-// B) Next task preview - Pure UX sugar
-class _NextTaskPreview extends StatelessWidget {
-  final double totalMinutes;
+class _NextTargetPreview extends StatelessWidget {
+  final double totalPaidCoins;
   final List<CreatorTask> tasks;
 
-  const _NextTaskPreview({required this.totalMinutes, required this.tasks});
+  const _NextTargetPreview({
+    required this.totalPaidCoins,
+    required this.tasks,
+  });
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
-    // Find next uncompleted task
     try {
       final nextTask = tasks.firstWhere((task) => !task.isCompleted);
-      final minutesNeeded = nextTask.thresholdMinutes - totalMinutes;
+      final coinsNeeded = nextTask.thresholdPaidCoins - totalPaidCoins;
 
-      if (minutesNeeded <= 0) {
+      if (coinsNeeded <= 0) {
         return const SizedBox.shrink();
       }
 
@@ -604,7 +553,7 @@ class _NextTaskPreview extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'Next reward in ${minutesNeeded.toStringAsFixed(0)} minutes (+${nextTask.rewardCoins} coins)',
+                'Next reward in ${CreatorEarningsDisplay.formatCoins(coinsNeeded)} paid coins (+${nextTask.rewardCoins} bonus)',
                 style: TextStyle(
                   color: scheme.onSurface,
                   fontSize: 12,
@@ -615,8 +564,7 @@ class _NextTaskPreview extends StatelessWidget {
           ],
         ),
       );
-    } catch (e) {
-      // All tasks completed
+    } catch (_) {
       return Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
@@ -629,7 +577,7 @@ class _NextTaskPreview extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'All tasks completed! 🎉',
+                'All weekly targets completed!',
                 style: TextStyle(
                   color: scheme.onPrimaryContainer,
                   fontSize: 12,
@@ -644,17 +592,16 @@ class _NextTaskPreview extends StatelessWidget {
   }
 }
 
-/// Live countdown showing time remaining until the daily task reset.
-class _DailyResetCountdown extends StatefulWidget {
+class _WeeklyResetCountdown extends StatefulWidget {
   final DateTime resetsAt;
 
-  const _DailyResetCountdown({required this.resetsAt});
+  const _WeeklyResetCountdown({required this.resetsAt});
 
   @override
-  State<_DailyResetCountdown> createState() => _DailyResetCountdownState();
+  State<_WeeklyResetCountdown> createState() => _WeeklyResetCountdownState();
 }
 
-class _DailyResetCountdownState extends State<_DailyResetCountdown> {
+class _WeeklyResetCountdownState extends State<_WeeklyResetCountdown> {
   late Timer _timer;
   Duration _remaining = Duration.zero;
 
@@ -676,7 +623,7 @@ class _DailyResetCountdownState extends State<_DailyResetCountdown> {
   }
 
   @override
-  void didUpdateWidget(_DailyResetCountdown oldWidget) {
+  void didUpdateWidget(_WeeklyResetCountdown oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.resetsAt != widget.resetsAt) {
       _updateRemaining();
@@ -692,23 +639,26 @@ class _DailyResetCountdownState extends State<_DailyResetCountdown> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final hours = _remaining.inHours;
+    final days = _remaining.inDays;
+    final hours = _remaining.inHours.remainder(24);
     final minutes = _remaining.inMinutes.remainder(60);
-    final seconds = _remaining.inSeconds.remainder(60);
 
-    final timeText = hours > 0
-        ? '${hours}h ${minutes}m ${seconds}s'
-        : minutes > 0
-        ? '${minutes}m ${seconds}s'
-        : '${seconds}s';
+    final timeText = days > 0
+        ? '${days}d ${hours}h'
+        : hours > 0
+            ? '${hours}h ${minutes}m'
+            : '${minutes}m';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: scheme.tertiaryContainer.withOpacity(0.5),
+        color: scheme.tertiaryContainer.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: scheme.tertiary.withOpacity(0.3), width: 1),
+        border: Border.all(
+          color: scheme.tertiary.withValues(alpha: 0.3),
+          width: 1,
+        ),
       ),
       child: Row(
         children: [
@@ -719,7 +669,7 @@ class _DailyResetCountdownState extends State<_DailyResetCountdown> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Daily Tasks Reset',
+                  'Weekly Targets Reset',
                   style: TextStyle(
                     color: scheme.onTertiaryContainer,
                     fontSize: 13,
@@ -728,9 +678,9 @@ class _DailyResetCountdownState extends State<_DailyResetCountdown> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'Progress resets daily at 11:59 PM',
+                  'Progress resets every Monday at midnight',
                   style: TextStyle(
-                    color: scheme.onTertiaryContainer.withOpacity(0.7),
+                    color: scheme.onTertiaryContainer.withValues(alpha: 0.7),
                     fontSize: 11,
                   ),
                 ),
@@ -740,7 +690,7 @@ class _DailyResetCountdownState extends State<_DailyResetCountdown> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
-              color: scheme.tertiary.withOpacity(0.15),
+              color: scheme.tertiary.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Text(

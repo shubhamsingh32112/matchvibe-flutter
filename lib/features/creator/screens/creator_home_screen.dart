@@ -9,12 +9,16 @@ import '../providers/creator_leaderboard_provider.dart';
 import '../../../core/config/app_config_provider.dart';
 import '../../moments/providers/moments_providers.dart';
 import '../theme/creator_home_tokens.dart';
+import '../widgets/home/creator_home_call_earnings_row.dart';
+import '../widgets/home/creator_home_call_rules_card.dart';
 import '../widgets/home/creator_home_header.dart';
 import '../widgets/home/creator_home_leaderboard_card.dart';
 import '../widgets/home/creator_home_media_tabs.dart';
+import '../widgets/home/creator_home_moments_rules_card.dart';
 import '../widgets/home/creator_home_stats_tile.dart';
 import '../widgets/home/creator_home_stories_section.dart';
 import '../widgets/home/creator_home_tasks_section.dart';
+import '../widgets/home/creator_home_total_earnings_card.dart';
 
 class CreatorHomeScreen extends ConsumerStatefulWidget {
   const CreatorHomeScreen({super.key});
@@ -95,7 +99,11 @@ class _CreatorHomeScreenState extends ConsumerState<CreatorHomeScreen> {
                     const CreatorHomeStatsTile(),
                     const CreatorHomeLeaderboardCard(),
                     if (momentsEnabled) const CreatorHomeStoriesSection(),
+                    const CreatorHomeTotalEarningsCard(),
+                    const CreatorHomeCallEarningsRow(),
                     const CreatorHomeTasksSection(),
+                    const CreatorHomeCallRulesCard(),
+                    if (momentsEnabled) const CreatorHomeMomentsRulesCard(),
                     if (momentsEnabled) const CreatorHomeMediaTabs(),
                   ]),
                 ),

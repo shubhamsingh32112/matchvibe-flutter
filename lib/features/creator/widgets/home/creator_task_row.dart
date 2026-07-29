@@ -3,25 +3,26 @@ import 'package:flutter/material.dart';
 import '../../../../shared/widgets/gem_icon.dart';
 import '../../models/creator_task_model.dart';
 import '../../theme/creator_home_tokens.dart';
+import '../../utils/creator_earnings_display.dart';
 import 'creator_task_ring.dart';
 
 class CreatorTaskRow extends StatelessWidget {
   const CreatorTaskRow({
     super.key,
     required this.task,
-    required this.totalMinutes,
+    required this.totalPaidCoins,
   });
 
   final CreatorTask task;
-  final double totalMinutes;
+  final double totalPaidCoins;
 
   @override
   Widget build(BuildContext context) {
     final progress = task.isCompleted
-        ? task.thresholdMinutes.toDouble()
-        : totalMinutes.clamp(0, task.thresholdMinutes.toDouble());
+        ? task.thresholdPaidCoins.toDouble()
+        : totalPaidCoins.clamp(0, task.thresholdPaidCoins.toDouble());
     final progressValue =
-        (progress / task.thresholdMinutes).clamp(0.0, 1.0);
+        (progress / task.thresholdPaidCoins).clamp(0.0, 1.0);
     final gradient = task.isCompleted
         ? CreatorHomeTokens.taskCompletedGradient
         : CreatorHomeTokens.taskInProgressGradient;
@@ -32,7 +33,7 @@ class CreatorTaskRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           CreatorTaskRing(
-            thresholdMinutes: task.thresholdMinutes,
+            thresholdPaidCoins: task.thresholdPaidCoins,
             progress: progress.toDouble(),
             isCompleted: task.isCompleted,
           ),
@@ -42,7 +43,7 @@ class CreatorTaskRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${task.thresholdMinutes} Minutes Completed',
+                  '${CreatorEarningsDisplay.formatCoins(task.thresholdPaidCoins)} Paid Coins',
                   style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w800,
@@ -50,7 +51,7 @@ class CreatorTaskRow extends StatelessWidget {
                   ),
                 ),
                 const Text(
-                  'Talk time',
+                  'Weekly target',
                   style: TextStyle(
                     fontSize: 11,
                     color: CreatorHomeTokens.labelGrey,
@@ -99,14 +100,14 @@ class CreatorTaskRow extends StatelessWidget {
                 ],
               ),
               const Text(
-                'Coins Earned',
+                'Bonus',
                 style: TextStyle(
                   fontSize: 10,
                   color: CreatorHomeTokens.labelGrey,
                 ),
               ),
               const SizedBox(height: 4),
-              _StatusPill(task: task, totalMinutes: totalMinutes),
+              _StatusPill(task: task, totalPaidCoins: totalPaidCoins),
             ],
           ),
         ],
@@ -116,10 +117,10 @@ class CreatorTaskRow extends StatelessWidget {
 }
 
 class _StatusPill extends StatelessWidget {
-  const _StatusPill({required this.task, required this.totalMinutes});
+  const _StatusPill({required this.task, required this.totalPaidCoins});
 
   final CreatorTask task;
-  final double totalMinutes;
+  final double totalPaidCoins;
 
   @override
   Widget build(BuildContext context) {
@@ -130,9 +131,9 @@ class _StatusPill extends StatelessWidget {
           color: CreatorHomeTokens.completedGreen.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(12),
         ),
-        child: const Text(
-          'Completed',
-          style: TextStyle(
+        child: Text(
+          task.isClaimed ? 'Claimed' : 'Completed',
+          style: const TextStyle(
             color: CreatorHomeTokens.completedGreen,
             fontSize: 10,
             fontWeight: FontWeight.bold,
@@ -141,7 +142,8 @@ class _StatusPill extends StatelessWidget {
       );
     }
 
-    final shown = totalMinutes.clamp(0, task.thresholdMinutes.toDouble());
+    final shown =
+        totalPaidCoins.clamp(0, task.thresholdPaidCoins.toDouble()).toStringAsFixed(0);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
@@ -149,7 +151,7 @@ class _StatusPill extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(
-        '${shown.toStringAsFixed(0)} / ${task.thresholdMinutes} min',
+        '$shown / ${task.thresholdPaidCoins}',
         style: const TextStyle(
           color: CreatorHomeTokens.primaryPurple,
           fontSize: 10,

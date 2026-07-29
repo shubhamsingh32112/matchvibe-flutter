@@ -1,35 +1,40 @@
 import 'package:equatable/equatable.dart';
 
 class CreatorTasksResponse extends Equatable {
-  final double totalMinutes;
+  /// Paid-call coins earned in the current weekly period.
+  final double totalPaidCoins;
   final List<CreatorTask> tasks;
 
-  /// When the current daily period ends (tasks reset).
-  /// `null` if the backend hasn't provided it yet (backwards compat).
+  /// When the current weekly period ends (targets reset).
   final DateTime? resetsAt;
 
   const CreatorTasksResponse({
-    required this.totalMinutes,
+    required this.totalPaidCoins,
     required this.tasks,
     this.resetsAt,
   });
 
   factory CreatorTasksResponse.fromJson(Map<String, dynamic> json) {
-    double _toDouble(dynamic value) {
+    double toDouble(dynamic value) {
       if (value is num) return value.toDouble();
       return 0.0;
     }
 
     // Accept either 'tasks' (standalone endpoint) or 'items' (dashboard endpoint)
-    final tasksList = (json['tasks'] ?? json['items']) as List<dynamic>;
+    final tasksList = (json['tasks'] ?? json['items']) as List<dynamic>? ?? [];
 
     DateTime? resetsAt;
     if (json['resetsAt'] != null) {
       resetsAt = DateTime.tryParse(json['resetsAt'] as String);
     }
 
+    // Prefer totalPaidCoins; fall back to legacy totalMinutes for old caches.
+    final totalPaidCoins = json['totalPaidCoins'] != null
+        ? toDouble(json['totalPaidCoins'])
+        : toDouble(json['totalMinutes']);
+
     return CreatorTasksResponse(
-      totalMinutes: _toDouble(json['totalMinutes']),
+      totalPaidCoins: totalPaidCoins,
       tasks: tasksList
           .map((task) => CreatorTask.fromJson(task as Map<String, dynamic>))
           .toList(),
@@ -38,46 +43,60 @@ class CreatorTasksResponse extends Equatable {
   }
 
   @override
-  List<Object?> get props => [totalMinutes, tasks, resetsAt];
+  List<Object?> get props => [totalPaidCoins, tasks, resetsAt];
 }
 
 class CreatorTask extends Equatable {
   final String taskKey;
-  final int thresholdMinutes;
+  final int thresholdPaidCoins;
   final int rewardCoins;
-  final double progressMinutes;
+  final double progressPaidCoins;
   final bool isCompleted;
   final bool isClaimed;
 
   const CreatorTask({
     required this.taskKey,
-    required this.thresholdMinutes,
+    required this.thresholdPaidCoins,
     required this.rewardCoins,
-    required this.progressMinutes,
+    required this.progressPaidCoins,
     required this.isCompleted,
     required this.isClaimed,
   });
 
   factory CreatorTask.fromJson(Map<String, dynamic> json) {
-    double _toDouble(dynamic value) {
+    double toDouble(dynamic value) {
       if (value is num) return value.toDouble();
       return 0.0;
     }
 
+    int toInt(dynamic value) {
+      if (value is int) return value;
+      if (value is num) return value.toInt();
+      return 0;
+    }
+
+    // Prefer paid-coin fields; fall back to legacy minute fields for old caches.
+    final threshold = json['thresholdPaidCoins'] != null
+        ? toInt(json['thresholdPaidCoins'])
+        : toInt(json['thresholdMinutes']);
+    final progress = json['progressPaidCoins'] != null
+        ? toDouble(json['progressPaidCoins'])
+        : toDouble(json['progressMinutes']);
+
     return CreatorTask(
       taskKey: json['taskKey'] as String,
-      thresholdMinutes: json['thresholdMinutes'] as int,
-      rewardCoins: json['rewardCoins'] as int,
-      progressMinutes: _toDouble(json['progressMinutes']),
-      isCompleted: json['isCompleted'] as bool,
-      isClaimed: json['isClaimed'] as bool,
+      thresholdPaidCoins: threshold,
+      rewardCoins: toInt(json['rewardCoins']),
+      progressPaidCoins: progress,
+      isCompleted: json['isCompleted'] as bool? ?? false,
+      isClaimed: json['isClaimed'] as bool? ?? false,
     );
   }
 
   /// Progress percentage (0.0 to 1.0)
   double get progressPercentage {
-    if (thresholdMinutes == 0) return 0.0;
-    return (progressMinutes / thresholdMinutes).clamp(0.0, 1.0);
+    if (thresholdPaidCoins == 0) return 0.0;
+    return (progressPaidCoins / thresholdPaidCoins).clamp(0.0, 1.0);
   }
 
   /// Can claim if completed and not yet claimed
@@ -86,9 +105,9 @@ class CreatorTask extends Equatable {
   @override
   List<Object?> get props => [
         taskKey,
-        thresholdMinutes,
+        thresholdPaidCoins,
         rewardCoins,
-        progressMinutes,
+        progressPaidCoins,
         isCompleted,
         isClaimed,
       ];

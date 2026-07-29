@@ -198,6 +198,9 @@ class SocketService {
 
       // Flush any pending billing events that were queued while disconnected
       _flushPendingBillingEvents();
+      // Fans: announce presence so admin "Users online (5m)" Redis keys refresh
+      // even if the gateway connect path is delayed. Creators are ignored server-side.
+      emitUserOnline();
       onConnected?.call();
     });
 
@@ -476,6 +479,7 @@ class SocketService {
       _isConnected = true;
       unawaited(_afterSocketReconnected());
 
+      emitUserOnline();
       onConnected?.call();
       onReconnected?.call();
     });
@@ -549,6 +553,14 @@ class SocketService {
     } else {
       _socket!.emit('creator:online');
     }
+  }
+
+  /// Fan presence announce for admin "Users online (5m)". Safe to call for
+  /// creators — gateway ignores non-consumer sockets.
+  void emitUserOnline() {
+    if (!_isConnected || _socket == null) return;
+    debugPrint('📡 [SOCKET] Emitting user:online');
+    _socket!.emit('user:online');
   }
 
   void emitCreatorOffline() {
