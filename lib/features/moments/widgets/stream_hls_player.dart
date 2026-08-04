@@ -7,6 +7,7 @@ import 'package:video_player/video_player.dart';
 import '../../../core/services/video_playback_metrics_reporter.dart';
 import '../models/playback_refresh_models.dart';
 import '../services/moments_api_service.dart';
+import 'moment_video_viewport.dart';
 
 /// HLS player with strict local lifecycle — never store controller in providers.
 class StreamHlsPlayer extends StatefulWidget {
@@ -395,15 +396,11 @@ class _StreamHlsPlayerState extends State<StreamHlsPlayer> with WidgetsBindingOb
   Widget build(BuildContext context) {
     final c = _controller;
     if (c == null || !c.value.isInitialized) {
-      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+      return const ColoredBox(
+        color: Colors.black,
+        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      );
     }
-    return FittedBox(
-      fit: BoxFit.cover,
-      child: SizedBox(
-        width: c.value.size.width,
-        height: c.value.size.height,
-        child: VideoPlayer(c),
-      ),
-    );
+    return MomentVideoViewport(controller: c);
   }
 }

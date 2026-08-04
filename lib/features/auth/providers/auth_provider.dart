@@ -32,6 +32,7 @@ import '../../../app/router/app_router.dart';
 import '../../../core/config/app_config_model.dart';
 import '../../../core/config/app_config_provider.dart';
 import '../../../shared/widgets/app_toast.dart';
+import '../../checkin/services/checkin_push_token_service.dart';
 
 /// Snapshot for GoRouter redirects (updated when auth state changes).
 String? authRoleSnapshot;
@@ -1104,6 +1105,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
   Future<void> signOut() async {
     try {
       debugPrint('🚪 [AUTH] Starting sign out...');
+
+      await CheckInPushTokenService.clearOnLogout();
 
       await SentryService.clearUserContext();
       await MetaAppEventsService.clearUserId();

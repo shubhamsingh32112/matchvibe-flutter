@@ -248,6 +248,83 @@ class TransactionUiMapper {
           icon: Icons.card_giftcard_outlined,
           accentColor: creditGreen,
         );
+      case 'daily_checkin':
+        return TransactionDisplayInfo(
+          title: 'Daily Check-in',
+          subtitle: transaction.description ?? 'Daily check-in reward',
+          icon: Icons.event_available_outlined,
+          accentColor: creditGreen,
+        );
+      case 'telegram_join_reward':
+        return TransactionDisplayInfo(
+          title: 'Telegram Reward',
+          subtitle: transaction.description ?? 'Telegram Join Reward',
+          icon: Icons.send_outlined,
+          accentColor: creditGreen,
+        );
+      case 'profile_photo_reward':
+        return TransactionDisplayInfo(
+          title: 'Profile Photo Reward',
+          subtitle: transaction.description ?? 'Upload profile photo',
+          icon: Icons.photo_camera_outlined,
+          accentColor: creditGreen,
+        );
+      case 'profile_complete_reward':
+        return TransactionDisplayInfo(
+          title: 'Complete Profile Reward',
+          subtitle: transaction.description ?? 'Complete profile',
+          icon: Icons.badge_outlined,
+          accentColor: creditGreen,
+        );
+      case 'first_video_call_reward':
+        return TransactionDisplayInfo(
+          title: 'First Video Call Reward',
+          subtitle: transaction.description ?? 'First video call',
+          icon: Icons.videocam_outlined,
+          accentColor: creditGreen,
+        );
+      case 'first_message_reward':
+        return TransactionDisplayInfo(
+          title: 'First Message Reward',
+          subtitle: transaction.description ?? 'First message',
+          icon: Icons.chat_bubble_outline,
+          accentColor: creditGreen,
+        );
+      case 'invite_friend_reward':
+        return TransactionDisplayInfo(
+          title: 'Invite Friend Reward',
+          subtitle: transaction.description ?? 'Invite a friend',
+          icon: Icons.person_add_alt_1_outlined,
+          accentColor: creditGreen,
+        );
+      case 'first_recharge_reward':
+        return TransactionDisplayInfo(
+          title: 'First Recharge Bonus',
+          subtitle: transaction.description ?? 'First recharge',
+          icon: Icons.account_balance_wallet_outlined,
+          accentColor: creditGreen,
+        );
+      case 'moment_watch_daily_reward':
+        return TransactionDisplayInfo(
+          title: 'Moments Watch Reward',
+          subtitle: transaction.description ?? 'Daily watch challenge',
+          icon: Icons.visibility_outlined,
+          accentColor: creditGreen,
+        );
+      case 'moment_like_daily_reward':
+        return TransactionDisplayInfo(
+          title: 'Moments Like Reward',
+          subtitle: transaction.description ?? 'Daily like challenge',
+          icon: Icons.favorite_border,
+          accentColor: creditGreen,
+        );
+      case 'follow_creators_reward':
+        return TransactionDisplayInfo(
+          title: 'Follow Creators Reward',
+          subtitle: transaction.description ?? 'Follow creators',
+          icon: Icons.group_add_outlined,
+          accentColor: creditGreen,
+        );
       case 'video_call':
         return TransactionDisplayInfo(
           title: 'Video Call',

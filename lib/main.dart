@@ -33,15 +33,15 @@ Future<void> main() async {
   SentryWidgetsFlutterBinding.ensureInitialized();
   GoogleFonts.config.allowRuntimeFetching = false;
 
-  final bool isProduction = kReleaseMode;
-  final envFile = isProduction ? '.env.production' : '.env.development';
+  // Debug → local/dev overrides (.env.development). Release → production.
+  const envFile = kReleaseMode ? '.env.production' : '.env.development';
 
   if (kDebugMode) {
     debugPrint('═══════════════════════════════════════════════════════');
     debugPrint('🔧 [ENV] Loading environment configuration');
     debugPrint('═══════════════════════════════════════════════════════');
     debugPrint(
-      '   📦 Build Mode: ${isProduction ? "PRODUCTION" : "DEVELOPMENT"}',
+      '   📦 Build Mode: ${kReleaseMode ? "PRODUCTION" : "DEVELOPMENT"}',
     );
     debugPrint('   📄 Env File: $envFile');
     debugPrint('═══════════════════════════════════════════════════════');
@@ -82,38 +82,37 @@ Future<void> main() async {
       final apiBase = (dotenv.env['API_BASE_URL'] ?? '').trim();
       if (apiBase.contains('localhost') || apiBase.contains('127.0.0.1')) {
         debugPrint(
-          '⚠️ [ENV] Debug/profile uses $envFile with a loopback API_BASE_URL. '
-          'A physical device cannot reach your PC. Use a LAN URL in .env.development, '
-          'adb reverse, or a release build to load .env.production.',
+          '⚠️ [ENV] $envFile has a loopback API_BASE_URL. '
+          'A physical device cannot reach your PC — use a LAN URL or adb reverse.',
         );
       }
     }
 
-    if (isProduction) {
-      final requiredKeys = <String>[
-        'API_BASE_URL',
-        'SOCKET_URL',
-        'WEBSITE_BASE_URL',
-      ];
-      final missing = requiredKeys
-          .where((k) => (dotenv.env[k] ?? '').trim().isEmpty)
-          .toList();
-      final baseUrl = (dotenv.env['API_BASE_URL'] ?? '').trim();
-      if (missing.isNotEmpty || baseUrl.contains('localhost')) {
-        debugPrint('❌ [ENV] Production env sanity check failed.');
-        debugPrint('   Missing keys: $missing');
-        debugPrint('   API_BASE_URL: "${dotenv.env['API_BASE_URL']}"');
-        debugPrint('   ⚠️  App may be using wrong backend URL!');
+    final requiredKeys = <String>[
+      'API_BASE_URL',
+      'SOCKET_URL',
+      'WEBSITE_BASE_URL',
+    ];
+    final missing = requiredKeys
+        .where((k) => (dotenv.env[k] ?? '').trim().isEmpty)
+        .toList();
+    final baseUrl = (dotenv.env['API_BASE_URL'] ?? '').trim();
+    if (missing.isNotEmpty || baseUrl.contains('localhost')) {
+      debugPrint('❌ [ENV] Production env sanity check failed.');
+      debugPrint('   Missing keys: $missing');
+      debugPrint('   API_BASE_URL: "${dotenv.env['API_BASE_URL']}"');
+      debugPrint('   ⚠️  App may be using wrong backend URL!');
+      if (kReleaseMode) {
         unawaited(
           SentryService.captureMessage(
             'Production env sanity check failed',
             tags: {'feature': 'startup', 'missing': missing.join(',')},
           ),
         );
-      } else if (kDebugMode) {
-        debugPrint('✅ [ENV] Production environment validated');
-        debugPrint('   🌐 Using production backend: $baseUrl');
       }
+    } else if (kDebugMode) {
+      debugPrint('✅ [ENV] Production environment validated');
+      debugPrint('   🌐 Using production backend: $baseUrl');
     }
 
     final localNotifications = FlutterLocalNotificationsPlugin();

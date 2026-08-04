@@ -239,7 +239,7 @@ class MomentViewerBottomBar extends ConsumerWidget {
               Expanded(
                 child: MomentViewerActionButton(
                   icon: Icons.videocam_outlined,
-                  label: 'Video Call',
+                  label: 'Private Call',
                   isLoading: isCalling,
                   onPressed: onVideoCallPressed,
                 ),

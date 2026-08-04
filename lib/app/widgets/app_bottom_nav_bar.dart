@@ -19,8 +19,8 @@ class AppBottomNavBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tabs = ref.watch(appNavTabsProvider);
-    final unreadCount = ref.watch(
-      chatUnreadCountProvider.select((a) => a.valueOrNull ?? 0),
+    final unreadChats = ref.watch(
+      chatUnreadChannelsProvider.select((a) => a.valueOrNull ?? 0),
     );
     final bottomInset = MediaQuery.paddingOf(context).bottom;
     final barStripHeight = AppNavDestinations.barHeight + bottomInset;
@@ -33,7 +33,10 @@ class AppBottomNavBar extends ConsumerWidget {
               tab: tabs[i],
               index: i,
               selected: selectedIndex == i,
-              showDot: tabs[i].id == AppNavTabId.chat && unreadCount > 0,
+              badgeCount:
+                  tabs[i].id == AppNavTabId.chat && unreadChats > 0
+                      ? unreadChats
+                      : 0,
               onTap: () => onDestinationSelected(i),
             ),
           ),
@@ -56,7 +59,7 @@ class AppBottomNavBar extends ConsumerWidget {
     required AppNavTab tab,
     required int index,
     required bool selected,
-    required bool showDot,
+    required int badgeCount,
     required VoidCallback onTap,
   }) {
     return _NavItem(
@@ -68,7 +71,7 @@ class AppBottomNavBar extends ConsumerWidget {
       iconSizeSelected: tab.iconSizeSelected,
       iconHitSize: tab.iconHitSize,
       selected: selected,
-      showDot: showDot,
+      badgeCount: badgeCount,
       onTap: onTap,
     );
   }
@@ -80,7 +83,7 @@ class _NavItem extends StatelessWidget {
   final IconData? selectedIcon;
   final String? assetIconPath;
   final bool selected;
-  final bool showDot;
+  final int badgeCount;
   final VoidCallback onTap;
   final double? iconSize;
   final double? iconSizeSelected;
@@ -95,7 +98,7 @@ class _NavItem extends StatelessWidget {
     this.iconSizeSelected,
     this.iconHitSize,
     required this.selected,
-    required this.showDot,
+    required this.badgeCount,
     required this.onTap,
   }) : assert(
           assetIconPath != null || (icon != null && selectedIcon != null),
@@ -120,7 +123,7 @@ class _NavItem extends StatelessWidget {
                   ? _NavAssetIcon(
                       assetPath: assetIconPath!,
                       selected: selected,
-                      showDot: showDot,
+                      badgeCount: badgeCount,
                       iconSize: iconSize,
                       iconSizeSelected: iconSizeSelected,
                       hitSize: iconHitSize,
@@ -128,7 +131,7 @@ class _NavItem extends StatelessWidget {
                   : _NavIcon(
                       icon: selected ? selectedIcon! : icon!,
                       selected: selected,
-                      showDot: showDot,
+                      badgeCount: badgeCount,
                       iconSize: iconSize,
                       iconSizeSelected: iconSizeSelected,
                       hitSize: iconHitSize,
@@ -141,10 +144,42 @@ class _NavItem extends StatelessWidget {
   }
 }
 
+class _NavBadge extends StatelessWidget {
+  const _NavBadge({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = count > 99 ? '99+' : '$count';
+    return Container(
+      constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+      padding: EdgeInsets.symmetric(
+        horizontal: label.length > 1 ? 4 : 0,
+      ),
+      decoration: BoxDecoration(
+        color: AppBrandGradients.accountMenuIconTint,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white, width: 1.5),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          height: 1,
+        ),
+      ),
+    );
+  }
+}
+
 class _NavAssetIcon extends StatelessWidget {
   final String assetPath;
   final bool selected;
-  final bool showDot;
+  final int badgeCount;
   final double? iconSize;
   final double? iconSizeSelected;
   final double? hitSize;
@@ -152,7 +187,7 @@ class _NavAssetIcon extends StatelessWidget {
   const _NavAssetIcon({
     required this.assetPath,
     required this.selected,
-    this.showDot = false,
+    this.badgeCount = 0,
     this.iconSize,
     this.iconSizeSelected,
     this.hitSize,
@@ -188,19 +223,11 @@ class _NavAssetIcon extends StatelessWidget {
               ),
             ),
           ),
-          if (showDot)
+          if (badgeCount > 0)
             Positioned(
-              top: 4,
-              right: 4,
-              child: Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: AppBrandGradients.accountMenuIconTint,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 1.5),
-                ),
-              ),
+              top: 2,
+              right: 0,
+              child: _NavBadge(count: badgeCount),
             ),
         ],
       ),
@@ -211,7 +238,7 @@ class _NavAssetIcon extends StatelessWidget {
 class _NavIcon extends StatelessWidget {
   final IconData icon;
   final bool selected;
-  final bool showDot;
+  final int badgeCount;
   final double? iconSize;
   final double? iconSizeSelected;
   final double? hitSize;
@@ -219,7 +246,7 @@ class _NavIcon extends StatelessWidget {
   const _NavIcon({
     required this.icon,
     required this.selected,
-    this.showDot = false,
+    this.badgeCount = 0,
     this.iconSize,
     this.iconSizeSelected,
     this.hitSize,
@@ -251,19 +278,11 @@ class _NavIcon extends StatelessWidget {
                   : AppBrandGradients.accountMenuIconTint.withValues(alpha: 0.78),
             ),
           ),
-          if (showDot)
+          if (badgeCount > 0)
             Positioned(
-              top: 4,
-              right: 4,
-              child: Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: AppBrandGradients.accountMenuIconTint,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 1.5),
-                ),
-              ),
+              top: 2,
+              right: 0,
+              child: _NavBadge(count: badgeCount),
             ),
         ],
       ),

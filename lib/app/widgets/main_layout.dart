@@ -9,6 +9,7 @@ import '../../features/creator/providers/creator_dashboard_provider.dart';
 import '../../features/creator/providers/creator_presence_orchestrator_provider.dart';
 import '../../features/home/providers/home_provider.dart';
 import '../../features/recent/providers/recent_provider.dart';
+import '../../features/telegram_reward/widgets/telegram_reward_fab.dart';
 import '../../features/video/providers/call_billing_provider.dart';
 import '../../features/video/providers/call_billing_selectors.dart';
 import '../../shared/styles/app_brand_styles.dart';
@@ -100,6 +101,26 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
 
     final customPageStyle = widget.accountMenuStyle || widget.vipPageStyle;
 
+    Widget bodyChild = customPageStyle
+        ? widget.child
+        : ColoredBox(
+            color: AppBrandGradients.accountMenuPageBackground,
+            child: widget.child,
+          );
+
+    // Floating Telegram reward sits above bottom nav for plain users.
+    bodyChild = Stack(
+      children: [
+        bodyChild,
+        if (isRegularUser)
+          const Positioned(
+            right: TelegramRewardFAB.rightClearance,
+            bottom: TelegramRewardFAB.bottomClearance,
+            child: TelegramRewardFAB(),
+          ),
+      ],
+    );
+
     final scaffold = Scaffold(
       extendBody: false,
       backgroundColor: widget.vipPageStyle
@@ -124,12 +145,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                     _MainLayoutCoinChip(isCreator: isCreator),
                   ],
                 )),
-      body: customPageStyle
-          ? widget.child
-          : ColoredBox(
-              color: AppBrandGradients.accountMenuPageBackground,
-              child: widget.child,
-            ),
+      body: bodyChild,
       bottomNavigationBar: AppBottomNavBar(
         selectedIndex: widget.selectedIndex,
         onDestinationSelected: _onItemTapped,

@@ -9,6 +9,7 @@ import '../../../shared/styles/app_brand_styles.dart';
 import '../models/moments_models.dart';
 import '../services/moments_upload_coordinator.dart';
 import '../widgets/add_content_gradient_button.dart';
+import '../widgets/moment_video_viewport.dart';
 
 class MomentsUploadReviewScreen extends ConsumerStatefulWidget {
   const MomentsUploadReviewScreen({
@@ -284,12 +285,7 @@ class _MomentsUploadReviewScreenState
       return Stack(
         fit: StackFit.expand,
         children: [
-          Center(
-            child: AspectRatio(
-              aspectRatio: controller.value.aspectRatio,
-              child: VideoPlayer(controller),
-            ),
-          ),
+          MomentVideoViewport(controller: controller),
           Positioned(
             left: 0,
             right: 0,

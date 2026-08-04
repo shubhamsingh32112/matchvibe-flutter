@@ -21,6 +21,7 @@ import '../../features/account/screens/account_settings_screen.dart';
 import '../../features/account/screens/blocked_buddies_screen.dart';
 import '../../features/account/screens/delete_account_screen.dart';
 import '../../features/account/screens/edit_profile_screen.dart';
+import '../../features/rewards_hub/screens/rewards_hub_screen.dart';
 import '../../features/referral/screens/host_application_pending_screen.dart';
 import '../../features/account/screens/host_disabled_screen.dart';
 import '../../features/wallet/screens/wallet_screen.dart';
@@ -183,6 +184,10 @@ final appRouter = GoRouter(
           GoRoute(
             path: '/account',
             builder: (context, state) => const AccountScreen(),
+          ),
+          GoRoute(
+            path: '/rewards',
+            builder: (context, state) => const RewardsHubScreen(),
           ),
           GoRoute(
             path: '/edit-profile',

@@ -186,3 +186,27 @@ final chatUnreadCountProvider = StreamProvider<int>((ref) {
 
   return controller.stream.distinct();
 });
+
+/// Number of chats with unread messages (unopened conversations).
+final chatUnreadChannelsProvider = StreamProvider<int>((ref) {
+  final client = ref.watch(streamChatNotifierProvider);
+  if (client == null) {
+    return Stream<int>.value(0);
+  }
+
+  int getUnreadChannels() => client.state.currentUser?.unreadChannels ?? 0;
+
+  final controller = StreamController<int>();
+  controller.add(getUnreadChannels());
+
+  final sub = client.on().listen((_) {
+    controller.add(getUnreadChannels());
+  });
+
+  ref.onDispose(() async {
+    await sub.cancel();
+    await controller.close();
+  });
+
+  return controller.stream.distinct();
+});

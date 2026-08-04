@@ -4,12 +4,18 @@ class AppFeatures {
   final bool momentsEnabled;
   /// Consumed only by [momentsAccessStateProvider] — not for direct widget use.
   final String momentsAccessMode;
+  final bool dailyCheckInEnabled;
+  final bool telegramRewardEnabled;
+  final bool consumerRewardsEnabled;
 
   const AppFeatures({
     this.vipEnabled = false,
     this.vipProfileFrameEnabled = false,
     this.momentsEnabled = false,
     this.momentsAccessMode = 'paid',
+    this.dailyCheckInEnabled = false,
+    this.telegramRewardEnabled = false,
+    this.consumerRewardsEnabled = false,
   });
 
   bool get isMomentsFreeAccessMode => momentsAccessMode == 'free';
@@ -23,6 +29,9 @@ class AppFeatures {
       vipProfileFrameEnabled: json['vipProfileFrameEnabled'] == true,
       momentsEnabled: json['momentsEnabled'] == true,
       momentsAccessMode: rawMode == 'free' ? 'free' : 'paid',
+      dailyCheckInEnabled: json['dailyCheckInEnabled'] == true,
+      telegramRewardEnabled: json['telegramRewardEnabled'] == true,
+      consumerRewardsEnabled: json['consumerRewardsEnabled'] == true,
     );
   }
 
@@ -31,6 +40,9 @@ class AppFeatures {
     bool? vipProfileFrameEnabled,
     bool? momentsEnabled,
     String? momentsAccessMode,
+    bool? dailyCheckInEnabled,
+    bool? telegramRewardEnabled,
+    bool? consumerRewardsEnabled,
   }) {
     return AppFeatures(
       vipEnabled: vipEnabled ?? this.vipEnabled,
@@ -38,6 +50,11 @@ class AppFeatures {
           vipProfileFrameEnabled ?? this.vipProfileFrameEnabled,
       momentsEnabled: momentsEnabled ?? this.momentsEnabled,
       momentsAccessMode: momentsAccessMode ?? this.momentsAccessMode,
+      dailyCheckInEnabled: dailyCheckInEnabled ?? this.dailyCheckInEnabled,
+      telegramRewardEnabled:
+          telegramRewardEnabled ?? this.telegramRewardEnabled,
+      consumerRewardsEnabled:
+          consumerRewardsEnabled ?? this.consumerRewardsEnabled,
     );
   }
 }

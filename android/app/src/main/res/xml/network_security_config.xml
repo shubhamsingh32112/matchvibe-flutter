@@ -1,21 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Trust Railway's SSL certificates -->
+    <!-- Local / USB-tunnel backends (adb reverse → localhost:3000) -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <domain includeSubdomains="true">10.0.2.2</domain>
+        <!-- Current Mac LAN IP for Wi‑Fi device testing -->
+        <domain includeSubdomains="true">192.168.1.13</domain>
+    </domain-config>
+
+    <!-- Trust Railway / production SSL certificates -->
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">api.prestigeinteriordesign.com</domain>
         <domain includeSubdomains="true">prestigeinteriordesign.com</domain>
+        <domain includeSubdomains="true">api.flirtycam.in</domain>
+        <domain includeSubdomains="true">flirtycam.in</domain>
         <domain includeSubdomains="true">vibemeet-backend-production.up.railway.app</domain>
-        <domain includeSubdomains="true">*.up.railway.app</domain>
         <domain includeSubdomains="true">railway.app</domain>
         <trust-anchors>
-            <!-- Trust system certificates (Railway uses valid SSL certs) -->
             <certificates src="system" />
-            <!-- Also trust user certificates for debugging (optional) -->
             <certificates src="user" />
         </trust-anchors>
     </domain-config>
-    
-    <!-- Default configuration for all other domains -->
+
+    <!-- Default: HTTPS only -->
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />

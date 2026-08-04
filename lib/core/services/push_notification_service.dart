@@ -130,6 +130,12 @@ class PushNotificationService {
       // 6. Handle notification taps (when app is in background / terminated)
       FirebaseMessaging.onMessageOpenedApp.listen(_handleNotificationTap);
 
+      // 7. Cold-start tap (app was terminated).
+      final initial = await _firebaseMessaging.getInitialMessage();
+      if (initial != null) {
+        _handleNotificationTap(initial);
+      }
+
       _initialized = true;
       debugPrint('✅ [PUSH] Push notification service fully initialized');
     } catch (e, stack) {
@@ -265,6 +271,23 @@ class PushNotificationService {
     debugPrint('   Data: ${message.data}');
 
     final data = message.data;
+    final type = data['type'] as String?;
+
+    if (type == 'daily_checkin') {
+      final title = message.notification?.title ?? 'Daily Check-in';
+      final body =
+          message.notification?.body ?? "Don't forget to claim today's reward!";
+      _showInAppNotificationPreview(
+        title: title,
+        body: body,
+        channelId: null,
+        onTap: () {
+          appRouter.go('/home');
+          CheckInDeepLinkBridge.requestOpen();
+        },
+      );
+      return;
+    }
 
     final sender = data['sender'] as String?;
     if (sender == 'stream.chat') {
@@ -342,6 +365,7 @@ class PushNotificationService {
     required String title,
     required String body,
     String? channelId,
+    VoidCallback? onTap,
   }) async {
     final context = appRouter.routerDelegate.navigatorKey.currentContext;
     if (context == null) return;
@@ -363,6 +387,13 @@ class PushNotificationService {
 
     // Create overlay entry for top-positioned notification
     OverlayEntry? overlayEntry;
+
+    void dismissAndRun(VoidCallback? action) {
+      _previewDismissTimer?.cancel();
+      _safeRemoveOverlayEntry(overlayEntry);
+      overlayEntry = null;
+      action?.call();
+    }
     
     overlayEntry = OverlayEntry(
       builder: (context) => Positioned(
@@ -402,19 +433,17 @@ class PushNotificationService {
               child: Material(
                 color: Colors.transparent,
                 child: InkWell(
-                  onTap: channelId != null
-                      ? () {
-                          _previewDismissTimer?.cancel();
-                          _safeRemoveOverlayEntry(overlayEntry);
-                          overlayEntry = null;
-                          appRouter.push('/chat/$channelId');
-                        }
-                      : null,
+                  onTap: onTap != null
+                      ? () => dismissAndRun(onTap)
+                      : channelId != null
+                          ? () => dismissAndRun(
+                                () => appRouter.push('/chat/$channelId'),
+                              )
+                          : null,
                   borderRadius: BorderRadius.circular(16),
                   child: Padding(
                     padding: const EdgeInsets.all(16),
-                    child: Row(
-                      children: [
+                    child: Row(                      children: [
                         Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
@@ -494,6 +523,31 @@ class PushNotificationService {
 
   void _handleNotificationTap(RemoteMessage message) {
     debugPrint('👆 [PUSH] Background notification tapped: ${message.data}');
+    final type = message.data['type'] as String?;
+    final deepLink = message.data['deepLink'] as String?;
+    if (type == 'daily_checkin' ||
+        (deepLink != null && deepLink.contains('checkin=1'))) {
+      appRouter.go('/home');
+      // Prefer setting intent via a delayed microtask so Home can mount listeners.
+      Future<void>.delayed(const Duration(milliseconds: 300), () {
+        // Imported lazily via callback to avoid circular deps — use router + global intent.
+        CheckInDeepLinkBridge.requestOpen();
+      });
+      return;
+    }
+  }
+}
+
+/// Bridge so PushNotificationService can request check-in without importing Riverpod.
+class CheckInDeepLinkBridge {
+  static void Function()? _handler;
+
+  static void register(void Function() handler) {
+    _handler = handler;
+  }
+
+  static void requestOpen() {
+    _handler?.call();
   }
 }
 

@@ -12,7 +12,28 @@
           "package_name": "com.example.zztherapy"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "911372372113-b0r2baqjf4bh7kt2kbc6eatl3l419fd2.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.zztherapy",
+            "certificate_hash": "bedd70ebf9261a47ab84777c41fcd8e14ac1e0be"
+          }
+        },
+        {
+          "client_id": "911372372113-n3oul97pt31a4989v7l766cqp046jqo7.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.zztherapy",
+            "certificate_hash": "bf8b066a6cd5c2c7a6d29dfbc19027f4047c25e3"
+          }
+        },
+        {
+          "client_id": "911372372113-jpbm0el15fmlltaajrhe7boqk0n4vfs2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAF3AmluBl-_AqnMfTPCuSI4uOiWkQ-hfQ"
@@ -20,7 +41,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "911372372113-jpbm0el15fmlltaajrhe7boqk0n4vfs2.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "911372372113-8aqk0309a8j2lgkoqopv0dosti9htu7q.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.matchvibe.app"
+              }
+            }
+          ]
         }
       }
     },
@@ -31,7 +64,20 @@
           "package_name": "com.example.zztherapy.dev"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "911372372113-n5g2rmu8fgcha2i78fa5mtstfltjh2cc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.zztherapy.dev",
+            "certificate_hash": "bedd70ebf9261a47ab84777c41fcd8e14ac1e0be"
+          }
+        },
+        {
+          "client_id": "911372372113-jpbm0el15fmlltaajrhe7boqk0n4vfs2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAF3AmluBl-_AqnMfTPCuSI4uOiWkQ-hfQ"
@@ -39,7 +85,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "911372372113-jpbm0el15fmlltaajrhe7boqk0n4vfs2.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "911372372113-8aqk0309a8j2lgkoqopv0dosti9htu7q.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.matchvibe.app"
+              }
+            }
+          ]
         }
       }
     },
@@ -50,7 +108,44 @@
           "package_name": "com.matchvibe.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "911372372113-7jqlga5g8930554k4fd1839afmetai48.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.matchvibe.app",
+            "certificate_hash": "bedd70ebf9261a47ab84777c41fcd8e14ac1e0be"
+          }
+        },
+        {
+          "client_id": "911372372113-a4ug9lqpbb6a5opdssnfno558as49u31.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.matchvibe.app",
+            "certificate_hash": "c4c3dd17b45066af778cf0fa7635d6797bf17b8f"
+          }
+        },
+        {
+          "client_id": "911372372113-hpf77osj0ko6cn9tg5dv2bubk1glrtkd.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.matchvibe.app",
+            "certificate_hash": "bf8b066a6cd5c2c7a6d29dfbc19027f4047c25e3"
+          }
+        },
+        {
+          "client_id": "911372372113-n86auldfm5cl5kuit6ak35oebrkcj63h.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.matchvibe.app",
+            "certificate_hash": "3f68b23e7e49d40a455daf74ae955a0e50f2c934"
+          }
+        },
+        {
+          "client_id": "911372372113-jpbm0el15fmlltaajrhe7boqk0n4vfs2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAF3AmluBl-_AqnMfTPCuSI4uOiWkQ-hfQ"
@@ -58,7 +153,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "911372372113-jpbm0el15fmlltaajrhe7boqk0n4vfs2.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "911372372113-8aqk0309a8j2lgkoqopv0dosti9htu7q.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.matchvibe.app"
+              }
+            }
+          ]
         }
       }
     }

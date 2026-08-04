@@ -47,6 +47,9 @@ import '../../onboarding/models/onboarding_step.dart';
 import '../../onboarding/services/onboarding_flow_service.dart';
 import '../../onboarding/services/onboarding_popup_state_service.dart';
 import '../../onboarding/services/onboarding_runner_lock_service.dart';
+import '../../checkin/providers/checkin_provider.dart';
+import '../../checkin/services/checkin_presenter.dart';
+import '../../checkin/services/checkin_push_token_service.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -152,6 +155,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           if (next.user?.role == 'user') {
             final creatorsNotifier = ref.read(creatorsProvider.notifier);
             unawaited(creatorsNotifier.refreshFeed());
+            unawaited(_maybeShowDailyCheckIn());
+            unawaited(CheckInPushTokenService.syncIfAuthorized(role: next.user?.role));
           }
         }
         unawaited(_checkAndShowWelcomeBackDialog());
@@ -159,6 +164,34 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       }
     });
 
+    ref.listenManual<bool>(checkInDeepLinkIntentProvider, (previous, next) {
+      if (!mounted || !next) return;
+      ref.read(checkInDeepLinkIntentProvider.notifier).state = false;
+      unawaited(
+        CheckInPresenter.openNow(
+          ref: ref,
+          context: context,
+          requireClaimable: true,
+        ),
+      );
+    });
+
+    ref.listenManual<int>(checkInResumeTickProvider, (previous, next) {
+      if (!mounted) return;
+      if (previous == null || next <= previous) return;
+      unawaited(_maybeShowDailyCheckIn());
+    });
+
+    ref.listenManual<ModalCoordinatorState>(
+      modalCoordinatorProvider,
+      (previous, next) {
+        if (!mounted) return;
+        if (previous?.onboardingInProgress == true &&
+            !next.onboardingInProgress) {
+          unawaited(_maybeShowDailyCheckIn());
+        }
+      },
+    );
     _creatorBusyToastSub = ref.listenManual<String?>(
       creatorBusyToastProvider,
       (previous, next) {
@@ -225,6 +258,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             },
           ),
         );
+  }
+
+  Future<void> _maybeShowDailyCheckIn() async {
+    if (!mounted) return;
+    await CheckInPresenter.enqueueAutoShow(ref: ref, context: context);
   }
 
   Future<void> _checkAndShowWelcomeBackDialog() async {
@@ -451,6 +489,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       // Feed may not have loaded while onboarding modals were up â€” refresh now.
       final creatorsNotifier = ref.read(creatorsProvider.notifier);
       unawaited(creatorsNotifier.refreshFeed());
+      unawaited(_maybeShowDailyCheckIn());
       return;
     }
     ref.read(modalCoordinatorProvider.notifier).setOnboardingInProgress(true);
@@ -994,6 +1033,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       unawaited(MetaAppEventsService.logTutorialCompletion());
       unawaited(authNotifier.refreshUser());
       modalCoordinator.setOnboardingInProgress(false);
+
+      // Register first-party FCM token for daily check-in reminders (not Stream).
+      final role = ref.read(authProvider).user?.role;
+      unawaited(CheckInPushTokenService.syncIfAuthorized(role: role));
 
       if (!mounted) return;
 

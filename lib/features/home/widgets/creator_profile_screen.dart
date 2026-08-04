@@ -965,7 +965,7 @@ class _CreatorProfileVideoCallButton extends StatelessWidget {
                         Text(
                           callVariant.showWelcomePromo
                               ? 'Free intro call'
-                              : 'Video Call',
+                              : 'Private Call',
                           style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w700,

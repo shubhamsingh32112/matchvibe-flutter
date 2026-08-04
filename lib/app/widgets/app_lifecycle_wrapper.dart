@@ -38,6 +38,8 @@ import '../../features/wallet/providers/wallet_pricing_provider.dart';
 import '../../shared/providers/app_update_popup_provider.dart';
 import '../../core/services/permission_reconciliation_service.dart';
 import '../../features/referral/services/referral_service.dart';
+import '../../features/checkin/providers/checkin_provider.dart';
+import '../../core/services/push_notification_service.dart';
 import '../../features/referral/widgets/agency_referral_apply_dialog.dart';
 import '../../features/referral/utils/host_onboarding_routes.dart';
 import '../../features/vip/widgets/vip_call_queue_overlay.dart';
@@ -109,6 +111,10 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    CheckInDeepLinkBridge.register(() {
+      if (!mounted) return;
+      ref.read(checkInDeepLinkIntentProvider.notifier).state = true;
+    });
     _initDeepLinks();
     _setupProviderListeners();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -552,6 +558,16 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
         );
       } finally {
         unawaited(checkoutTxn.finish());
+      }
+      return;
+    }
+
+    if (uri.host == 'home') {
+      final checkin = uri.queryParameters['checkin'];
+      debugPrint('🔗 [APP LINKS] home deep link checkin=$checkin');
+      appRouter.go('/home');
+      if (checkin == '1' || checkin == 'true') {
+        ref.read(checkInDeepLinkIntentProvider.notifier).state = true;
       }
       return;
     }
@@ -1068,6 +1084,12 @@ class _AppLifecycleWrapperState extends ConsumerState<AppLifecycleWrapper>
         controllerPhase != CallConnectionPhase.failed;
 
     if (state == AppLifecycleState.resumed) {
+      // After IST midnight, next-day reward unlocks server-side — re-check popup
+      // without requiring a full app restart (skip during active calls).
+      if (!hasActiveCall && user?.role == 'user') {
+        ref.read(checkInResumeTickProvider.notifier).state =
+            ref.read(checkInResumeTickProvider) + 1;
+      }
       // 🔥 Firebase ID token expires ~1hr: refresh proactively on app resume
       if (user != null) {
         ref.read(authProvider.notifier).refreshAuthToken();

@@ -26,6 +26,7 @@ import '../../video/providers/call_billing_provider.dart';
 import '../../video/providers/call_billing_selectors.dart';
 import '../../moments/providers/moments_providers.dart';
 import '../../wallet/widgets/transactions_icon.dart';
+import '../../checkin/services/checkin_presenter.dart';
 import '../widgets/account_menu_icons.dart';
 import '../widgets/become_creator_icon.dart';
 import '../widgets/help_support_icon.dart';
@@ -571,6 +572,10 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
     required bool momentsEnabled,
     required bool showMomentsPremiumUi,
   }) {
+    final dailyCheckInEnabled =
+        ref.watch(appFeaturesProvider).dailyCheckInEnabled;
+    final consumerRewardsEnabled =
+        ref.watch(appFeaturesProvider).consumerRewardsEnabled;
     final transactionsTile = _exploreTile(
       context: context,
       leading: TransactionsIcon(size: _exploreLeadingExtent),
@@ -583,6 +588,22 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
       title: 'Coins',
       subtitle: '$coins',
       onTap: () => context.push('/wallet'),
+    );
+    final rewardsTile = _exploreTile(
+      context: context,
+      icon: Icons.card_giftcard_outlined,
+      title: 'Rewards',
+      subtitle: 'Free coins & missions',
+      onTap: () => context.push('/rewards'),
+    );
+    final checkInTile = _exploreTile(
+      context: context,
+      icon: Icons.event_available_outlined,
+      title: 'Daily Check-in',
+      subtitle: 'Claim today’s reward',
+      onTap: () async {
+        await CheckInPresenter.openNow(ref: ref, context: context);
+      },
     );
     final referralTile = _exploreTile(
       context: context,
@@ -606,6 +627,8 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
             title: 'Moments Premium',
             onTap: () => context.push('/account/moments-plan'),
           ),
+        if (consumerRewardsEnabled) rewardsTile,
+        if (dailyCheckInEnabled) checkInTile,
         transactionsTile,
         coinsTile,
         referralTile,
