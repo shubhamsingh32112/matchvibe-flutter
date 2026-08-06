@@ -42,7 +42,7 @@ void main() {
         userId: 'u1',
         name: 'Test',
         about: '',
-        price: 60,
+        price: 1800,
         location: 'Mumbai',
       );
       expect(creatorDisplayCountry(creator), 'Mumbai');
@@ -54,7 +54,7 @@ void main() {
         userId: 'u1',
         name: 'Test',
         about: '',
-        price: 60,
+        price: 1800,
       );
       expect(creatorDisplayCountry(creator), 'India');
     });

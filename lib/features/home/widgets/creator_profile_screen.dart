@@ -118,7 +118,14 @@ class _CreatorProfileScreenState extends ConsumerState<CreatorProfileScreen> {
     }
 
     final user = ref.read(authProvider).user;
-    if (user != null && user.spendableCallCoins < kMinCoinsToCall) {
+    final pricing = ref.read(appConfigProvider).pricing;
+    if (user != null &&
+        !meetsCallCoinAdmission(
+          walletCoins: user.coins,
+          welcomeFreeCallEligible: user.welcomeFreeCallEligible,
+          freeCallEnabled: pricing.freeCallEnabled,
+          minCoinsToCall: pricing.minCoinsToCall,
+        )) {
       if (mounted) {
         ref.read(coinPurchasePopupProvider.notifier).state = CoinPopupIntent(
           reason: 'preflight_low_coins_profile',

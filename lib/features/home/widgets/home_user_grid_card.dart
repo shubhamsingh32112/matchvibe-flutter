@@ -10,6 +10,7 @@ import '../../../core/images/image_cache_managers.dart';
 import '../../../core/services/image_precache_service.dart';
 import '../../../core/services/meta_app_events_service.dart';
 import '../../video/utils/call_admission_constants.dart';
+import '../../../core/config/app_config_provider.dart';
 import '../../../shared/models/creator_model.dart';
 import '../../../shared/models/profile_model.dart';
 import '../../../shared/styles/app_brand_styles.dart';
@@ -70,7 +71,14 @@ class _HomeUserGridCardState extends ConsumerState<HomeUserGridCard> {
     // PHASE 2: Check coins before initiating call
     final authState = ref.read(authProvider);
     final user = authState.user;
-    if (user != null && user.spendableCallCoins < kMinCoinsToCall) {
+    final pricing = ref.read(appConfigProvider).pricing;
+    if (user != null &&
+        !meetsCallCoinAdmission(
+          walletCoins: user.coins,
+          welcomeFreeCallEligible: user.welcomeFreeCallEligible,
+          freeCallEnabled: pricing.freeCallEnabled,
+          minCoinsToCall: pricing.minCoinsToCall,
+        )) {
       if (mounted) {
         final c = widget.creator!;
         final fb = _normalizedFirebaseUid(c.firebaseUid);

@@ -43,6 +43,30 @@ class _TelegramRewardSheetState extends ConsumerState<TelegramRewardSheet>
     }
   }
 
+  /// Opens the public channel / group join URL (not the bot).
+  Future<void> _joinChannel(TelegramRewardStatus status) async {
+    final url = status.channelUrl.trim();
+    if (url.isEmpty) {
+      AppToast.showError(context, 'Channel URL is not configured.');
+      return;
+    }
+    final ok = await launchTelegramUrl(url);
+    if (!mounted) return;
+    if (!ok) {
+      AppToast.showError(context, 'Could not open the Telegram channel.');
+      return;
+    }
+    if (!status.linked) {
+      AppToast.showSuccess(
+        context,
+        'Join the channel, then connect your account and Verify.',
+      );
+    } else {
+      showTelegramVerifyHintDialog(context);
+    }
+  }
+
+  /// Binds app user ↔ Telegram via bot deep link (required for membership check).
   Future<void> _linkTelegram() async {
     setState(() => _busy = true);
     try {
@@ -51,11 +75,14 @@ class _TelegramRewardSheetState extends ConsumerState<TelegramRewardSheet>
       final ok = await launchTelegramUrl(token.deepLink);
       if (!mounted) return;
       if (!ok) {
-        AppToast.showError(context, 'Could not open Telegram. Install the app and try again.');
+        AppToast.showError(
+          context,
+          'Could not open Telegram. Install the app and try again.',
+        );
       } else {
         AppToast.showSuccess(
           context,
-          'Tap Start in Telegram, then return here.',
+          'Tap Start in the bot, then return here and Verify.',
         );
       }
       await Future<void>.delayed(const Duration(milliseconds: 800));
@@ -70,21 +97,6 @@ class _TelegramRewardSheetState extends ConsumerState<TelegramRewardSheet>
     } finally {
       if (mounted) setState(() => _busy = false);
     }
-  }
-
-  Future<void> _joinNow(TelegramRewardStatus status) async {
-    final url = status.channelUrl;
-    if (url.isEmpty) {
-      AppToast.showError(context, 'Channel URL is not configured.');
-      return;
-    }
-    final ok = await launchTelegramUrl(url);
-    if (!mounted) return;
-    if (!ok) {
-      AppToast.showError(context, 'Could not open the Telegram channel.');
-      return;
-    }
-    showTelegramVerifyHintDialog(context);
   }
 
   Future<void> _verify() async {
@@ -109,9 +121,7 @@ class _TelegramRewardSheetState extends ConsumerState<TelegramRewardSheet>
             ? e.message
             : 'Verification failed. Please try again.';
         AppToast.showError(context, msg);
-        if (e is TelegramRewardException && e.code == 'NOT_LINKED') {
-          // Keep sheet open so user can link.
-        }
+        // Keep sheet open for NOT_LINKED / NOT_JOINED so user can continue steps.
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -171,8 +181,8 @@ class _TelegramRewardSheetState extends ConsumerState<TelegramRewardSheet>
                   : _SheetBody(
                       status: status,
                       busy: _busy,
+                      onJoin: () => _joinChannel(status),
                       onLink: _linkTelegram,
-                      onJoin: () => _joinNow(status),
                       onVerify: _verify,
                     ),
         ),
@@ -185,20 +195,21 @@ class _SheetBody extends StatelessWidget {
   const _SheetBody({
     required this.status,
     required this.busy,
-    required this.onLink,
     required this.onJoin,
+    required this.onLink,
     required this.onVerify,
   });
 
   final TelegramRewardStatus status;
   final bool busy;
-  final VoidCallback onLink;
   final VoidCallback onJoin;
+  final VoidCallback onLink;
   final VoidCallback onVerify;
 
   @override
   Widget build(BuildContext context) {
     final claimed = status.claimed;
+    final linked = status.linked;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -295,59 +306,102 @@ class _SheetBody extends StatelessWidget {
               child: const Text('✓ Claimed'),
             ),
           )
-        else if (!status.linked) ...[
+        else ...[
+          // Always open the public channel first — never the bot.
           _PrimaryButton(
-            label: 'Link Telegram',
-            busy: busy,
-            onPressed: onLink,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            'We verify your Telegram account securely via our bot before rewarding coins.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.45),
-              fontSize: 12,
-              height: 1.35,
-            ),
-          ),
-        ] else ...[
-          _PrimaryButton(
-            label: 'Join Now',
+            label: 'Join Channel',
             busy: busy,
             onPressed: onJoin,
           ),
           const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton(
-              onPressed: busy ? null : onVerify,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.white,
-                side: BorderSide(color: Colors.white.withValues(alpha: 0.25)),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
+          if (!linked)
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: busy ? null : onLink,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: BorderSide(color: Colors.white.withValues(alpha: 0.25)),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                child: busy
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white70,
+                        ),
+                      )
+                    : const Text(
+                        'Connect account',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 15,
+                        ),
+                      ),
+              ),
+            )
+          else
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: busy ? null : onVerify,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: BorderSide(color: Colors.white.withValues(alpha: 0.25)),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                child: busy
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white70,
+                        ),
+                      )
+                    : const Text(
+                        'Verify & Claim',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 15,
+                        ),
+                      ),
+              ),
+            ),
+          if (!linked) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
+                onPressed: busy ? null : onVerify,
+                child: Text(
+                  'I joined — Verify',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.7),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
                 ),
               ),
-              child: busy
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white70,
-                      ),
-                    )
-                  : const Text(
-                      'Verify',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 15,
-                      ),
-                    ),
             ),
-          ),
+            Text(
+              '1) Join channel  ·  2) Connect account (bot Start)  ·  3) Verify',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.45),
+                fontSize: 12,
+                height: 1.35,
+              ),
+            ),
+          ],
         ],
       ],
     );

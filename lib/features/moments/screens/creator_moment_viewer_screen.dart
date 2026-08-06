@@ -9,6 +9,7 @@ import '../../../shared/models/creator_model.dart';
 import '../../../shared/providers/coin_purchase_popup_provider.dart';
 import '../../../shared/widgets/app_toast.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../../core/config/app_config_provider.dart';
 import '../../chat/services/chat_service.dart';
 import '../../creator/providers/creator_dashboard_provider.dart';
 import '../../home/providers/home_provider.dart';
@@ -255,7 +256,14 @@ class _CreatorMomentViewerScreenState
     }
 
     final user = ref.read(authProvider).user;
-    if (user != null && user.spendableCallCoins < kMinCoinsToCall) {
+    final pricing = ref.read(appConfigProvider).pricing;
+    if (user != null &&
+        !meetsCallCoinAdmission(
+          walletCoins: user.coins,
+          welcomeFreeCallEligible: user.welcomeFreeCallEligible,
+          freeCallEnabled: pricing.freeCallEnabled,
+          minCoinsToCall: pricing.minCoinsToCall,
+        )) {
       if (mounted) {
         ref.read(coinPurchasePopupProvider.notifier).state = CoinPopupIntent(
           reason: 'preflight_low_coins_moment_viewer',

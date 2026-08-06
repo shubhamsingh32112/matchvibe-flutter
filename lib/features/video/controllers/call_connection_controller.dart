@@ -22,6 +22,7 @@ import '../../../core/utils/user_message_mapper.dart';
 import '../../../core/services/sentry_service.dart';
 import '../../../core/services/sentry_error_classifier.dart';
 import '../../../shared/providers/coin_purchase_popup_provider.dart';
+import '../../../core/config/app_config_provider.dart';
 import '../../wallet/providers/wallet_pricing_provider.dart';
 
 // ---------------------------------------------------------------------------
@@ -179,15 +180,22 @@ class CallConnectionController extends StateNotifier<CallConnectionState> {
       return;
     }
 
-    // ── Pre-flight: check coin balance ─────────────────────────────
-    // Prevent the confusing UX where the call connects then immediately
-    // force-ends because the user has insufficient coins (backend MIN_COINS_TO_CALL).
+    // ── Pre-flight: wallet min OR welcome free-call eligibility ─────
+    // Free intro credits are seconds, not coins. Eligible free-call users skip
+    // the wallet minimum (backend funds intro micros from duration × rate).
     final preFlightAuth = _ref.read(authProvider);
     final user = preFlightAuth.user;
-    final spendable = user?.spendableCallCoins ?? 0;
-    if (spendable < kMinCoinsToCall) {
+    final pricing = _ref.read(appConfigProvider).pricing;
+    if (user != null &&
+        !meetsCallCoinAdmission(
+          walletCoins: user.coins,
+          welcomeFreeCallEligible: user.welcomeFreeCallEligible,
+          freeCallEnabled: pricing.freeCallEnabled,
+          minCoinsToCall: pricing.minCoinsToCall,
+        )) {
       debugPrint(
-        '⚠️ [CALL CTRL] startUserCall blocked — insufficient coins ($spendable < $kMinCoinsToCall)',
+        '⚠️ [CALL CTRL] startUserCall blocked — insufficient coins '
+        '(wallet=${user.coins} freeEligible=${user.welcomeFreeCallEligible} min=${pricing.minCoinsToCall})',
       );
       _ref.read(coinPurchasePopupProvider.notifier).state = CoinPopupIntent(
         reason: 'preflight_low_coins',

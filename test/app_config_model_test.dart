@@ -43,5 +43,6 @@ void main() {
     expect(config.pricing.freeCallEnabled, isTrue);
     expect(config.pricing.freeCallDurationSeconds, 30);
     expect(config.pricing.welcomeIntroCallCredits, 30);
+    expect(config.pricing.minCoinsToCall, 450);
   });
 }

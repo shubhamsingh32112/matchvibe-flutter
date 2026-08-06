@@ -69,7 +69,7 @@ class AppPricingConfig {
     this.freeCallEnabled = true,
     this.freeCallDurationSeconds = 30,
     this.welcomeIntroCallCredits = 30,
-    this.minCoinsToCall = 10,
+    this.minCoinsToCall = 450,
   });
 
   factory AppPricingConfig.fromJson(Map<String, dynamic>? json) {
@@ -80,7 +80,7 @@ class AppPricingConfig {
           (json['freeCallDurationSeconds'] as num?)?.toInt() ?? 30,
       welcomeIntroCallCredits:
           (json['welcomeIntroCallCredits'] as num?)?.toInt() ?? 30,
-      minCoinsToCall: (json['minCoinsToCall'] as num?)?.toInt() ?? 10,
+      minCoinsToCall: (json['minCoinsToCall'] as num?)?.toInt() ?? 450,
     );
   }
 }

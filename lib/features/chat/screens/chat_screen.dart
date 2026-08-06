@@ -904,7 +904,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Check coin balance (for regular users)
     final authState = ref.read(authProvider);
     final user = authState.user;
-    if (user != null && user.spendableCallCoins < kMinCoinsToCall) {
+    final pricing = ref.read(appConfigProvider).pricing;
+    if (user != null &&
+        !meetsCallCoinAdmission(
+          walletCoins: user.coins,
+          welcomeFreeCallEligible: user.welcomeFreeCallEligible,
+          freeCallEnabled: pricing.freeCallEnabled,
+          minCoinsToCall: pricing.minCoinsToCall,
+        )) {
       if (mounted) {
         ref.read(coinPurchasePopupProvider.notifier).state = CoinPopupIntent(
           reason: 'preflight_low_coins_chat',

@@ -167,8 +167,11 @@ class UserModel extends Equatable {
     );
   }
 
-  /// Coins that can be admitted to start a call (wallet + unused intro credits).
-  int get spendableCallCoins => coins + introFreeCallCredits;
+  /// Face-value wallet for paid-call minimum checks.
+  ///
+  /// Do **not** add [introFreeCallCredits] — those are free-call **seconds**, not coins.
+  /// Free-call admission is via [welcomeFreeCallEligible] + [meetsCallCoinAdmission].
+  int get spendableCallCoins => coins;
 
   Map<String, dynamic> toJson() {
     return {

@@ -113,7 +113,11 @@ class _TasksContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final totalPaidCoins = tasksResponse.totalPaidCoins;
-    const maxThreshold = 30000.0;
+    final maxThreshold = tasksResponse.tasks.isEmpty
+        ? 1.0
+        : tasksResponse.tasks
+            .map((t) => t.thresholdPaidCoins.toDouble())
+            .reduce((a, b) => a > b ? a : b);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),

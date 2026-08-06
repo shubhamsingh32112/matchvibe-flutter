@@ -7,6 +7,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../shared/styles/app_brand_styles.dart';
 import '../../../shared/providers/coin_purchase_popup_provider.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../../core/config/app_config_provider.dart';
 import '../controllers/call_connection_controller.dart';
 import '../services/call_ringtone_service.dart';
 import '../utils/call_admission_constants.dart';
@@ -152,9 +153,15 @@ class _IncomingCallWidgetState extends ConsumerState<IncomingCallWidget>
             onAccept: () async {
               final authState = ref.read(authProvider);
               final user = authState.user;
+              final pricing = ref.read(appConfigProvider).pricing;
               if (user != null &&
                   user.role == 'user' &&
-                  user.spendableCallCoins < kMinCoinsToCall) {
+                  !meetsCallCoinAdmission(
+                    walletCoins: user.coins,
+                    welcomeFreeCallEligible: user.welcomeFreeCallEligible,
+                    freeCallEnabled: pricing.freeCallEnabled,
+                    minCoinsToCall: pricing.minCoinsToCall,
+                  )) {
                 CallRingtoneService.stop();
                 try {
                   await widget.incomingCall.reject();
